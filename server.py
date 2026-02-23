@@ -614,6 +614,102 @@ def write_file(path: str, content: str) -> str:
     return msg
 
 
+@mcp.tool()
+def delete_file(path: str) -> str:
+    """
+    Delete a single file after creating a backup, subject to policy checks.
+
+    Sequence:
+      1. Path is checked against policy (blocked paths, extensions, whitelist).
+      2. If the path does not exist, a clear error is returned — this is not
+         a policy block, the operation simply cannot proceed.
+      3. If the path is a directory, the request is blocked — use
+         execute_command for directory operations.
+      4. A timestamped backup is created with backup_paths() before any
+         destructive action is taken.
+      5. The file is deleted with os.remove().
+
+    Every call is logged to activity.log regardless of outcome. Successful
+    deletions include backup_location in the log so the file is always
+    recoverable.
+
+    Args:
+        path: Absolute or relative path to the file to delete.
+
+    Returns:
+        A success message with the backup location, or a [POLICY BLOCK] /
+        error message.
+    """
+
+    # --- 1. Check path against policy (blocked paths, extensions, whitelist) ---
+    block_reason = _check_path_policy(path)
+
+    # --- 2. Pre-flight checks on the target (only when policy allows) ---
+    if not block_reason:
+        if not os.path.exists(path):
+            # Not a policy block — the file simply isn't there.
+            # Log the attempt and return a clear error without blocking.
+            log_entry = {
+                "timestamp":       datetime.datetime.utcnow().isoformat() + "Z",
+                "source":          "ai-agent",
+                "tool":            "delete_file",
+                "path":            path,
+                "policy_decision": "allowed",
+                "error":           "file not found",
+            }
+            with open(LOG_PATH, "a") as log_file:
+                log_file.write(json.dumps(log_entry) + "\n")
+            return f"Error: file not found: {path}"
+
+        if os.path.isdir(path):
+            # Directories need recursive operations that carry higher risk.
+            # Direct the agent to execute_command for those cases.
+            block_reason = (
+                f"'{path}' is a directory — delete_file only removes individual "
+                "files. Use execute_command for directory operations "
+                "(note: bulk/recursive deletions are also subject to policy)."
+            )
+
+    # --- 3. Build the log entry with the final policy decision ---
+    log_entry = {
+        "timestamp":       datetime.datetime.utcnow().isoformat() + "Z",
+        "source":          "ai-agent",
+        "tool":            "delete_file",
+        "path":            path,
+        "policy_decision": "blocked" if block_reason else "allowed",
+    }
+    if block_reason:
+        log_entry["block_reason"] = block_reason
+
+    # --- 4. If blocked, write log and return without touching the filesystem ---
+    if block_reason:
+        with open(LOG_PATH, "a") as log_file:
+            log_file.write(json.dumps(log_entry) + "\n")
+        return f"[POLICY BLOCK] {block_reason}"
+
+    # --- 5. Create a backup before any destructive action ---
+    # backup_paths() is called unconditionally here — existence was confirmed
+    # in step 2, so the file is guaranteed to be present at this point.
+    backup_location = backup_paths([path])
+    log_entry["backup_location"] = backup_location
+
+    # --- 6. Write the log entry (includes backup_location) ---
+    with open(LOG_PATH, "a") as log_file:
+        log_file.write(json.dumps(log_entry) + "\n")
+
+    # --- 7. Delete the file ---
+    try:
+        os.remove(path)
+    except OSError as e:
+        return f"Error deleting file: {e}"
+
+    # --- 8. Return success with the backup location so the file is recoverable ---
+    return (
+        f"Successfully deleted {path}. "
+        f"Backup saved to {backup_location} — the file can be recovered from there."
+    )
+
+
 if __name__ == "__main__":
     # Run over stdio — the standard transport for MCP servers.
     mcp.run()
