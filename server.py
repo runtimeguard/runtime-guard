@@ -385,6 +385,40 @@ def check_policy(command: str) -> PolicyResult:
     )
 
 
+def is_within_workspace(path: str) -> bool:
+    """
+    Return True if *path* falls within WORKSPACE_ROOT or any root listed in
+    allowed.paths_whitelist, False otherwise.
+
+    Both the requested path and each root are resolved to absolute paths
+    before comparison so symlinks and relative components (e.g. "../") cannot
+    be used to escape the workspace boundary.
+
+    WORKSPACE_ROOT is always an implicit allowed root; paths_whitelist entries
+    extend it with additional roots. An empty paths_whitelist means only
+    WORKSPACE_ROOT is checked.
+
+    Args:
+        path: The file or directory path to test (absolute or relative).
+
+    Returns:
+        True if the resolved path is a descendant of WORKSPACE_ROOT or of any
+        root in allowed.paths_whitelist; False otherwise.
+    """
+    resolved = pathlib.Path(path).resolve()
+
+    # WORKSPACE_ROOT is always an implicit allowed root.
+    if resolved.is_relative_to(pathlib.Path(WORKSPACE_ROOT).resolve()):
+        return True
+
+    # Check each additional root declared in the policy whitelist.
+    for root in POLICY.get("allowed", {}).get("paths_whitelist", []):
+        if resolved.is_relative_to(pathlib.Path(root).resolve()):
+            return True
+
+    return False
+
+
 def _check_path_policy(path: str) -> tuple[str, str] | None:
     """
     Check a file path against the blocked path and extension rules in policy.json.
@@ -393,12 +427,14 @@ def _check_path_policy(path: str) -> tuple[str, str] | None:
     any I/O is performed.
 
     Checks (in order):
-      1. blocked.paths      — block if any entry appears as a substring of path
-      2. blocked.extensions — block if the path ends with a blocked extension
+      1. blocked.paths        — block if any entry appears as a substring of path
+      2. blocked.extensions   — block if the path ends with a blocked extension
+      3. allowed.paths_whitelist — if non-empty, block any path that does not
+                                   resolve to WORKSPACE_ROOT or a listed root
 
     Returns (reason, matched_rule) if the path is blocked, or None if it
-    passes every check. matched_rule is the specific blocked path substring
-    or extension string that triggered the match.
+    passes every check. matched_rule is the specific blocked path substring,
+    extension, or policy key that triggered the match.
     """
     blocked = POLICY.get("blocked", {})
     lower   = path.lower()
@@ -420,6 +456,16 @@ def _check_path_policy(path: str) -> tuple[str, str] | None:
                 "may contain private keys or certificates",
                 ext,
             )
+
+    # 3. Allowed paths whitelist
+    # Only enforced when the list is non-empty; an empty list preserves the
+    # current open-access behaviour so the out-of-the-box config is unchanged.
+    whitelist = POLICY.get("allowed", {}).get("paths_whitelist", [])
+    if whitelist and not is_within_workspace(path):
+        return (
+            f"Path '{path}' is outside the allowed workspace roots",
+            "allowed.paths_whitelist",
+        )
 
     return None
 
@@ -557,6 +603,12 @@ def backup_paths(paths: list) -> str:
     os.makedirs(backup_location, exist_ok=True)
 
     for path in paths:
+        # Guard against backing up system paths that extract_paths() might
+        # surface from agent-supplied commands (e.g. "rm /etc/hosts"). Only
+        # paths inside the workspace boundary are ever copied.
+        if not is_within_workspace(path):
+            continue
+
         if os.path.isfile(path):
             # copy2 preserves file metadata (timestamps, permissions).
             shutil.copy2(path, backup_location)
