@@ -1,0 +1,12 @@
+# Python virtual environment
+venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# Runtime log (contains command history — keep off version control)
+activity.log
+
+# Environment variables / secrets
+.env
