@@ -1,0 +1,40 @@
+{
+  "blocked": {
+    "commands": ["rm -rf", "mkfs", "shutdown", "reboot", "format", "dd"],
+    "paths":    [".env", ".ssh", "/etc/passwd"],
+    "extensions": [".pem", ".key"]
+  },
+
+  "requires_confirmation": {
+    "commands": [],
+    "paths": [],
+    "session_whitelist_enabled": true
+  },
+
+  "requires_simulation": {
+    "commands": ["rm", "mv"],
+    "bulk_file_threshold": 10,
+    "max_retries": 3
+  },
+
+  "allowed": {
+    "paths_whitelist": [],
+    "max_files_per_operation": 10,
+    "max_file_size_mb": 10,
+    "max_directory_depth": 5
+  },
+
+  "network": {
+    "_comment": "Network policy placeholder — not yet enforced by the policy engine",
+    "allowed_domains": [],
+    "blocked_domains": [],
+    "max_payload_size_kb": 1024
+  },
+
+  "audit": {
+    "_comment": "Audit and backup settings — backup_enabled is read by the server at startup",
+    "backup_enabled": true,
+    "backup_retention_days": 30,
+    "log_level": "verbose"
+  }
+}

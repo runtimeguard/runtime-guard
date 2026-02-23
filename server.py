@@ -1,13 +1,16 @@
 """
 MCP server that exposes a single tool: execute_command.
 
-The tool runs every command through a policy engine first. Blocked commands
-are logged and rejected without execution. Allowed commands are logged and
-then executed via subprocess, returning stdout or stderr.
+Policy rules are loaded from policy.json at startup. Every command passes
+through a tiered policy engine (blocked → requires_confirmation →
+requires_simulation → allowed) before execution. Blocked commands are logged
+and rejected. Allowed commands are optionally backed up when they modify files,
+then executed via subprocess.
 """
 
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -15,46 +18,238 @@ import datetime
 
 from mcp.server.fastmcp import FastMCP
 
-# Create the MCP server with a descriptive name
+# ---------------------------------------------------------------------------
+# Startup configuration — paths resolved relative to this file so the server
+# works correctly regardless of the working directory it is launched from.
+# ---------------------------------------------------------------------------
+
+BASE_DIR    = pathlib.Path(__file__).parent
+LOG_PATH    = str(BASE_DIR / "activity.log")
+BACKUP_DIR  = str(BASE_DIR / "backups")
+POLICY_PATH = BASE_DIR / "policy.json"
+
+
+def _load_policy() -> dict:
+    """Read policy.json and return its contents as a dictionary."""
+    with open(POLICY_PATH) as f:
+        return json.load(f)
+
+
+# POLICY is loaded once when the server starts. Restart to pick up edits.
+POLICY: dict = _load_policy()
+
+# MAX_RETRIES is read from policy so it can be tuned without touching code.
+MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
+
+# Tracks commands the user has explicitly approved during this session.
+# When requires_confirmation.session_whitelist_enabled is True in policy,
+# a command in this set bypasses the confirmation check on future calls.
+SESSION_WHITELIST: set = set()
+
+# Create the MCP server with a descriptive name.
 mcp = FastMCP("ai-runtime-guard")
 
+
 # ---------------------------------------------------------------------------
-# Policy engine
+# Policy engine — tier helpers
 # ---------------------------------------------------------------------------
 
-# Rule 1 — Destructive commands that should never run.
-# Each entry is (pattern_to_search_for, human_readable_reason).
-# Note: "dd" is intentionally absent here — it requires a regex check (see below)
-# because "dd" as a substring would incorrectly match words like "pwd" or "add".
-BLOCKED_COMMANDS = [
-    ("rm -rf",   "rm -rf recursively deletes files with no confirmation and cannot be undone"),
-    ("mkfs",     "mkfs formats a filesystem, erasing all data on the target device"),
-    ("shutdown", "shutdown powers off or reboots the system, disrupting all running services"),
-    ("reboot",   "reboot restarts the system, disrupting all running services"),
-    ("format",   "format erases a disk or partition and cannot be undone"),
-]
+def _build_command_matcher(pattern: str):
+    """
+    Return a callable(command: str) -> bool that tests whether a shell
+    command matches *pattern*.
 
-# "dd" needs its own regex so it only matches as a standalone command at the
-# start of the string (e.g. "dd if=..." is blocked, but "pwd" or "add" are not).
-# ^\s*  — optional leading whitespace
-# dd    — the literal command name
-# \b    — word boundary, so "dd2" or "adduser" won't match
-DD_COMMAND_RE = re.compile(r"^\s*dd\b")
+    Matching strategy:
+    - Single-word pattern (e.g. "dd", "rm"): word-boundary regex on the
+      lowercased command. This prevents "dd" from matching "pwd" or "adduser",
+      and "rm" from matching "chmod" — the core reason this helper exists.
+    - Multi-word pattern (e.g. "rm -rf"): plain substring match on the
+      lowercased command. The extra words already provide enough context that
+      word boundaries are not needed.
+    """
+    words = pattern.strip().split()
+    if len(words) == 1:
+        # Compile once; search the lowercased command at call time.
+        regex = re.compile(rf"\b{re.escape(pattern.lower())}\b")
+        return lambda cmd: bool(regex.search(cmd.lower()))
+    else:
+        lower_pat = pattern.lower()
+        return lambda cmd: lower_pat in cmd.lower()
 
-# Rule 2 — Sensitive paths that must not be read or written.
-# Checked as substrings; the .pem / .key extensions are checked separately.
-SENSITIVE_PATHS = [".env", ".ssh", "/etc/passwd"]
 
-# Rule 3 — Wildcard pattern combined with destructive operations.
-# Matches commands that use * or ? alongside rm or mv.
-WILDCARD_DESTRUCTIVE_RE = re.compile(r"\b(rm|mv)\b[^|;&\n]*[*?]")
+def _check_blocked_tier(command: str) -> str | None:
+    """
+    Check *command* against every rule in the 'blocked' policy tier.
+
+    Checks (in order):
+      1. blocked.commands  — dangerous commands (word-boundary safe)
+      2. blocked.paths     — sensitive file/directory paths
+      3. blocked.extensions — sensitive file extensions (.pem, .key, …)
+
+    Returns a human-readable reason string if blocked, or None if the
+    command passes all checks in this tier.
+    """
+    blocked = POLICY.get("blocked", {})
+    lower   = command.lower()
+
+    # 1. Blocked command patterns
+    for pattern in blocked.get("commands", []):
+        if _build_command_matcher(pattern)(command):
+            return (
+                f"Blocked destructive command '{pattern}': "
+                "this operation is prohibited by policy"
+            )
+
+    # 2. Blocked file/directory paths (substring match on lowercased command)
+    for path in blocked.get("paths", []):
+        if path.lower() in lower:
+            return (
+                f"Sensitive path access not permitted: '{path}' "
+                "may contain secrets or critical system configuration"
+            )
+
+    # 3. Blocked file extensions
+    # re.escape handles the leading dot; \b prevents partial extension matches
+    # (e.g. ".pem" should not match ".pemfile").
+    for ext in blocked.get("extensions", []):
+        if re.search(rf"{re.escape(ext)}\b", lower):
+            return (
+                f"Sensitive file extension not permitted: '{ext}' files "
+                "may contain private keys or certificates"
+            )
+
+    return None
+
+
+def _check_confirmation_tier(command: str) -> str | None:
+    """
+    Check *command* against the 'requires_confirmation' policy tier.
+
+    If session_whitelist_enabled is True and the exact command string is
+    already in SESSION_WHITELIST, the check is skipped — the user already
+    approved it earlier this session.
+
+    Returns a reason string if confirmation is required, or None if the
+    command passes (or is whitelisted).
+    """
+    conf  = POLICY.get("requires_confirmation", {})
+    lower = command.lower()
+
+    # Skip the confirmation check for previously approved commands.
+    whitelist_enabled = conf.get("session_whitelist_enabled", True)
+    if whitelist_enabled and command in SESSION_WHITELIST:
+        return None
+
+    for pattern in conf.get("commands", []):
+        if _build_command_matcher(pattern)(command):
+            return f"Command '{pattern}' requires explicit confirmation before execution"
+
+    for path in conf.get("paths", []):
+        if path.lower() in lower:
+            return f"Access to path '{path}' requires explicit confirmation"
+
+    return None
+
+
+def _check_simulation_tier(command: str) -> str | None:
+    """
+    Check *command* against the 'requires_simulation' policy tier.
+
+    Any command listed in requires_simulation.commands combined with a
+    wildcard character (* or ?) is treated as a potentially dangerous bulk
+    operation and blocked. The list of commands is read from policy.json so
+    it can be updated without touching this file.
+
+    Example (with policy commands ["rm", "mv"]):
+      "rm *.log"   → blocked  (rm + wildcard)
+      "mv *.bak /" → blocked  (mv + wildcard)
+      "rm file.log"→ allowed  (rm, no wildcard)
+
+    Returns a reason string if simulation is required, or None otherwise.
+    """
+    sim          = POLICY.get("requires_simulation", {})
+    sim_commands = sim.get("commands", [])
+
+    if sim_commands:
+        # Build a single regex from all simulation commands.
+        # The character class [^|;&\n]* ensures we only look for wildcards
+        # on the same command segment, not after a pipe or semicolon.
+        ops_pattern = "|".join(re.escape(c) for c in sim_commands)
+        wildcard_re = re.compile(rf"\b({ops_pattern})\b[^|;&\n]*[*?]")
+        if wildcard_re.search(command):
+            ops_display = "/".join(sim_commands)
+            return (
+                f"Bulk file operation blocked: using wildcards (* or ?) with "
+                f"'{ops_display}' can affect unintended files — "
+                "please specify exact filenames instead"
+            )
+
+    return None
+
+
+def _log_policy_conflict(command: str, matching_tiers: list) -> None:
+    """
+    Append a warning entry to activity.log when *command* matches more than
+    one policy tier. Records which tiers matched and which one won so the
+    audit trail explains the resolution.
+    """
+    tier_names = [tier for tier, _ in matching_tiers]
+    warning = {
+        "timestamp":      datetime.datetime.utcnow().isoformat() + "Z",
+        "event":          "policy_conflict_warning",
+        "command":        command,
+        "matching_tiers": tier_names,
+        "resolved_to":    tier_names[0],  # highest-priority tier always wins
+    }
+    with open(LOG_PATH, "a") as f:
+        f.write(json.dumps(warning) + "\n")
+
+
+def check_policy(command: str):
+    """
+    Evaluate *command* against all policy tiers in priority order:
+
+        blocked  >  requires_confirmation  >  requires_simulation  >  allowed
+
+    Each tier is checked independently so we can detect conflicts. If a
+    command matches more than one tier, the highest-priority tier wins and
+    a warning is silently logged to activity.log.
+
+    Returns:
+        (allowed: bool, reason: str)
+        - allowed=True,  reason="allowed"   — command may proceed
+        - allowed=False, reason=<str>       — command is blocked with
+                                              an explanation of why
+    """
+    matching_tiers = []
+
+    blocked_reason = _check_blocked_tier(command)
+    if blocked_reason:
+        matching_tiers.append(("blocked", blocked_reason))
+
+    confirmation_reason = _check_confirmation_tier(command)
+    if confirmation_reason:
+        matching_tiers.append(("requires_confirmation", confirmation_reason))
+
+    simulation_reason = _check_simulation_tier(command)
+    if simulation_reason:
+        matching_tiers.append(("requires_simulation", simulation_reason))
+
+    # Log a warning whenever a command lands in more than one tier.
+    if len(matching_tiers) > 1:
+        _log_policy_conflict(command, matching_tiers)
+
+    if not matching_tiers:
+        return True, "allowed"
+
+    # Return the decision of the highest-priority (first) matching tier.
+    _top_tier, reason = matching_tiers[0]
+    return False, reason
+
 
 # ---------------------------------------------------------------------------
 # Backup layer
 # ---------------------------------------------------------------------------
-
-# Root folder where all timestamped backups are stored.
-BACKUP_DIR = "/Users/liviu/Documents/ai-runtime-guard/backups"
 
 # Detects commands that modify or delete files and therefore need a backup.
 # Matches: rm, mv, or a single > redirect (overwrite). The negative look-
@@ -79,56 +274,6 @@ PATH_TOKEN_RE = re.compile(
 )
 
 
-def check_policy(command: str):
-    """
-    Evaluate *command* against all policy rules.
-
-    Returns:
-        (allowed: bool, reason: str)
-        - If allowed is True,  reason is "allowed".
-        - If allowed is False, reason explains why the command was blocked.
-    """
-
-    lower = command.lower()
-
-    # --- Rule 1: blocked destructive commands ---
-    for pattern, danger in BLOCKED_COMMANDS:
-        if pattern in lower:
-            return False, f"Blocked destructive command '{pattern}': {danger}"
-
-    # "dd" is checked separately with a regex to avoid false positives on
-    # commands like "pwd" or "add" that contain "dd" as part of a longer word.
-    if DD_COMMAND_RE.match(command):
-        return False, "Blocked destructive command 'dd': dd can overwrite entire disks or devices with no safeguards"
-
-    # --- Rule 2: sensitive path protection ---
-    for path in SENSITIVE_PATHS:
-        if path in lower:
-            return False, (
-                f"Sensitive path access not permitted: '{path}' "
-                "may contain secrets or critical system configuration"
-            )
-    # Also block any file ending in .pem or .key
-    if re.search(r"\.pem\b", lower) or re.search(r"\.key\b", lower):
-        return False, (
-            "Sensitive path access not permitted: "
-            ".pem and .key files may contain private keys or certificates"
-        )
-
-    # --- Rule 3: wildcard + destructive operation ---
-    if WILDCARD_DESTRUCTIVE_RE.search(command):
-        return False, (
-            "Bulk file operation blocked: using wildcards (* or ?) with 'rm' or 'mv' "
-            "can affect unintended files — please specify exact filenames instead"
-        )
-
-    return True, "allowed"
-
-
-# ---------------------------------------------------------------------------
-# Backup helpers
-# ---------------------------------------------------------------------------
-
 def extract_paths(command: str) -> list:
     """
     Extract file and directory paths mentioned in a shell command.
@@ -145,10 +290,10 @@ def extract_paths(command: str) -> list:
     """
     candidates = PATH_TOKEN_RE.findall(command)
 
-    # Strip surrounding quotes that the shell would normally remove
+    # Strip surrounding quotes that the shell would normally remove.
     candidates = [c.strip().strip("'\"") for c in candidates]
 
-    # Keep only paths that exist so we never back up a phantom target
+    # Keep only paths that exist so we never attempt to back up a ghost target.
     return [c for c in candidates if os.path.exists(c)]
 
 
@@ -167,20 +312,20 @@ def backup_paths(paths: list) -> str:
     Returns:
         The path to the newly created backup folder.
     """
-    # Build a filesystem-safe timestamp (no colons — macOS/Windows disallow them)
-    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    # Filesystem-safe timestamp — colons are disallowed on macOS and Windows.
+    timestamp       = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
     backup_location = os.path.join(BACKUP_DIR, timestamp)
 
-    # Create the backup folder (and BACKUP_DIR itself if it doesn't exist yet)
+    # Create the backup folder (and BACKUP_DIR itself if it doesn't exist yet).
     os.makedirs(backup_location, exist_ok=True)
 
     for path in paths:
         if os.path.isfile(path):
-            # copy2 preserves file metadata (timestamps, permissions)
+            # copy2 preserves file metadata (timestamps, permissions).
             shutil.copy2(path, backup_location)
         elif os.path.isdir(path):
             # copytree requires the destination not to exist, so append the
-            # directory's own name to keep multiple dirs in the same backup slot
+            # directory's own name to keep multiple dirs in the same backup slot.
             dest = os.path.join(backup_location, os.path.basename(path))
             shutil.copytree(path, dest)
 
@@ -190,11 +335,6 @@ def backup_paths(paths: list) -> str:
 # ---------------------------------------------------------------------------
 # MCP tool
 # ---------------------------------------------------------------------------
-
-# Maximum number of blocked attempts allowed before the action is permanently
-# refused for this request. The agent may retry up to this many times total.
-MAX_RETRIES = 3
-
 
 @mcp.tool()
 def execute_command(command: str, retry_count: int = 0) -> str:
@@ -220,25 +360,24 @@ def execute_command(command: str, retry_count: int = 0) -> str:
 
     # --- 2. Build the log entry (common fields for all outcomes) ---
     log_entry = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "source": "ai-agent",
-        "tool": "execute_command",
-        "command": command,
+        "timestamp":       datetime.datetime.utcnow().isoformat() + "Z",
+        "source":          "ai-agent",
+        "tool":            "execute_command",
+        "command":         command,
         "policy_decision": "allowed" if allowed else "blocked",
-        # Always record the retry count so the log shows the full retry history
-        "retry_count": retry_count,
+        # Always record retry_count so the log shows the full retry history.
+        "retry_count":     retry_count,
     }
 
     if not allowed:
-        # Add the block reason so the log explains exactly why
+        # Record why the command was blocked.
         log_entry["block_reason"] = reason
-
-        # If this is the final attempt, mark it permanently blocked in the log
+        # Flag the entry when no further retries will be accepted.
         if retry_count >= MAX_RETRIES:
             log_entry["final_block"] = True
 
     # --- 3. Write the log entry (always, regardless of allow/block) ---
-    with open("/Users/liviu/Documents/ai-runtime-guard/activity.log", "a") as log_file:
+    with open(LOG_PATH, "a") as log_file:
         log_file.write(json.dumps(log_entry) + "\n")
 
     # --- 4. If blocked, return a structured message without executing anything ---
@@ -247,15 +386,14 @@ def execute_command(command: str, retry_count: int = 0) -> str:
             # The agent has used all of its attempts — refuse permanently.
             return (
                 f"[POLICY BLOCK] {reason}\n\n"
-                "Maximum retries reached (3/3). This action is permanently "
-                "blocked for the current request. No further attempts will be accepted."
+                f"Maximum retries reached ({MAX_RETRIES}/{MAX_RETRIES}). "
+                "This action is permanently blocked for the current request. "
+                "No further attempts will be accepted."
             )
 
-        # Calculate how many attempts the agent still has left.
+        # Tell the agent what went wrong, how many attempts remain, and ask
+        # it to call execute_command again with a safer command.
         attempts_remaining = MAX_RETRIES - retry_count
-
-        # Return a structured message that tells the agent what went wrong,
-        # how many attempts remain, and asks it to try a safer alternative.
         return (
             f"[POLICY BLOCK] {reason}\n\n"
             f"You have {attempts_remaining} attempt(s) remaining. "
@@ -269,32 +407,31 @@ def execute_command(command: str, retry_count: int = 0) -> str:
         affected = extract_paths(command)
         if affected:
             backup_location = backup_paths(affected)
-            # Record the backup location in the log so the audit trail shows
-            # exactly where the pre-execution snapshot was saved.
+            # Record the backup location so the audit trail shows exactly where
+            # the pre-execution snapshot was saved.
             log_entry["backup_location"] = backup_location
-            # Re-write the log entry now that we have the backup location.
-            # (The entry was already written above; append an updated copy so
-            # the final record on disk reflects the backup that was made.)
-            with open("/Users/liviu/Documents/ai-runtime-guard/activity.log", "a") as log_file:
+            # Append an updated log line tagged "backup_created" so the final
+            # record on disk reflects the backup that was made.
+            with open(LOG_PATH, "a") as log_file:
                 log_file.write(json.dumps({**log_entry, "event": "backup_created"}) + "\n")
 
     # --- 6. Execute the command ---
     result = subprocess.run(
         command,
         shell=True,          # Allows pipes, redirects, etc.
-        capture_output=True, # Captures both stdout and stderr
-        text=True,           # Decodes bytes to str automatically
+        capture_output=True, # Captures both stdout and stderr.
+        text=True,           # Decodes bytes to str automatically.
     )
 
     # --- 7. Return output or error ---
     if result.returncode != 0:
-        # Non-zero exit code means the command failed
+        # Non-zero exit code means the command failed.
         return result.stderr or f"Command exited with code {result.returncode}"
 
-    # Success: return standard output (may be an empty string)
+    # Success: return standard output (may be an empty string).
     return result.stdout
 
 
 if __name__ == "__main__":
-    # Run over stdio — the standard transport for MCP servers
+    # Run over stdio — the standard transport for MCP servers.
     mcp.run()
