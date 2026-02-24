@@ -184,10 +184,29 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if int(execution["max_output_chars"]) < 1024:
         raise ValueError("execution.max_output_chars must be >= 1024")
 
+    backup_access = _ensure_dict("backup_access")
+    backup_access.setdefault("block_agent_tools", True)
+    _ensure_list(backup_access, "allowed_tools")
+    if not isinstance(backup_access["block_agent_tools"], bool):
+        raise ValueError("backup_access.block_agent_tools must be boolean")
+
+    restore = _ensure_dict("restore")
+    restore.setdefault("require_dry_run_before_apply", True)
+    restore.setdefault("confirmation_ttl_seconds", 300)
+    if not isinstance(restore["require_dry_run_before_apply"], bool):
+        raise ValueError("restore.require_dry_run_before_apply must be boolean")
+    if int(restore["confirmation_ttl_seconds"]) < 30:
+        raise ValueError("restore.confirmation_ttl_seconds must be >= 30")
+
     audit = _ensure_dict("audit")
     audit.setdefault("backup_enabled", True)
+    audit.setdefault("backup_on_content_change_only", True)
+    audit.setdefault("max_versions_per_file", 5)
+    audit.setdefault("backup_root", str(BASE_DIR / "backups"))
     audit.setdefault("backup_retention_days", 30)
     audit.setdefault("log_level", "verbose")
+    if int(audit["max_versions_per_file"]) < 1:
+        raise ValueError("audit.max_versions_per_file must be >= 1")
     _ensure_list(audit, "redact_patterns")
 
     return policy
@@ -195,6 +214,9 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
 
 # POLICY is loaded once when the server starts. Restart to pick up edits.
 POLICY: dict = _validate_and_normalize_policy(_load_policy())
+
+# Allow backup storage to live outside workspace if configured.
+BACKUP_DIR = str(pathlib.Path(POLICY.get("audit", {}).get("backup_root", BACKUP_DIR)).resolve())
 
 # MAX_RETRIES is read from policy so it can be tuned without touching code.
 MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
@@ -220,6 +242,9 @@ APPROVAL_FAILURES: dict[str, list[datetime.datetime]] = {}
 # Cumulative blast-radius state keyed by configured scope.
 CUMULATIVE_BUDGET_STATE: dict[str, dict] = {}
 
+# Pending restore confirmations keyed by token.
+PENDING_RESTORE_CONFIRMATIONS: dict[str, dict] = {}
+
 # Generated once when the server process starts. Every log entry includes
 # this ID so related records across tools can be correlated by session.
 SESSION_ID: str = str(uuid.uuid4())
@@ -235,6 +260,10 @@ SERVER_BUILD = "2026-02-23T22:10Z-simfix-check"
 APPROVAL_TTL_SECONDS: int = POLICY.get("requires_confirmation", {}).get(
     "approval_security", {}
 ).get("token_ttl_seconds", 600)
+
+RESTORE_CONFIRMATION_TTL_SECONDS: int = POLICY.get("restore", {}).get(
+    "confirmation_ttl_seconds", 300
+)
 
 # Create the MCP server with a descriptive name.
 mcp = FastMCP("ai-runtime-guard")
@@ -461,6 +490,42 @@ def _network_policy_check(command: str) -> tuple[bool, str | None]:
                 return False, reason
 
     return True, None
+
+
+def _command_targets_backup_storage(command: str) -> bool:
+    """Best-effort check whether command references paths under BACKUP_DIR."""
+    if not POLICY.get("backup_access", {}).get("block_agent_tools", True):
+        return False
+
+    backup_root = pathlib.Path(BACKUP_DIR).resolve()
+    lower = command.lower()
+    if str(backup_root).lower() in lower:
+        return True
+
+    for segment in _split_shell_segments(command):
+        tokens, err = _tokenize_shell_segment(segment)
+        if err:
+            continue
+        for token in tokens:
+            candidate = token.strip("'\"")
+            if not candidate:
+                continue
+            if candidate.startswith("-"):
+                continue
+            if "/" not in candidate and "." not in candidate and "*" not in candidate:
+                continue
+            try:
+                abs_path = candidate if os.path.isabs(candidate) else os.path.join(WORKSPACE_ROOT, candidate)
+                resolved = pathlib.Path(abs_path).resolve()
+                if resolved.is_relative_to(backup_root):
+                    return True
+            except Exception:
+                continue
+    # Extra fallback for symlinked temp paths (/tmp vs /private/tmp).
+    tmp_backup_root = str(pathlib.Path(BACKUP_DIR))
+    if tmp_backup_root.lower() in lower:
+        return True
+    return False
 
 
 def _retry_key(command: str, tier: str, matched_rule: str | None) -> str:
@@ -745,6 +810,31 @@ def _issue_or_reuse_approval_token(command: str) -> tuple[str, datetime.datetime
     return token, expires_at
 
 
+def _prune_expired_restore_confirmations() -> None:
+    """Drop expired restore confirmation tokens."""
+    now = datetime.datetime.utcnow()
+    expired = [
+        token
+        for token, rec in PENDING_RESTORE_CONFIRMATIONS.items()
+        if rec["expires_at"] <= now
+    ]
+    for token in expired:
+        PENDING_RESTORE_CONFIRMATIONS.pop(token, None)
+
+
+def _issue_restore_confirmation_token(backup_path: pathlib.Path, planned: int) -> tuple[str, datetime.datetime]:
+    """Issue a one-time token authorizing restore apply for a specific backup."""
+    _prune_expired_restore_confirmations()
+    token = uuid.uuid4().hex
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=RESTORE_CONFIRMATION_TTL_SECONDS)
+    PENDING_RESTORE_CONFIRMATIONS[token] = {
+        "backup_path": str(backup_path.resolve()),
+        "planned": int(planned),
+        "expires_at": expires_at,
+    }
+    return token, expires_at
+
+
 def _has_shell_unsafe_control_chars(command: str) -> bool:
     """
     Return True when command includes control characters we do not allow.
@@ -759,15 +849,22 @@ def _safe_subprocess_env() -> dict:
     """
     Build a constrained environment for shell command execution.
 
-    Only a minimal set of variables is inherited to reduce accidental secret
-    exposure from the host process environment.
+    Start from the parent environment for runtime compatibility, then apply
+    targeted constraints and light secret stripping.
     """
-    safe = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
-        "HOME": WORKSPACE_ROOT,
-    }
+    safe = os.environ.copy()
+    safe["HOME"] = WORKSPACE_ROOT
+    if "LANG" not in safe:
+        safe["LANG"] = "C"
+    if "LC_ALL" not in safe:
+        safe["LC_ALL"] = safe["LANG"]
+
+    # Best-effort removal of obviously sensitive env values before spawning.
+    for key in list(safe.keys()):
+        lower = key.lower()
+        if any(marker in lower for marker in ("api_key", "token", "secret", "password")):
+            safe.pop(key, None)
+
     return safe
 
 
@@ -1166,7 +1263,16 @@ def _relative_depth(path: str) -> int:
     return len(rel.parts)
 
 
-def _check_path_policy(path: str) -> tuple[str, str] | None:
+def _is_backup_path(path: str) -> bool:
+    """Return True when path resolves under BACKUP_DIR."""
+    try:
+        resolved = pathlib.Path(path).resolve()
+        return resolved.is_relative_to(pathlib.Path(BACKUP_DIR).resolve())
+    except Exception:
+        return False
+
+
+def _check_path_policy(path: str, tool: str | None = None) -> tuple[str, str] | None:
     """
     Check a file path against the blocked path and extension rules in policy.json.
 
@@ -1215,6 +1321,19 @@ def _check_path_policy(path: str) -> tuple[str, str] | None:
             f"Path '{path}' is outside the allowed workspace",
             "workspace_boundary",
         )
+
+    # 4. Backup storage protection for regular file tools.
+    backup_access = POLICY.get("backup_access", {})
+    if backup_access.get("block_agent_tools", True) and _is_backup_path(path):
+        allowed_tools = {
+            str(t).lower() for t in backup_access.get("allowed_tools", ["restore_backup"])
+        }
+        tool_name = (tool or "").lower()
+        if tool_name not in allowed_tools:
+            return (
+                f"Path '{path}' is inside protected backup storage and is not accessible via {tool or 'this tool'}",
+                "backup_storage_protected",
+            )
 
     return None
 
@@ -1387,6 +1506,158 @@ def _sha256_file(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
+def _backup_entries_for_source(source_path: pathlib.Path) -> list[dict]:
+    """
+    Return backup entries for a specific source file, newest first.
+    """
+    source = str(source_path.resolve())
+    root = pathlib.Path(BACKUP_DIR)
+    if not root.exists():
+        return []
+    entries: list[dict] = []
+    for folder in root.iterdir():
+        if not folder.is_dir():
+            continue
+        manifest_path = folder / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, list):
+            continue
+        for item in manifest:
+            if not isinstance(item, dict):
+                continue
+            if item.get("source") != source:
+                continue
+            backup_path = pathlib.Path(item.get("backup", ""))
+            if not backup_path.exists():
+                continue
+            try:
+                order_key = folder.stat().st_mtime
+            except OSError:
+                order_key = 0
+            entries.append(
+                {
+                    "folder": folder,
+                    "manifest_path": manifest_path,
+                    "item": item,
+                    "order_key": order_key,
+                }
+            )
+    return sorted(entries, key=lambda e: e["order_key"], reverse=True)
+
+
+def _latest_backup_hash_for_source(source_path: pathlib.Path) -> str | None:
+    """Return latest backed-up sha256 for a source file, if available."""
+    entries = _backup_entries_for_source(source_path)
+    if not entries:
+        return None
+    item = entries[0]["item"]
+    if item.get("type") != "file":
+        return None
+    return item.get("sha256")
+
+
+def _enforce_max_versions_per_file() -> None:
+    """
+    Enforce audit.max_versions_per_file by pruning old per-file backups.
+
+    Prunes file entries from manifests. If a backup folder becomes empty after
+    pruning, the folder is removed.
+    """
+    max_versions = int(POLICY.get("audit", {}).get("max_versions_per_file", 5))
+    if max_versions <= 0:
+        return
+    root = pathlib.Path(BACKUP_DIR)
+    if not root.exists():
+        return
+
+    by_source: dict[str, list[dict]] = {}
+    for folder in root.iterdir():
+        if not folder.is_dir():
+            continue
+        manifest_path = folder / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, list):
+            continue
+        try:
+            order_key = folder.stat().st_mtime
+        except OSError:
+            order_key = 0
+        for idx, item in enumerate(manifest):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "file":
+                continue
+            source = item.get("source")
+            backup = item.get("backup")
+            if not source or not backup:
+                continue
+            by_source.setdefault(source, []).append(
+                {
+                    "folder": folder,
+                    "manifest_path": manifest_path,
+                    "manifest_index": idx,
+                    "item": item,
+                    "order_key": order_key,
+                }
+            )
+
+    # Determine which specific file entries to prune.
+    to_prune: list[dict] = []
+    for _source, entries in by_source.items():
+        ordered = sorted(entries, key=lambda e: e["order_key"], reverse=True)
+        to_prune.extend(ordered[max_versions:])
+
+    # Apply prune grouped by manifest.
+    by_manifest: dict[str, list[dict]] = {}
+    for entry in to_prune:
+        key = str(entry["manifest_path"])
+        by_manifest.setdefault(key, []).append(entry)
+
+    for _, entries in by_manifest.items():
+        manifest_path = pathlib.Path(entries[0]["manifest_path"])
+        folder = pathlib.Path(entries[0]["folder"])
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, list):
+            continue
+
+        prune_indices = {e["manifest_index"] for e in entries}
+        new_manifest: list[dict] = []
+        for idx, item in enumerate(manifest):
+            if idx not in prune_indices:
+                new_manifest.append(item)
+                continue
+            backup_path = pathlib.Path(item.get("backup", ""))
+            try:
+                if backup_path.exists():
+                    if backup_path.is_file():
+                        backup_path.unlink()
+                    elif backup_path.is_dir():
+                        shutil.rmtree(backup_path, ignore_errors=True)
+            except OSError:
+                pass
+
+        try:
+            if new_manifest:
+                manifest_path.write_text(json.dumps(new_manifest, indent=2))
+            else:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def backup_paths(paths: list) -> str:
     """
     Copy a list of files/directories to a timestamped backup folder.
@@ -1426,6 +1697,12 @@ def backup_paths(paths: list) -> str:
         dest = pathlib.Path(backup_location) / rel
 
         if resolved.is_file():
+            if POLICY.get("audit", {}).get("backup_on_content_change_only", True):
+                latest_hash = _latest_backup_hash_for_source(resolved)
+                current_hash = _sha256_file(resolved)
+                if latest_hash is not None and latest_hash == current_hash:
+                    # Skip duplicate content snapshots for this file.
+                    continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             # copy2 preserves file metadata (timestamps, permissions).
             shutil.copy2(str(resolved), str(dest))
@@ -1441,9 +1718,14 @@ def backup_paths(paths: list) -> str:
             shutil.copytree(str(resolved), str(dest))
             manifest.append({"source": str(resolved), "backup": str(dest), "type": "directory"})
 
+    if not manifest:
+        shutil.rmtree(backup_location, ignore_errors=True)
+        return ""
+
     with open(os.path.join(backup_location, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
 
+    _enforce_max_versions_per_file()
     return backup_location
 
 
@@ -1457,13 +1739,14 @@ def server_info() -> str:
 
 
 @mcp.tool()
-def restore_backup(backup_location: str, dry_run: bool = True) -> str:
+def restore_backup(backup_location: str, dry_run: bool = True, restore_token: str = "") -> str:
     """
     Restore files/directories from a backup manifest.
 
     Args:
         backup_location: Absolute path or backup folder name under BACKUP_DIR.
         dry_run: If True, return restore plan without writing files.
+        restore_token: Required when dry_run=False if restore.require_dry_run_before_apply is enabled.
     """
     backup_path = (
         pathlib.Path(backup_location)
@@ -1500,9 +1783,7 @@ def restore_backup(backup_location: str, dry_run: bool = True) -> str:
     if not isinstance(manifest, list):
         return "Error: backup manifest is invalid (expected array)"
 
-    planned = 0
-    restored = 0
-    hash_failures = 0
+    eligible_entries: list[dict] = []
     for item in manifest:
         if not isinstance(item, dict):
             continue
@@ -1519,10 +1800,101 @@ def restore_backup(backup_location: str, dry_run: bool = True) -> str:
         if not backup_item.exists():
             continue
 
-        planned += 1
-        if dry_run:
-            continue
+        eligible_entries.append(
+            {
+                "source_path": source_path,
+                "backup_item": backup_item,
+                "item_type": item_type,
+                "expected_hash": expected_hash,
+            }
+        )
 
+    planned = len(eligible_entries)
+
+    require_confirm = bool(POLICY.get("restore", {}).get("require_dry_run_before_apply", True))
+    if dry_run:
+        response_extra = {}
+        if require_confirm:
+            token, expires_at = _issue_restore_confirmation_token(backup_path, planned)
+            response_extra = {
+                "restore_token_issued": token,
+                "restore_token_expires_at": expires_at.isoformat() + "Z",
+            }
+        result = PolicyResult(
+            allowed=True,
+            reason="allowed",
+            decision_tier="allowed",
+            matched_rule=None,
+        )
+        log_entry = build_log_entry(
+            "restore_backup",
+            result,
+            backup_location=str(backup_path),
+            dry_run=True,
+            planned=planned,
+            restored=0,
+            hash_failures=0,
+            **response_extra,
+        )
+        with open(LOG_PATH, "a") as log_file:
+            log_file.write(json.dumps(log_entry) + "\n")
+
+        msg = f"Restore dry run complete: {planned} item(s) eligible from {backup_path}"
+        if require_confirm:
+            msg += (
+                f"\nrestore_token={response_extra['restore_token_issued']}"
+                f"\nrestore_token_expires_at={response_extra['restore_token_expires_at']}"
+            )
+        return msg
+
+    if require_confirm:
+        _prune_expired_restore_confirmations()
+        rec = PENDING_RESTORE_CONFIRMATIONS.get(restore_token)
+        if not rec:
+            result = PolicyResult(
+                allowed=False,
+                reason="Invalid or expired restore token",
+                decision_tier="blocked",
+                matched_rule="restore_token",
+            )
+            log_entry = build_log_entry(
+                "restore_backup",
+                result,
+                backup_location=str(backup_path),
+                dry_run=False,
+                restore_token=restore_token,
+            )
+            with open(LOG_PATH, "a") as log_file:
+                log_file.write(json.dumps(log_entry) + "\n")
+            return "[POLICY BLOCK] Invalid or expired restore token"
+
+        if rec["backup_path"] != str(backup_path.resolve()):
+            result = PolicyResult(
+                allowed=False,
+                reason="Restore token does not match the requested backup location",
+                decision_tier="blocked",
+                matched_rule="restore_token_mismatch",
+            )
+            log_entry = build_log_entry(
+                "restore_backup",
+                result,
+                backup_location=str(backup_path),
+                dry_run=False,
+                restore_token=restore_token,
+            )
+            with open(LOG_PATH, "a") as log_file:
+                log_file.write(json.dumps(log_entry) + "\n")
+            return "[POLICY BLOCK] Restore token does not match the requested backup location"
+
+        PENDING_RESTORE_CONFIRMATIONS.pop(restore_token, None)
+
+    restored = 0
+    hash_failures = 0
+    for entry in eligible_entries:
+        source_path = entry["source_path"]
+        backup_item = entry["backup_item"]
+        item_type = entry["item_type"]
+        expected_hash = entry["expected_hash"]
         try:
             if item_type == "file":
                 if expected_hash:
@@ -1595,6 +1967,13 @@ def execute_command(command: str, retry_count: int = 0) -> str:
             reason="Command contains disallowed control characters (newline, carriage return, or NUL)",
             decision_tier="blocked",
             matched_rule="command_control_characters",
+        )
+    elif _command_targets_backup_storage(command):
+        result = PolicyResult(
+            allowed=False,
+            reason="Command targets protected backup storage; use restore_backup for controlled recovery operations",
+            decision_tier="blocked",
+            matched_rule="backup_storage_protected",
         )
     else:
         # --- 2. Network policy gate ---
@@ -1693,17 +2072,18 @@ def execute_command(command: str, retry_count: int = 0) -> str:
         affected = extract_paths(command)
         if affected and POLICY.get("audit", {}).get("backup_enabled", True):
             backup_location = backup_paths(affected)
-            with open(LOG_PATH, "a") as log_file:
-                log_file.write(
-                    json.dumps(
-                        {
-                            **log_entry,
-                            "backup_location": backup_location,
-                            "event": "backup_created",
-                        }
+            if backup_location:
+                with open(LOG_PATH, "a") as log_file:
+                    log_file.write(
+                        json.dumps(
+                            {
+                                **log_entry,
+                                "backup_location": backup_location,
+                                "event": "backup_created",
+                            }
+                        )
+                        + "\n"
                     )
-                    + "\n"
-                )
 
     # --- 9. Execute the command with hardened shell settings ---
     timeout_seconds, max_output_chars = _execution_limits()
@@ -1833,7 +2213,7 @@ def read_file(path: str) -> str:
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
     # --- 1. Check path against policy ---
-    path_check = _check_path_policy(path)
+    path_check = _check_path_policy(path, tool="read_file")
     if path_check:
         result = PolicyResult(allowed=False, reason=path_check[0],
                               decision_tier="blocked", matched_rule=path_check[1])
@@ -1905,7 +2285,7 @@ def write_file(path: str, content: str) -> str:
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
     # --- 1. Check path against policy ---
-    path_check = _check_path_policy(path)
+    path_check = _check_path_policy(path, tool="write_file")
     if path_check:
         result = PolicyResult(allowed=False, reason=path_check[0],
                               decision_tier="blocked", matched_rule=path_check[1])
@@ -1945,13 +2325,14 @@ def write_file(path: str, content: str) -> str:
     backup_location = None
     if os.path.exists(path):
         backup_location = backup_paths([path])
-        # Record the backup location in a second log line so the audit trail
-        # shows where the pre-write snapshot is stored.
-        with open(LOG_PATH, "a") as log_file:
-            log_file.write(
-                json.dumps({**log_entry, "backup_location": backup_location,
-                            "event": "backup_created"}) + "\n"
-            )
+        if backup_location:
+            # Record the backup location in a second log line so the audit trail
+            # shows where the pre-write snapshot is stored.
+            with open(LOG_PATH, "a") as log_file:
+                log_file.write(
+                    json.dumps({**log_entry, "backup_location": backup_location,
+                                "event": "backup_created"}) + "\n"
+                )
 
     # --- 6. Write the file ---
     try:
@@ -1964,6 +2345,8 @@ def write_file(path: str, content: str) -> str:
     msg = f"Successfully wrote {len(content)} characters to {path}"
     if backup_location:
         msg += f" (previous version backed up to {backup_location})"
+    else:
+        msg += " (no content-change backup needed)"
     return msg
 
 
@@ -2001,7 +2384,7 @@ def delete_file(path: str) -> str:
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
     # --- 1. Check path against policy (blocked paths, extensions) ---
-    path_check = _check_path_policy(path)
+    path_check = _check_path_policy(path, tool="delete_file")
     if path_check:
         result = PolicyResult(allowed=False, reason=path_check[0],
                               decision_tier="blocked", matched_rule=path_check[1])
@@ -2071,7 +2454,8 @@ def delete_file(path: str) -> str:
     # backup_paths() is called unconditionally here — existence was confirmed
     # in step 2, so the file is guaranteed to be present at this point.
     backup_location = backup_paths([path])
-    log_entry["backup_location"] = backup_location
+    if backup_location:
+        log_entry["backup_location"] = backup_location
 
     # --- 6. Write the log entry (includes backup_location) ---
     with open(LOG_PATH, "a") as log_file:
@@ -2086,7 +2470,11 @@ def delete_file(path: str) -> str:
     # --- 8. Return success with the backup location so the file is recoverable ---
     return (
         f"Successfully deleted {path}. "
-        f"Backup saved to {backup_location} — the file can be recovered from there."
+        + (
+            f"Backup saved to {backup_location} — the file can be recovered from there."
+            if backup_location
+            else "No content-change backup was needed."
+        )
     )
 
 
@@ -2123,7 +2511,7 @@ def list_directory(path: str) -> str:
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
     # --- 1. Check path against policy (blocked paths, extensions) ---
-    path_check = _check_path_policy(path)
+    path_check = _check_path_policy(path, tool="list_directory")
     if path_check:
         result = PolicyResult(allowed=False, reason=path_check[0],
                               decision_tier="blocked", matched_rule=path_check[1])

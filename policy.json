@@ -87,9 +87,23 @@
     "max_output_chars": 200000
   },
 
+  "backup_access": {
+    "_comment": "Protect backup storage from regular agent file tools; restore_backup remains the controlled path",
+    "block_agent_tools": true,
+    "allowed_tools": ["restore_backup"]
+  },
+
+  "restore": {
+    "_comment": "Restore flow controls; when enabled, dry_run=true must be called first to obtain restore_token",
+    "require_dry_run_before_apply": true,
+    "confirmation_ttl_seconds": 300
+  },
+
   "audit": {
     "_comment": "Audit and backup settings — backup_enabled is read by the server at startup",
     "backup_enabled": true,
+    "backup_on_content_change_only": true,
+    "max_versions_per_file": 5,
     "backup_retention_days": 30,
     "log_level": "verbose",
     "redact_patterns": [

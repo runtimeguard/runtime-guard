@@ -132,8 +132,18 @@ class AttackerTestSuite(unittest.TestCase):
                 "max_command_timeout_seconds": 30,
                 "max_output_chars": 200000,
             },
+            "backup_access": {
+                "block_agent_tools": True,
+                "allowed_tools": ["restore_backup"],
+            },
+            "restore": {
+                "require_dry_run_before_apply": True,
+                "confirmation_ttl_seconds": 300,
+            },
             "audit": {
                 "backup_enabled": True,
+                "backup_on_content_change_only": True,
+                "max_versions_per_file": 5,
                 "backup_retention_days": 30,
                 "log_level": "verbose",
                 "redact_patterns": [],
@@ -153,6 +163,7 @@ class AttackerTestSuite(unittest.TestCase):
         server.SERVER_RETRY_COUNTS.clear()
         server.CUMULATIVE_BUDGET_STATE.clear()
         server.APPROVAL_FAILURES.clear()
+        server.PENDING_RESTORE_CONFIRMATIONS.clear()
         self.tmp.cleanup()
 
     def _write(self, relative: str, content: str = "x") -> pathlib.Path:
@@ -241,9 +252,54 @@ class AttackerTestSuite(unittest.TestCase):
         backup_location = server.backup_paths([str(target)])
         target.write_text("after")
 
-        restore_result = server.restore_backup(backup_location, dry_run=False)
+        dry = server.restore_backup(backup_location, dry_run=True)
+        token = re.search(r"restore_token=([a-f0-9]+)", dry).group(1)
+        restore_result = server.restore_backup(backup_location, dry_run=False, restore_token=token)
         self.assertIn("restored=1", restore_result)
         self.assertEqual(target.read_text(), "before")
+
+    def test_restore_backup_requires_dry_run_token(self):
+        target = self._write("restore_token.txt", "v1")
+        backup_location = server.backup_paths([str(target)])
+        target.write_text("v2")
+
+        blocked = server.restore_backup(backup_location, dry_run=False)
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("restore token", blocked.lower())
+
+    def test_backup_dedup_skips_unchanged_content(self):
+        target = self._write("same.txt", "stable")
+        first = server.backup_paths([str(target)])
+        second = server.backup_paths([str(target)])
+        self.assertTrue(first)
+        self.assertEqual(second, "")
+
+    def test_backup_max_versions_per_file_prunes_old_entries(self):
+        server.POLICY["audit"]["max_versions_per_file"] = 2
+        target = self._write("versioned.txt", "v1")
+        server.backup_paths([str(target)])
+        target.write_text("v2")
+        server.backup_paths([str(target)])
+        target.write_text("v3")
+        server.backup_paths([str(target)])
+
+        entries = server._backup_entries_for_source(target)
+        self.assertLessEqual(len(entries), 2)
+
+    def test_backup_storage_is_protected_from_file_tools(self):
+        target = self._write("protect.txt", "x")
+        backup_location = pathlib.Path(server.backup_paths([str(target)]))
+        backup_file = next(backup_location.glob("protect.txt"))
+        blocked = server.read_file(str(backup_file))
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("protected backup storage", blocked)
+
+    def test_backup_storage_is_protected_from_execute_command(self):
+        target = self._write("protect_cmd.txt", "x")
+        backup_location = pathlib.Path(server.backup_paths([str(target)]))
+        blocked = server.execute_command(f"ls -la {backup_location}")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("protected backup storage", blocked)
 
     def test_cumulative_budget_blocks_multi_step_bypass(self):
         server.POLICY["requires_simulation"]["bulk_file_threshold"] = 10
