@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-02-24 (confirmation policy rollout + backlog reconciliation)
+Last updated: 2026-02-24 (command policy rollout items 10-13 implemented)
 
 ## Current branch
 - `dev` (tracking `origin/dev`)
@@ -18,6 +18,11 @@ Last updated: 2026-02-24 (confirmation policy rollout + backlog reconciliation)
 - Added/expanded tests for cumulative bypass prevention, network enforcement, workspace-relative depth, and restore flow.
 - Expanded repo ignore rules for runtime/test artifacts and pinned `mcp` dependency range.
 - Activated `requires_confirmation` policy with production command/path coverage and explicitly included `rm`/`mv` to intentionally enable approval-based cumulative-budget override paths.
+- Implemented command policy rollout together:
+  - Expanded `blocked.commands` hard-deny set (including system/disk-destructive patterns).
+  - Expanded `requires_simulation.commands` to cover additional bulk-impact command families.
+  - Expanded `network.commands` to Linux/macOS parity command set.
+  - Added shell-obfuscation-aware unit tests for chaining, quoting, escaping, and normalization edge cases.
 
 ## Current known issues
 - `execute_command` still uses `shell=True` for compatibility; this remains the largest residual command-parsing risk surface.
@@ -45,7 +50,5 @@ Last updated: 2026-02-24 (confirmation policy rollout + backlog reconciliation)
 9. Strengthen release hygiene: dependency vulnerability checks (`pip-audit`), reproducible constraints/lock workflow, and branch protection (`dev` -> `main` with required checks).
 
 ### Command policy rollout items (Unix/macOS now, Linux-ready)
-10. Expand `blocked.commands` with hard-deny destructive/system commands: `rm -rf /`, `rm -rf ~`, `dd if=`, `mkfs*`, `fdisk`, `parted`, `shutdown`, `reboot`, `halt`, `poweroff`, and equivalent macOS disk/system destructive commands.
-11. Expand `requires_simulation.commands` for bulk-impact operations beyond `rm`/`mv`: `cp`, `rsync --delete`, `find ... -delete`, `find ... -exec rm`, `xargs rm`, `xargs mv`, in-place multi-file rewrites.
-12. Expand `network.commands` for Linux/macOS parity: `curl`, `wget`, `scp`, `sftp`, `rsync`, `ssh`, `nc`/`netcat`, and CLI wrappers using `http/https`.
-13. Add shell-obfuscation-aware command fixtures and tests for command policy coverage (quotes, escapes, chained segments, substitutions, mixed-case/whitespace variants) to validate normalization and matcher behavior.
+10. Validate expanded command sets against real agent workflows to tune false-positive rate (especially for `find`, `xargs`, `sed`, `perl` in simulation tier).
+11. Add focused integration tests for multi-command shell constructs (`find -exec`, `xargs`, loops, substitutions) that are now represented in policy but only partially modeled by current simulation logic.

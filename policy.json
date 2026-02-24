@@ -1,6 +1,20 @@
 {
   "blocked": {
-    "commands": ["rm -rf", "mkfs", "shutdown", "reboot", "format", "dd"],
+    "commands": [
+      "rm -rf",
+      "rm -rf /",
+      "rm -rf ~",
+      "mkfs",
+      "shutdown",
+      "reboot",
+      "halt",
+      "poweroff",
+      "fdisk",
+      "parted",
+      "diskutil erasedisk",
+      "format",
+      "dd"
+    ],
     "paths":    [".env", ".ssh", "/etc/passwd"],
     "extensions": [".pem", ".key"]
   },
@@ -40,7 +54,16 @@
   },
 
   "requires_simulation": {
-    "commands": ["rm", "mv"],
+    "commands": [
+      "rm",
+      "mv",
+      "cp",
+      "rsync",
+      "find",
+      "xargs",
+      "sed",
+      "perl"
+    ],
     "bulk_file_threshold": 10,
     "max_retries": 3,
     "cumulative_budget": {
@@ -100,7 +123,18 @@
   "network": {
     "_comment": "Network policy for command execution. enforcement_mode supports: off, monitor, enforce",
     "enforcement_mode": "enforce",
-    "commands": ["curl", "wget", "http", "https"],
+    "commands": [
+      "curl",
+      "wget",
+      "scp",
+      "sftp",
+      "rsync",
+      "ssh",
+      "nc",
+      "netcat",
+      "http",
+      "https"
+    ],
     "allowed_domains": [],
     "blocked_domains": [],
     "max_payload_size_kb": 1024

@@ -338,6 +338,50 @@ class AttackerTestSuite(unittest.TestCase):
         result = server.list_directory(".")
         self.assertNotIn("[POLICY BLOCK]", result)
 
+    def test_blocked_destructive_command_with_tilde_is_rejected(self):
+        server.POLICY["blocked"]["commands"] = ["rm -rf ~"]
+        result = server.execute_command("rm -rf ~")
+        self.assertIn("[POLICY BLOCK]", result)
+        self.assertIn("rm -rf ~", result.lower())
+
+    def test_blocked_command_detected_inside_chained_expression(self):
+        server.POLICY["blocked"]["commands"] = ["rm -rf"]
+        result = server.execute_command("echo safe; RM -RF /tmp/x")
+        self.assertIn("[POLICY BLOCK]", result)
+        self.assertIn("rm -rf", result.lower())
+
+    def test_semicolon_inside_quotes_does_not_trigger_false_split(self):
+        server.POLICY["blocked"]["commands"] = ["rm -rf"]
+        result = server.check_policy("echo 'literal ; text'")
+        self.assertTrue(result.allowed)
+
+    def test_requires_confirmation_for_curl(self):
+        server.POLICY["requires_confirmation"]["commands"] = ["curl"]
+        blocked = server.execute_command("curl https://example.com")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("approval_token=", blocked)
+
+    def test_simulation_applies_to_cp_wildcards(self):
+        server.POLICY["requires_simulation"]["commands"] = ["cp"]
+        server.POLICY["requires_simulation"]["bulk_file_threshold"] = 1
+        self._write("cp1.txt", "1")
+        self._write("cp2.txt", "2")
+        self._write("dest.txt", "")
+
+        result = server.check_policy("cp *.txt dest.txt")
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.decision_tier, "requires_simulation")
+
+    def test_simulation_handles_escaped_wildcard_pattern(self):
+        server.POLICY["requires_simulation"]["commands"] = ["rm"]
+        server.POLICY["requires_simulation"]["bulk_file_threshold"] = 1
+        self._write("e1.tmp", "1")
+        self._write("e2.tmp", "2")
+
+        result = server.check_policy(r"rm \*.tmp")
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.decision_tier, "requires_simulation")
+
 
 if __name__ == "__main__":
     unittest.main()
