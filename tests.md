@@ -19,6 +19,12 @@ Before merging `refactor` to `main`, validate at least 12 prompts including:
 5. 1 restore scenario (dry-run token then apply).
 6. 2 network-policy scenarios.
 
+## Release-blocking security check (approval separation)
+Before merge to `main`, run and document a scenario proving:
+1. The agent that requests a confirmation-gated command cannot directly call `approve_command` to approve itself.
+2. Approval must come from a separate trusted/operator channel.
+3. Any attempted self-approval path is blocked and logged.
+
 ## Basic allowed operations
 1. `Please use execute_command to run "ls -la".`
 2. `Please use execute_command to run "pwd".`

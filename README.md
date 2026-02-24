@@ -36,6 +36,7 @@ Optional local unit tests in this repo:
 1. Development happens on feature branches (currently `refactor`), not `main`.
 2. Merge path is `refactor` -> `main` only after the pre-merge gate is satisfied.
 3. `main` should be protected in GitHub settings: no direct pushes, at least one review, and required checks before merge.
+4. Merge freeze is active until approval separation-of-duties is enforced (an initiating agent must not be able to approve its own command).
 
 ## Minimum pre-merge gate
 1. Unit security regressions pass:
@@ -50,3 +51,6 @@ Optional local unit tests in this repo:
 3. Linux checkpoint before MVP release:
    - run the same unit suite on Linux
    - execute a reduced manual prompt set on Linux and record outcomes in `STATUS.md`
+4. Approval separation checkpoint:
+   - verify approvals come from a separate trusted/operator channel
+   - verify the initiating agent cannot self-approve its own command flow

@@ -1,5 +1,14 @@
 # CHANGELOG_DEV
 
+## 2026-02-24 (release freeze: approval separation flaw)
+- Identified a release-blocking security gap during MVP gate testing: the same agent can request a confirmation-gated command and then call `approve_command` to approve itself.
+- Declared merge freeze for `refactor` -> `main` until separation-of-duties is enforced for approvals.
+- Added explicit unfreeze requirements in `STATUS.md`:
+  - approvals must come from a separate trusted channel
+  - runtime must enforce caller identity/role for approval
+  - regression coverage must prove no self-approval path exists
+- Added explicit approval-separation checkpoint requirements to `README.md` and `tests.md`.
+
 ## 2026-02-24 (MVP lock-down prep)
 - Added explicit merge/branch policy and pre-merge gate to `README.md` (unit tests + minimum manual integration prompts + Linux checkpoint).
 - Replaced deprecated UTC datetime helpers with timezone-aware UTC usage across runtime modules.
@@ -8,6 +17,7 @@
   - requires-confirmation coverage for version control, email, package-management, process-management, and exfiltration-oriented command families.
 - Updated `ARCHITECTURE.md` with MVP command-coverage rationale and corrected network enforcement status.
 - Reorganized `STATUS.md` into approved lock-down sequence (done vs pending), explicit minimum merge gate, and grouped post-MVP workstreams.
+- Confirmed via 12-prompt MVP gate run that handshake controls now consistently gate risky command families (`rm`, `curl`, etc.) and that `restore_backup` dry-run now issues a restore token bound to the live apply step.
 
 ## 2026-02-24 (module split + test rewrite)
 - Refactored runtime from monolithic `server.py` into focused modules (`config`, `policy_engine`, `approvals`, `budget`, `backup`, `audit`, `executor`, `tools/*`) with a thin `server.py` entrypoint.

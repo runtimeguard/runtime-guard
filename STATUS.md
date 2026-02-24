@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-02-24 (MVP lock-down sequencing updates)
+Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 
 ## Current branch
 - `refactor` (tracking `origin/refactor`)
@@ -28,11 +28,14 @@ Last updated: 2026-02-24 (MVP lock-down sequencing updates)
 - Documented merge policy and explicit pre-merge gate in `README.md`.
 
 ## Current known issues
+- Release blocker: approval separation-of-duties is not enforced. The same AI agent can call `execute_command`, receive a token, call `approve_command`, and complete its own confirmation loop.
 - `execute_command` still uses `shell=True` for compatibility; this remains the largest residual command-parsing risk surface.
 - Network policy currently focuses on domain-level command checks; payload-size and protocol-depth enforcement are not yet comprehensive.
 - Backup target detection for shell commands remains heuristic (`PATH_TOKEN_RE` + existing-path checks) and can miss some shell expansion edge cases.
 - Runtime constants are still imported by multiple modules at load time (`WORKSPACE_ROOT`, `MAX_RETRIES`, `LOG_PATH`, `BACKUP_DIR`), so dynamic runtime reconfiguration remains non-centralized and requires careful patching in tests.
 - Linux validation checkpoint has not yet been executed in this workspace/session.
+- When `requires_confirmation` matches first (for example `rm`), user-facing responses no longer distinguish simulation causes (`bulk_file_threshold` vs `wildcard_unresolved`) even though simulation still runs.
+- Cumulative budget limits are currently high enough that practical MVP prompt runs may not trigger budget blocks.
 
 ## Core use cases (from README; do not edit without explicit product decision)
 1. Block destructive commands and sensitive path/extension access.
@@ -45,12 +48,21 @@ Last updated: 2026-02-24 (MVP lock-down sequencing updates)
 2. UTC deprecation fix: completed.
 3. Policy coverage audit and lock-down (`policy.json` only): completed.
 4. Linux validation checkpoint: pending.
-5. Merge `refactor` -> `main`: pending after Linux checkpoint and gate completion.
+5. Merge `refactor` -> `main`: frozen pending blocker resolution.
+
+## Merge freeze status
+- Current state: `refactor` -> `main` merge is blocked.
+- Block reason: confirmation handshake can be self-approved by the same agent, so human-in-the-loop intent is not enforced.
+- Unfreeze condition:
+  1. `approve_command` must be reachable only via a separate trusted channel (for example UI/operator action, operator-only CLI, or separate non-agent-exposed endpoint), or equivalent actor-authenticated separation.
+  2. Runtime must enforce caller identity/role for approvals (policy `allowed_roles` cannot remain declarative-only).
+  3. Regression tests must prove an agent cannot self-approve commands it initiated.
 
 ## Minimum pre-merge gate (must pass before merge to `main`)
 1. Unit test gate: `python3 -m unittest discover -s tests -p 'test_*.py'` passes.
 2. Manual integration gate: at least 12 prompts from `tests.md` validated, including destructive block, confirmation handshake, simulation threshold/unresolved wildcard, cumulative-budget anti-bypass, restore dry-run/apply, and network-policy checks.
 3. Linux gate: unit suite + reduced integration prompts executed on Linux with outcomes recorded.
+4. Approval separation gate: a dedicated regression test and manual scenario confirm the initiating agent cannot complete its own approval loop.
 
 ## Post-MVP backlog (grouped workstreams)
 ### Execution hardening
@@ -71,3 +83,6 @@ Last updated: 2026-02-24 (MVP lock-down sequencing updates)
 ### Policy validation
 10. Validate expanded command sets against real agent workflows to tune false-positive rate (especially for `find`, `xargs`, `sed`, `perl` in simulation tier).
 11. Add focused integration tests for multi-command shell constructs (`find -exec`, `xargs`, loops, substitutions) that are represented in policy but only partially modeled by current simulation logic.
+12. Restore simulation diagnostics for confirmation-gated commands: include simulation context in logs/responses so operators can distinguish `bulk_file_threshold` from `wildcard_unresolved` even when handshake is required.
+13. Tune cumulative budget defaults for MVP operations so anti-bypass behavior is practically testable in manual integration runs without requiring unrealistic operation volume.
+14. Add approval separation regression coverage: verify that a command requester cannot approve the same command within the same agent/tool context.
