@@ -1,17 +1,27 @@
 import datetime
+import hashlib
 import pathlib
+import re
 import uuid
 
-from config import (
-    APPROVAL_FAILURES,
-    APPROVAL_TTL_SECONDS,
-    PENDING_APPROVALS,
-    PENDING_RESTORE_CONFIRMATIONS,
-    POLICY,
-    RESTORE_CONFIRMATION_TTL_SECONDS,
-    SESSION_WHITELIST,
-)
-from policy_engine import command_hash, normalize_for_audit
+from config import APPROVAL_TTL_SECONDS, POLICY, RESTORE_CONFIRMATION_TTL_SECONDS
+
+SESSION_WHITELIST: set = set()
+PENDING_APPROVALS: dict[str, dict] = {}
+APPROVAL_FAILURES: dict[str, list[datetime.datetime]] = {}
+PENDING_RESTORE_CONFIRMATIONS: dict[str, dict] = {}
+
+
+def _normalize_command(command: str) -> str:
+    return re.sub(r"\s+", " ", command.strip()).lower()
+
+
+def _normalize_for_audit(command: str) -> str:
+    return re.sub(r"\s+", " ", command.strip())
+
+
+def _command_hash(command: str) -> str:
+    return hashlib.sha256(_normalize_command(command).encode()).hexdigest()
 
 
 def prune_approval_failures() -> None:
@@ -47,7 +57,7 @@ def prune_expired_approvals() -> None:
 
 def issue_or_reuse_approval_token(command: str) -> tuple[str, datetime.datetime]:
     prune_expired_approvals()
-    cmd_hash = command_hash(command)
+    cmd_hash = _command_hash(command)
     now = datetime.datetime.utcnow()
 
     for token, rec in PENDING_APPROVALS.items():
@@ -58,7 +68,7 @@ def issue_or_reuse_approval_token(command: str) -> tuple[str, datetime.datetime]
     expires_at = now + datetime.timedelta(seconds=APPROVAL_TTL_SECONDS)
     PENDING_APPROVALS[token] = {
         "command_hash": cmd_hash,
-        "normalized_command": normalize_for_audit(command),
+        "normalized_command": _normalize_for_audit(command),
         "expires_at": expires_at,
     }
     return token, expires_at
@@ -70,7 +80,7 @@ def consume_command_approval(command: str, approval_token: str) -> tuple[bool, s
         return False, "Approval token temporarily locked due to repeated failed attempts", "approval_rate_limit"
 
     rec = PENDING_APPROVALS.get(approval_token)
-    expected_hash = command_hash(command)
+    expected_hash = _command_hash(command)
 
     if not rec:
         record_approval_failure(approval_token)

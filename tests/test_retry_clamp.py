@@ -2,7 +2,6 @@ import tempfile
 import pathlib
 import unittest
 
-import config
 import policy_engine
 
 from tests.test_helpers import apply_test_environment, reset_runtime_state
@@ -38,9 +37,8 @@ class RetryClampTest(unittest.TestCase):
 
         self.assertEqual(counts, [1, 2, 3, 3, 3])
         self.assertEqual(max(counts), 3)
-        self.assertEqual(config.SERVER_RETRY_COUNTS[key], 3)
+        self.assertEqual(policy_engine.SERVER_RETRY_COUNTS[key], 3)
 
 
 if __name__ == "__main__":
     unittest.main()
-

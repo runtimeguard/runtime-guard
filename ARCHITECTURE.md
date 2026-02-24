@@ -23,6 +23,14 @@ Primary runtime artifacts:
 - `activity.log`: JSONL audit trail (one object per event).
 - `backups/`: timestamped snapshots with per-backup `manifest.json`.
 
+## Dependency guardrails
+The refactor assumes a one-way dependency direction:
+- `config.py`/`models.py` at the base
+- runtime modules (`audit`, `policy_engine`, `approvals`, `budget`, `backup`, `executor`) above
+- `tools/*` at the top, with `server.py` only wiring registrations
+
+To prevent future circular imports, keep `audit.py` independent of runtime modules (especially `policy_engine.py`) and avoid cross-importing between peers unless absolutely necessary. If shared behavior is needed, extract it into a lower-level helper module rather than introducing bidirectional imports.
+
 ## Policy tiers
 Policy evaluation is centralized in `check_policy(command)` and uses strict priority:
 1. `blocked`

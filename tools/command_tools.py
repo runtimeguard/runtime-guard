@@ -29,6 +29,7 @@ def server_info() -> str:
 def execute_command(command: str, retry_count: int = 0) -> str:
     network_warning = None
     budget_fields: dict = {}
+    simulation = None
 
     if has_shell_unsafe_control_chars(command):
         result = PolicyResult(
@@ -57,13 +58,14 @@ def execute_command(command: str, retry_count: int = 0) -> str:
         else:
             if mode == "monitor" and net_reason:
                 network_warning = net_reason
-            result = check_policy(command)
+            sim_commands = [c.lower() for c in POLICY.get("requires_simulation", {}).get("commands", [])]
+            if sim_commands:
+                simulation = simulate_blast_radius(command, sim_commands)
+            result = check_policy(command, simulation=simulation)
 
     affected_for_budget: list[str] = []
     if result.allowed:
-        sim_commands = {c.lower() for c in POLICY.get("requires_simulation", {}).get("commands", [])}
-        simulation = simulate_blast_radius(command, list(sim_commands))
-        if simulation["affected"]:
+        if simulation and simulation["affected"]:
             affected_for_budget = simulation["affected"]
         else:
             affected_for_budget = extract_paths(command)

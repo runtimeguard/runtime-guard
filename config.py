@@ -179,13 +179,6 @@ POLICY: dict = _validate_and_normalize_policy(_load_policy())
 BACKUP_DIR = str(pathlib.Path(POLICY.get("audit", {}).get("backup_root", BACKUP_DIR)).resolve())
 MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
 
-SESSION_WHITELIST: set = set()
-PENDING_APPROVALS: dict[str, dict] = {}
-SERVER_RETRY_COUNTS: dict[str, int] = {}
-APPROVAL_FAILURES: dict[str, list[datetime.datetime]] = {}
-CUMULATIVE_BUDGET_STATE: dict[str, dict] = {}
-PENDING_RESTORE_CONFIRMATIONS: dict[str, dict] = {}
-
 SESSION_ID: str = str(uuid.uuid4())
 WORKSPACE_ROOT: str = os.environ.get("AIRG_WORKSPACE", str(BASE_DIR))
 SERVER_BUILD = "2026-02-23T22:10Z-simfix-check"

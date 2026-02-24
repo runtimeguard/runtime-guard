@@ -7,19 +7,18 @@ import re
 import shlex
 from urllib.parse import urlparse
 
-from audit import append_log_entry
+from approvals import SESSION_WHITELIST
+from audit import append_log_entry, build_log_entry
 from config import (
     BACKUP_DIR,
-    LOG_PATH,
     MAX_RETRIES,
     POLICY,
-    SERVER_RETRY_COUNTS,
     SESSION_ID,
-    SESSION_WHITELIST,
     WORKSPACE_ROOT,
 )
 from models import PolicyResult
 
+SERVER_RETRY_COUNTS: dict[str, int] = {}
 
 def normalize_command(command: str) -> str:
     return re.sub(r"\s+", " ", command.strip()).lower()
@@ -327,7 +326,7 @@ def simulate_blast_radius(command: str, sim_commands: list[str]) -> dict:
     return {"affected": sorted(affected), "saw_wildcard": saw_wildcard, "parse_error": parse_error}
 
 
-def check_simulation_tier(command: str) -> tuple[str, str] | None:
+def check_simulation_tier(command: str, simulation: dict | None = None) -> tuple[str, str] | None:
     sim = POLICY.get("requires_simulation", {})
     sim_commands = sim.get("commands", [])
     threshold = sim.get("bulk_file_threshold", 10)
@@ -335,7 +334,8 @@ def check_simulation_tier(command: str) -> tuple[str, str] | None:
     if not sim_commands:
         return None
 
-    simulation = simulate_blast_radius(command, sim_commands)
+    if simulation is None:
+        simulation = simulate_blast_radius(command, sim_commands)
     affected = simulation["affected"]
     saw_wildcard = simulation["saw_wildcard"]
     parse_error = simulation["parse_error"]
@@ -361,23 +361,27 @@ def check_simulation_tier(command: str) -> tuple[str, str] | None:
 def log_policy_conflict(command: str, normalized: str, matching_tiers: list) -> None:
     tier_names = [tier for tier, _, _ in matching_tiers]
     winning_tier, _winning_reason, winning_matched_rule = matching_tiers[0]
-    warning = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-        "event": "policy_conflict_warning",
-        "session_id": SESSION_ID,
-        "workspace": WORKSPACE_ROOT,
-        "command": command,
-        "normalized_command": normalized,
-        "matching_tiers": tier_names,
-        "resolved_to": winning_tier,
-        "decision_tier": winning_tier,
-    }
-    if winning_matched_rule is not None:
-        warning["matched_rule"] = winning_matched_rule
+    warning_result = PolicyResult(
+        allowed=False,
+        reason="Command matched multiple policy tiers; resolved by policy precedence.",
+        decision_tier=winning_tier,
+        matched_rule=winning_matched_rule,
+    )
+    warning = build_log_entry(
+        "policy_engine",
+        warning_result,
+        event="policy_conflict_warning",
+        command=command,
+        normalized_command=normalized,
+        matching_tiers=tier_names,
+        resolved_to=winning_tier,
+        session_id=SESSION_ID,
+        workspace=WORKSPACE_ROOT,
+    )
     append_log_entry(warning)
 
 
-def check_policy(command: str) -> PolicyResult:
+def check_policy(command: str, simulation: dict | None = None) -> PolicyResult:
     norm = normalize_command(command)
     matching_tiers: list[tuple[str, str, str]] = []
 
@@ -391,7 +395,7 @@ def check_policy(command: str) -> PolicyResult:
         reason, matched_rule = confirmation_result
         matching_tiers.append(("requires_confirmation", reason, matched_rule))
 
-    simulation_result = check_simulation_tier(command)
+    simulation_result = check_simulation_tier(command, simulation=simulation)
     if simulation_result:
         reason, matched_rule = simulation_result
         matching_tiers.append(("requires_simulation", reason, matched_rule))

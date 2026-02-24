@@ -2,8 +2,11 @@ import datetime
 import os
 import pathlib
 
-from config import CUMULATIVE_BUDGET_STATE, POLICY, SESSION_WHITELIST, SESSION_ID, WORKSPACE_ROOT
+from approvals import SESSION_WHITELIST
+from config import POLICY, SESSION_ID, WORKSPACE_ROOT
 from policy_engine import command_hash, is_within_workspace, tokenize_command
+
+CUMULATIVE_BUDGET_STATE: dict[str, dict] = {}
 
 
 def cumulative_cfg() -> dict:

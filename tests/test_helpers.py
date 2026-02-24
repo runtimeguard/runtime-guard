@@ -138,10 +138,9 @@ def restore_policy(original: dict) -> None:
 
 
 def reset_runtime_state() -> None:
-    config.SESSION_WHITELIST.clear()
-    config.PENDING_APPROVALS.clear()
-    config.SERVER_RETRY_COUNTS.clear()
-    config.APPROVAL_FAILURES.clear()
-    config.CUMULATIVE_BUDGET_STATE.clear()
-    config.PENDING_RESTORE_CONFIRMATIONS.clear()
-
+    approvals.SESSION_WHITELIST.clear()
+    approvals.PENDING_APPROVALS.clear()
+    approvals.APPROVAL_FAILURES.clear()
+    approvals.PENDING_RESTORE_CONFIRMATIONS.clear()
+    policy_engine.SERVER_RETRY_COUNTS.clear()
+    budget.CUMULATIVE_BUDGET_STATE.clear()
