@@ -92,7 +92,16 @@ def _ensure_policy_file(paths: dict[str, pathlib.Path], force: bool = False) -> 
     policy_path.parent.mkdir(parents=True, exist_ok=True)
     if policy_path.exists() and not force:
         return
-    policy_path.write_text(json.dumps(_policy_template(), indent=2) + "\n")
+    policy = _policy_template()
+    # Ensure generated policy does not inherit machine-specific backup roots
+    # from the repository template. Runtime state should stay user-local.
+    audit = policy.get("audit")
+    if not isinstance(audit, dict):
+        audit = {}
+        policy["audit"] = audit
+    backup_root = (paths["state_dir"] / "backups").resolve()
+    audit["backup_root"] = str(backup_root)
+    policy_path.write_text(json.dumps(policy, indent=2) + "\n")
     try:
         os.chmod(policy_path, 0o600)
     except OSError:
