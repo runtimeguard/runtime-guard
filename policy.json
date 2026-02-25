@@ -18,7 +18,7 @@
       "su",
       "doas"
     ],
-    "paths":    [".env", ".ssh", "/etc/passwd"],
+    "paths":    [".env", ".ssh", "/etc/passwd", "activity.log", "approvals.db", "approvals.db.hmac.key"],
     "extensions": [".pem", ".key"]
   },
 

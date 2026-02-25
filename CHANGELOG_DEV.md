@@ -3,10 +3,13 @@
 ## 2026-02-25 (approval DB hardening)
 - Added confirmation coverage in `policy.json` for `sqlite3`, `tail`, `grep`, `awk`, `sed`, `head`, and `less`.
 - Added confirmation path guards for `activity.log` and `approvals.db` to increase visibility for sensitive command-path access.
+- Added explicit blocked-path protection for runtime state files: `activity.log`, `approvals.db`, and `approvals.db.hmac.key`.
 - Hardened approval store permissions in `approvals.py`: enforce `0600` on `approvals.db` at open/create and emit `mcp-server` audit warnings when DB or parent directory permissions are too open.
+- Added warning when approval DB/HMAC key paths are configured inside workspace and should be moved out-of-workspace.
+- Added startup approval-store health check (`integrity_check` + required schema); server now fails closed if the approval store is unhealthy.
 - Added durable approval-grant integrity signatures (HMAC over `{session_id, command_hash, expires_at}`) and reject+purge tampered grants at consume time.
 - Added explicit audit warnings for malformed approval-store rows (invalid `expires_at`, missing `session_id`, invalid `affected_paths` JSON/type).
-- Added regression test coverage for tampered approval signatures in `tests/test_approvals_store.py`.
+- Added regression coverage for tampered approval signatures (`tests/test_approvals_store.py`) and protected runtime-file blocking for `read_file`/`write_file` (`tests/test_attacker_suite.py`).
 
 ## 2026-02-25 (approval surface hardening)
 - Removed `approve_command` from the MCP tool surface (`server.py`, `tools/__init__.py`) so agents cannot self-approve via in-band tool calls.

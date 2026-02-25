@@ -10,7 +10,9 @@ from urllib.parse import urlparse
 from approvals import consume_approved_command
 from audit import append_log_entry, build_log_entry
 from config import (
+    BASE_DIR,
     BACKUP_DIR,
+    LOG_PATH,
     MAX_RETRIES,
     POLICY,
     SESSION_ID,
@@ -453,6 +455,26 @@ def is_backup_path(path: str) -> bool:
         return False
 
 
+def is_protected_runtime_path(path: str) -> bool:
+    try:
+        resolved = pathlib.Path(path).resolve()
+    except Exception:
+        return False
+
+    approval_db = pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db"))
+    ).resolve()
+    approval_key = pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{approval_db}.hmac.key")
+    ).resolve()
+    protected = {
+        pathlib.Path(LOG_PATH).resolve(),
+        approval_db,
+        approval_key,
+    }
+    return resolved in protected
+
+
 def check_path_policy(path: str, tool: str | None = None) -> tuple[str, str] | None:
     blocked = POLICY.get("blocked", {})
     lower = path.lower()
@@ -470,6 +492,12 @@ def check_path_policy(path: str, tool: str | None = None) -> tuple[str, str] | N
                 f"Sensitive file extension not permitted: '{ext}' files may contain private keys or certificates",
                 ext,
             )
+
+    if is_protected_runtime_path(path):
+        return (
+            f"Path '{path}' is protected runtime state and is not accessible via {tool or 'this tool'}",
+            "runtime_protected_path",
+        )
 
     if not is_within_workspace(path):
         return (f"Path '{path}' is outside the allowed workspace", "workspace_boundary")

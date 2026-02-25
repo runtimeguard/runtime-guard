@@ -54,6 +54,7 @@ def _from_z(raw: str) -> datetime.datetime:
 def _conn() -> sqlite3.Connection:
     APPROVAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _warn_if_world_accessible(APPROVAL_DB_PATH.parent)
+    _warn_if_store_inside_workspace()
     conn = sqlite3.connect(APPROVAL_DB_PATH)
     conn.row_factory = sqlite3.Row
     _enforce_db_file_permissions()
@@ -99,6 +100,30 @@ def _warn_if_world_accessible(path: pathlib.Path) -> None:
             path=str(path),
             mode=oct(mode),
         )
+
+
+def _warn_if_store_inside_workspace() -> None:
+    try:
+        db_resolved = APPROVAL_DB_PATH.resolve()
+        ws_resolved = pathlib.Path(WORKSPACE_ROOT).resolve()
+        if db_resolved.is_relative_to(ws_resolved):
+            _log_security_warning(
+                "approval_store_inside_workspace",
+                "Approval store path is inside agent workspace; move AIRG_APPROVAL_DB_PATH outside workspace",
+                approval_db_path=str(db_resolved),
+                workspace=str(ws_resolved),
+            )
+        key_resolved = _approval_hmac_key_path().resolve()
+        if key_resolved.is_relative_to(ws_resolved):
+            _log_security_warning(
+                "approval_hmac_key_inside_workspace",
+                "Approval HMAC key path is inside agent workspace; move AIRG_APPROVAL_HMAC_KEY_PATH outside workspace",
+                approval_hmac_key_path=str(key_resolved),
+                workspace=str(ws_resolved),
+            )
+    except Exception:
+        # Path resolution failures are non-fatal for runtime operation.
+        return
 
 
 def _enforce_db_file_permissions() -> None:
@@ -191,6 +216,38 @@ def _approval_grant_signature(session_id: str, command_hash: str, expires_at: st
     return hmac.new(_approval_signing_key(), payload, hashlib.sha256).hexdigest()
 
 
+def _check_approval_store_health(conn: sqlite3.Connection) -> tuple[bool, str]:
+    try:
+        row = conn.execute("PRAGMA integrity_check").fetchone()
+        if not row or str(row[0]).lower() != "ok":
+            return False, f"sqlite integrity check failed: {row[0] if row else 'no result'}"
+
+        tables = {
+            str(r["name"])
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('pending_approvals','approved_commands')"
+            ).fetchall()
+        }
+        required_tables = {"pending_approvals", "approved_commands"}
+        if tables != required_tables:
+            return False, f"missing required approval tables: expected={sorted(required_tables)} found={sorted(tables)}"
+
+        approved_cols = {
+            str(r["name"])
+            for r in conn.execute("PRAGMA table_info(approved_commands)").fetchall()
+        }
+        required_cols = {"session_id", "command_hash", "approved_at", "expires_at", "source", "signature"}
+        if not required_cols.issubset(approved_cols):
+            return (
+                False,
+                f"approved_commands schema missing required columns: {sorted(required_cols - approved_cols)}",
+            )
+    except sqlite3.DatabaseError as exc:
+        return False, f"approval-store health check failed with sqlite error: {exc}"
+
+    return True, "ok"
+
+
 def init_approval_store() -> None:
     with _conn() as conn:
         conn.execute(
@@ -232,6 +289,15 @@ def init_approval_store() -> None:
             "CREATE INDEX IF NOT EXISTS idx_approved_commands_expires_at ON approved_commands(expires_at)"
         )
         conn.commit()
+        healthy, reason = _check_approval_store_health(conn)
+        if not healthy:
+            _log_security_warning(
+                "approval_store_health_check_failed",
+                "Approval store failed health check; refusing approvals until repaired",
+                approval_db_path=str(APPROVAL_DB_PATH),
+                error=reason,
+            )
+            raise RuntimeError(f"Approval store failed health check: {reason}")
 
 
 def prune_approval_failures() -> None:

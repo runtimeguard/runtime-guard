@@ -2,6 +2,7 @@
 
 from mcp.server.fastmcp import FastMCP
 
+import approvals
 from tools import (
     delete_file,
     execute_command,
@@ -11,6 +12,8 @@ from tools import (
     server_info,
     write_file,
 )
+
+approvals.init_approval_store()
 
 mcp = FastMCP("ai-runtime-guard")
 

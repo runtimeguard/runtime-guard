@@ -107,6 +107,7 @@ def apply_test_environment(workspace: pathlib.Path, max_retries: int = 2) -> Exi
     ws = str(workspace.resolve())
     log_path = str((workspace / "activity.log").resolve())
     backup_dir = str((workspace / "backups").resolve())
+    approval_db = pathlib.Path(workspace / "approvals.db").resolve()
     stack = ExitStack()
 
     for module in [config, audit, policy_engine, backup, budget, executor, command_tools, file_tools]:
@@ -115,12 +116,18 @@ def apply_test_environment(workspace: pathlib.Path, max_retries: int = 2) -> Exi
     for module in [config, audit]:
         if hasattr(module, "LOG_PATH"):
             stack.enter_context(patch.object(module, "LOG_PATH", log_path))
+    if hasattr(policy_engine, "LOG_PATH"):
+        stack.enter_context(patch.object(policy_engine, "LOG_PATH", log_path))
     for module in [config, backup, policy_engine, restore_tools]:
         if hasattr(module, "BACKUP_DIR"):
             stack.enter_context(patch.object(module, "BACKUP_DIR", backup_dir))
+    if hasattr(policy_engine, "BASE_DIR"):
+        stack.enter_context(patch.object(policy_engine, "BASE_DIR", pathlib.Path(ws)))
     for module in [config, policy_engine, command_tools]:
         if hasattr(module, "MAX_RETRIES"):
             stack.enter_context(patch.object(module, "MAX_RETRIES", max_retries))
+    stack.enter_context(patch.object(approvals, "APPROVAL_DB_PATH", approval_db))
+    stack.enter_context(patch.dict("os.environ", {"AIRG_APPROVAL_DB_PATH": str(approval_db)}, clear=False))
 
     return stack
 

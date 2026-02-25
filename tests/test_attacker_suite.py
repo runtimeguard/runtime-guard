@@ -129,6 +129,23 @@ class AttackerTestSuite(unittest.TestCase):
         delete_result = delete_file("nested/demo.txt")
         self.assertIn("Successfully deleted", delete_result)
 
+    def test_runtime_protected_files_are_blocked_for_file_tools(self):
+        # Create placeholder files; policy should still block access by protected path rule.
+        (self.workspace / "approvals.db").write_text("placeholder")
+        (self.workspace / "activity.log").write_text("placeholder")
+
+        read_db = read_file("approvals.db")
+        self.assertIn("[POLICY BLOCK]", read_db)
+        self.assertIn("runtime state", read_db)
+
+        write_db = write_file("approvals.db", "tamper")
+        self.assertIn("[POLICY BLOCK]", write_db)
+        self.assertIn("runtime state", write_db)
+
+        read_log = read_file("activity.log")
+        self.assertIn("[POLICY BLOCK]", read_log)
+        self.assertIn("runtime state", read_log)
+
 
 if __name__ == "__main__":
     unittest.main()
