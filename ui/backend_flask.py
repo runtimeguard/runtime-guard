@@ -4,7 +4,7 @@ import pathlib
 import sys
 from datetime import datetime, UTC
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 # Ensure project-root modules (approvals, config, etc.) are importable when
 # this file is run directly via `python3 ui/backend_flask.py`.
@@ -20,6 +20,7 @@ from ui import service
 POLICY_PATH = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", str(BASE_DIR / "policy.json")))
 APPROVAL_DB_PATH = pathlib.Path(os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db")))
 CATALOG_PATH = pathlib.Path(os.environ.get("AIRG_CATALOG_PATH", str(pathlib.Path(__file__).resolve().parent / "catalog.json")))
+UI_DIST_PATH = pathlib.Path(os.environ.get("AIRG_UI_DIST_PATH", str(BASE_DIR / "ui_v3" / "dist")))
 
 service.POLICY_PATH = POLICY_PATH
 service.CATALOG_PATH = CATALOG_PATH
@@ -172,6 +173,45 @@ def deny_pending():
         )
     )
     return jsonify({"denied": True, "message": message})
+
+
+def _ui_dist_ready() -> bool:
+    return UI_DIST_PATH.exists() and (UI_DIST_PATH / "index.html").exists()
+
+
+@app.route("/", methods=["GET"])
+def ui_index():
+    if not _ui_dist_ready():
+        return (
+            jsonify(
+                {
+                    "error": "UI build not found",
+                    "hint": "Build frontend with `cd ui_v3 && npm install && npm run build` or set AIRG_UI_DIST_PATH",
+                }
+            ),
+            404,
+        )
+    return send_from_directory(UI_DIST_PATH, "index.html")
+
+
+@app.route("/assets/<path:asset_path>", methods=["GET"])
+def ui_assets(asset_path: str):
+    if not _ui_dist_ready():
+        return jsonify({"error": "UI build not found"}), 404
+    return send_from_directory(UI_DIST_PATH / "assets", asset_path)
+
+
+@app.route("/<path:path>", methods=["GET"])
+def ui_spa(path: str):
+    # Keep REST endpoints authoritative; this fallback serves built UI files.
+    if path.startswith("policy") or path.startswith("approvals"):
+        return jsonify({"error": "Not found"}), 404
+    if not _ui_dist_ready():
+        return jsonify({"error": "UI build not found"}), 404
+    file_path = UI_DIST_PATH / path
+    if file_path.exists() and file_path.is_file():
+        return send_from_directory(UI_DIST_PATH, path)
+    return send_from_directory(UI_DIST_PATH, "index.html")
 
 
 if __name__ == "__main__":

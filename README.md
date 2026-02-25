@@ -56,7 +56,16 @@ Using `uvx` (without persistent install):
 ## Local policy UI (v3)
 React + Tailwind frontend (Vite) with a Flask backend.
 
-Backend:
+Production-style UI (recommended for packaging):
+1. `cd ui_v3`
+2. `npm install`
+3. `npm run build`
+4. Start backend that serves built UI + API:
+   - source workflow: `python3 ui/backend_flask.py`
+   - packaged workflow: `airg-ui`
+5. Open `http://127.0.0.1:5001`
+
+Backend API (dev mode):
 1. `python3 -m venv venv && source venv/bin/activate`
 2. `pip install -r requirements.txt`
 3. `source scripts/setup_runtime_env.sh`
@@ -85,6 +94,7 @@ Security path note:
   - macOS: `~/Library/Application Support/ai-runtime-guard/`
   - Linux: `${XDG_STATE_HOME:-~/.local/state}/ai-runtime-guard/`
 - This avoids repeated approval-store hardening warnings and is the recommended default for public packaging.
+- Built UI path can be overridden with `AIRG_UI_DIST_PATH`.
 
 ## How to test
 Primary workflow (recommended for destructive-behavior testing):

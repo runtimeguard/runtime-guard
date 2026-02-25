@@ -168,6 +168,11 @@ Behavior:
 - Status badges reflect applied policy only (post-`Apply`).
 - `Apply` performs validation, atomic write, and appends `ui/config_changes.log`.
 
+Serving model:
+- `ui/backend_flask.py` now serves both REST API endpoints and built frontend assets from `ui_v3/dist` when present.
+- If the frontend build is missing, backend API routes still work and `/` returns a build-missing hint.
+- Override built UI path with `AIRG_UI_DIST_PATH` when needed.
+
 ## 13. What is automatic vs manual in UI command catalog
 Automatic:
 - Commands added to policy command lists appear in `All Commands`.
