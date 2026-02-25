@@ -24,6 +24,14 @@ def load_catalog(path: pathlib.Path | None = None) -> dict:
     return json.loads(path.read_text())
 
 
+def command_descriptions(catalog: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for tab in catalog.get("tabs", []):
+        for cmd, desc in (tab.get("descriptions") or {}).items():
+            out[str(cmd)] = str(desc)
+    return out
+
+
 def policy_hash(policy: dict) -> str:
     payload = json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(payload).hexdigest()
@@ -46,6 +54,44 @@ def command_tier_map(policy: dict) -> dict[str, str]:
     for cmd in policy.get("blocked", {}).get("commands", []):
         out[str(cmd)] = "blocked"
     return out
+
+
+def all_known_commands(policy: dict, catalog: dict) -> list[str]:
+    commands: set[str] = set()
+    for section in ["blocked", "requires_confirmation", "requires_simulation", "network"]:
+        commands.update(str(x) for x in policy.get(section, {}).get("commands", []))
+    for tab in catalog.get("tabs", []):
+        commands.update(str(x) for x in tab.get("commands", []))
+    return sorted(commands)
+
+
+def get_command_override(policy: dict, command: str) -> dict:
+    return (
+        policy.get("ui_overrides", {})
+        .get("commands", {})
+        .get(command, {})
+    )
+
+
+def set_command_override(policy: dict, command: str, retry: int | None, budget: dict | None) -> dict:
+    result = copy.deepcopy(policy)
+    root = result.setdefault("ui_overrides", {})
+    commands = root.setdefault("commands", {})
+    if retry is None and not budget:
+        commands.pop(command, None)
+        return result
+    entry: dict[str, Any] = {}
+    if retry is not None and int(retry) >= 0:
+        entry["retry_override"] = int(retry)
+    if budget:
+        budget_clean = {k: int(v) for k, v in budget.items() if isinstance(v, int) and v >= 0}
+        if budget_clean:
+            entry["budget"] = budget_clean
+    if not entry:
+        commands.pop(command, None)
+        return result
+    commands[command] = entry
+    return result
 
 
 def apply_tier_command(policy: dict, command: str, tier: str) -> dict:

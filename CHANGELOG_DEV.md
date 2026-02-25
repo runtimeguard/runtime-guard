@@ -9,6 +9,11 @@
   - regression coverage must prove no self-approval path exists
 - Added explicit approval-separation checkpoint requirements to `README.md` and `tests.md`.
 - Added a Phase-1 local control-plane UI skeleton (`ui/`) for policy management (catalog tabs, tier toggles, validation, atomic apply, and change log), intended as the base for a future out-of-band approval interface.
+- Added UI v2 improvements:
+  - named tier columns and legend/status semantics
+  - complete command visibility via `All Commands` + search
+  - tooltip descriptions and applied-state badges next to command names
+  - per-command retry/budget editor fields persisted to `policy.ui_overrides.commands.*` as non-enforced metadata for future runtime support
 
 ## 2026-02-24 (MVP lock-down prep)
 - Added explicit merge/branch policy and pre-merge gate to `README.md` (unit tests + minimum manual integration prompts + Linux checkpoint).

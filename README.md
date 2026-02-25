@@ -26,7 +26,10 @@ Run the local control-plane UI for policy editing:
 
 Current UI scope:
 - load current `policy.json`
-- tabbed command tier editing (`allowed`, `requires_simulation`, `requires_confirmation`, `blocked`)
+- tabbed command views (`All Commands`, `macOS`, `Linux`, `GitHub`, `Email`, `Network`) with search filter
+- named tier columns (`Allowed`, `Simulation`, `Requires Approval`, `Blocked`)
+- per-command applied-state status badges + tooltip descriptions
+- per-command retry/budget editor fields stored in policy metadata (`ui_overrides.commands`)
 - validate and apply with atomic write
 - append-only config change log at `ui/config_changes.log`
 

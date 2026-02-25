@@ -43,6 +43,7 @@ class UIHandler(SimpleHTTPRequestHandler):
             if not self._require_passcode():
                 return
             policy = service.load_policy()
+            catalog = service.load_catalog()
             ok, details = service.validate_policy(policy)
             self._json(
                 HTTPStatus.OK,
@@ -52,6 +53,8 @@ class UIHandler(SimpleHTTPRequestHandler):
                     "valid": ok,
                     "hash": service.policy_hash(policy),
                     "tier_map": service.command_tier_map(policy),
+                    "all_commands": service.all_known_commands(policy, catalog),
+                    "descriptions": service.command_descriptions(catalog),
                 },
             )
             return

@@ -27,6 +27,11 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
   - added confirmation coverage for version-control, email, package-management, process-management, and exfiltration-oriented command families
 - Documented merge policy and explicit pre-merge gate in `README.md`.
 - Added Phase-1 local policy control-plane skeleton under `ui/` (policy load/validate/apply, command-tier editor tabs, atomic writes, change logging).
+- Upgraded UI to v2 policy editor ergonomics:
+  - explicit tier column headers
+  - `All Commands` view + search filter so non-catalog commands are visible
+  - command tooltip descriptions and applied-state status badges (updated after Apply)
+  - per-command retry/budget editor fields persisted as `policy.ui_overrides.commands.*`
 
 ## Current known issues
 - Release blocker: approval separation-of-duties is not enforced. The same AI agent can call `execute_command`, receive a token, call `approve_command`, and complete its own confirmation loop.
@@ -37,6 +42,7 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 - Linux validation checkpoint has not yet been executed in this workspace/session.
 - When `requires_confirmation` matches first (for example `rm`), user-facing responses no longer distinguish simulation causes (`bulk_file_threshold` vs `wildcard_unresolved`) even though simulation still runs.
 - Cumulative budget limits are currently high enough that practical MVP prompt runs may not trigger budget blocks.
+- UI per-command retry/budget overrides are stored as policy metadata for now; runtime does not yet enforce per-command override values.
 
 ## Core use cases (from README; do not edit without explicit product decision)
 1. Block destructive commands and sensitive path/extension access.

@@ -22,6 +22,7 @@ Primary runtime artifacts:
 - `policy.json`: runtime policy tiers and thresholds.
 - `activity.log`: JSONL audit trail (one object per event).
 - `backups/`: timestamped snapshots with per-backup `manifest.json`.
+- `ui/`: local control-plane UI for policy editing (`ui/server.py`, `ui/service.py`, static frontend assets).
 
 ## Dependency guardrails
 The refactor assumes a one-way dependency direction:
@@ -163,3 +164,12 @@ Policy-only lock-down was expanded to cover common agent command families withou
   - `requires_confirmation`: `base64`, `xxd`, `nc`, `netcat`, `curl`, `wget`, `scp`, `rsync`
 - Privilege escalation:
   - `blocked`: `sudo`, `su`, `doas`
+
+## Policy UI metadata
+The UI can store per-command editor metadata in:
+- `policy.ui_overrides.commands.<command>.retry_override`
+- `policy.ui_overrides.commands.<command>.budget.*`
+
+Current behavior:
+- metadata is persisted by UI apply flow and included in audit diffs
+- runtime enforcement is unchanged for MVP; these fields are planning/config scaffolding for later per-command enforcement work

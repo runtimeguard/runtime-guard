@@ -75,6 +75,34 @@ class UIPolicyServiceTests(unittest.TestCase):
             service.POLICY_PATH = original_policy_path
             service.CHANGE_LOG_PATH = original_log_path
 
+    def test_all_known_commands_includes_policy_and_catalog(self):
+        catalog = {
+            "tabs": [
+                {"id": "all", "commands": []},
+                {"id": "misc", "commands": ["xargs", "cat"]},
+            ]
+        }
+        commands = service.all_known_commands(self.initial, catalog)
+        self.assertIn("dd", commands)
+        self.assertIn("cat", commands)
+        self.assertIn("rm", commands)
+        self.assertIn("xargs", commands)
+
+    def test_set_command_override_round_trip(self):
+        updated = service.set_command_override(
+            self.initial,
+            "git clone",
+            retry=2,
+            budget={"max_ops_per_session": 5, "max_bytes_per_session": 1024},
+        )
+        ov = updated.get("ui_overrides", {}).get("commands", {}).get("git clone", {})
+        self.assertEqual(ov.get("retry_override"), 2)
+        self.assertEqual(ov.get("budget", {}).get("max_ops_per_session"), 5)
+        self.assertEqual(ov.get("budget", {}).get("max_bytes_per_session"), 1024)
+
+        cleared = service.set_command_override(updated, "git clone", retry=None, budget=None)
+        self.assertNotIn("git clone", cleared.get("ui_overrides", {}).get("commands", {}))
+
 
 if __name__ == "__main__":
     unittest.main()
