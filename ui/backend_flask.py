@@ -1,15 +1,21 @@
 import json
 import os
 import pathlib
+import sys
 from datetime import datetime, UTC
 
 from flask import Flask, jsonify, request
+
+# Ensure project-root modules (approvals, config, etc.) are importable when
+# this file is run directly via `python3 ui/backend_flask.py`.
+BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 import approvals
 from ui import service
 
 # Shared paths used by MCP server and control-plane backend.
-BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 POLICY_PATH = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", str(BASE_DIR / "policy.json")))
 APPROVAL_DB_PATH = pathlib.Path(os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db")))
 CATALOG_PATH = pathlib.Path(os.environ.get("AIRG_CATALOG_PATH", str(pathlib.Path(__file__).resolve().parent / "catalog.json")))
