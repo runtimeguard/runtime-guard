@@ -9,6 +9,7 @@ from executor import run_shell_command
 from models import PolicyResult
 from policy_engine import (
     check_policy,
+    check_simulation_tier,
     command_targets_backup_storage,
     execution_limits,
     has_shell_unsafe_control_chars,
@@ -30,6 +31,7 @@ def execute_command(command: str, retry_count: int = 0) -> str:
     network_warning = None
     budget_fields: dict = {}
     simulation = None
+    simulation_diagnostic: tuple[str, str] | None = None
 
     if has_shell_unsafe_control_chars(command):
         result = PolicyResult(
@@ -62,6 +64,8 @@ def execute_command(command: str, retry_count: int = 0) -> str:
             if sim_commands:
                 simulation = simulate_blast_radius(command, sim_commands)
             result = check_policy(command, simulation=simulation)
+            if simulation is not None:
+                simulation_diagnostic = check_simulation_tier(command, simulation=simulation)
 
     affected_for_budget: list[str] = []
     if result.allowed:
@@ -99,6 +103,14 @@ def execute_command(command: str, retry_count: int = 0) -> str:
         server_retry_count=server_retry_count,
         affected_paths_count=len(affected_for_budget),
         **({"network_warning": network_warning} if network_warning else {}),
+        **(
+            {
+                "simulation_diagnostic_message": simulation_diagnostic[0],
+                "simulation_diagnostic_rule": simulation_diagnostic[1],
+            }
+            if simulation_diagnostic and result.decision_tier == "requires_confirmation"
+            else {}
+        ),
         **budget_fields,
         **({"final_block": True} if final_block else {}),
     )
@@ -112,9 +124,15 @@ def execute_command(command: str, retry_count: int = 0) -> str:
                 session_id=SESSION_ID,
                 affected_paths=approval_paths,
             )
+            simulation_context = (
+                f"Simulation context: {simulation_diagnostic[0]}\n"
+                if simulation_diagnostic
+                else ""
+            )
             return (
                 f"[POLICY BLOCK] {result.reason}\n\n"
                 "This command requires an explicit confirmation handshake.\n"
+                f"{simulation_context}"
                 "Ask a human operator to approve it via the control-plane GUI/API using this exact command and token, then retry execute_command:\n"
                 f"approval_token={token}\n"
                 f"token_expires_at={expires_at.isoformat()}Z"

@@ -56,6 +56,29 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertEqual(result.decision_tier, "requires_simulation")
         self.assertIn("could not be safely simulated", result.reason)
 
+    def test_confirmation_response_includes_simulation_context_for_threshold(self):
+        self._write("c1.tmp")
+        self._write("c2.tmp")
+        self._write("c3.tmp")
+        policy_engine.POLICY["requires_confirmation"]["commands"] = ["rm"]
+        policy_engine.POLICY["requires_simulation"]["bulk_file_threshold"] = 2
+
+        blocked = execute_command("rm *.tmp")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("explicit confirmation handshake", blocked)
+        self.assertIn("Simulation context:", blocked)
+        self.assertIn("blast radius is 3", blocked)
+
+    def test_confirmation_response_includes_simulation_context_for_unresolved_wildcard(self):
+        policy_engine.POLICY["requires_confirmation"]["commands"] = ["rm"]
+        policy_engine.POLICY["requires_simulation"]["bulk_file_threshold"] = 2
+
+        blocked = execute_command("rm *.definitelymissing")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("explicit confirmation handshake", blocked)
+        self.assertIn("Simulation context:", blocked)
+        self.assertIn("could not be safely simulated", blocked)
+
     def test_confirmation_handshake_via_out_of_band_approval(self):
         self._write("safe.txt", "hello")
         policy_engine.POLICY["requires_confirmation"]["commands"] = ["cat"]

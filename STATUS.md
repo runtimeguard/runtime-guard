@@ -16,6 +16,7 @@ Last updated: 2026-02-25
 - Expanded confirmation coverage in `policy.json` for local DB/log inspection commands (`sqlite3`, `tail`, `grep`, `awk`, `sed`, `head`, `less`) and path markers (`activity.log`, `approvals.db`).
 - Added blocked-path runtime protection in policy for `activity.log`, `approvals.db`, and `approvals.db.hmac.key`.
 - Added approval-store startup health checks (`integrity_check` + schema expectations); startup now fails closed if store health checks fail.
+- Restored simulation diagnostics for confirmation-gated commands: confirmation responses and audit logs now include simulation context when simulation would have triggered (`bulk_file_threshold` or `wildcard_unresolved`).
 - Split monolithic `server.py` into focused modules:
   - `config.py`, `models.py`, `audit.py`, `policy_engine.py`, `approvals.py`, `budget.py`, `backup.py`, `executor.py`
   - `tools/command_tools.py`, `tools/file_tools.py`, `tools/restore_tools.py`
@@ -55,7 +56,6 @@ Last updated: 2026-02-25
 - Backup target detection for shell commands remains heuristic (`PATH_TOKEN_RE` + existing-path checks) and can miss some shell expansion edge cases.
 - Runtime constants are still imported by multiple modules at load time (`WORKSPACE_ROOT`, `MAX_RETRIES`, `LOG_PATH`, `BACKUP_DIR`), so dynamic runtime reconfiguration remains non-centralized and requires careful patching in tests.
 - Linux validation checkpoint has not yet been executed in this workspace/session.
-- When `requires_confirmation` matches first (for example `rm`), user-facing responses no longer distinguish simulation causes (`bulk_file_threshold` vs `wildcard_unresolved`) even though simulation still runs.
 - Cumulative budget limits are currently high enough that practical MVP prompt runs may not trigger budget blocks.
 - UI per-command retry/budget overrides are stored as policy metadata for now; runtime does not yet enforce per-command override values.
 - Legacy UI server (`ui/server.py`) remains in repo; v3 runtime path is Flask backend + `ui_v3` frontend.
@@ -104,7 +104,6 @@ Last updated: 2026-02-25
 ### Policy validation
 10. Validate expanded command sets against real agent workflows to tune false-positive rate (especially for `find`, `xargs`, `sed`, `perl` in simulation tier).
 11. Add focused integration tests for multi-command shell constructs (`find -exec`, `xargs`, loops, substitutions) that are represented in policy but only partially modeled by current simulation logic.
-12. Restore simulation diagnostics for confirmation-gated commands: include simulation context in logs/responses so operators can distinguish `bulk_file_threshold` from `wildcard_unresolved` even when handshake is required.
 13. Tune cumulative budget defaults for MVP operations so anti-bypass behavior is practically testable in manual integration runs without requiring unrealistic operation volume.
 14. Add approval separation regression coverage: verify that a command requester cannot approve the same command within the same agent/tool context.
 15. Add UI operator warnings:

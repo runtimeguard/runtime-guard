@@ -10,6 +10,7 @@
 - Added durable approval-grant integrity signatures (HMAC over `{session_id, command_hash, expires_at}`) and reject+purge tampered grants at consume time.
 - Added explicit audit warnings for malformed approval-store rows (invalid `expires_at`, missing `session_id`, invalid `affected_paths` JSON/type).
 - Added regression coverage for tampered approval signatures (`tests/test_approvals_store.py`) and protected runtime-file blocking for `read_file`/`write_file` (`tests/test_attacker_suite.py`).
+- Restored simulation diagnostics for confirmation-gated commands so confirmation responses and `execute_command` logs carry simulation context when simulation would independently block.
 
 ## 2026-02-25 (approval surface hardening)
 - Removed `approve_command` from the MCP tool surface (`server.py`, `tools/__init__.py`) so agents cannot self-approve via in-band tool calls.
