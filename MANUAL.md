@@ -187,11 +187,17 @@ Current recommended UI stack:
 - Frontend: Vite React + Tailwind (`ui_v3/`)
 
 Behavior:
-- Three-layer navigation: rail (`Approvals`, `Commands`, `Reports`, `Settings`) + command tabs + content panel.
+- Three-layer navigation: rail (`Approvals`, `Commands`, `Paths`, `Reports`, `Settings`) + command tabs + content panel.
 - Approvals panel polls backend and supports `approve`/`deny` actions against shared SQLite approval store.
 - Commands panel supports search, tier radios, clickable command-info modal, applied-state badges, retry/budget metadata inputs, and advanced JSON editor.
 - Commands panel supports adding custom commands (with optional description/comment) and assigning them to one or more categories.
 - Commands panel supports adding custom categories.
+- Paths panel is separate from Commands and includes:
+  - read-only runtime path display (workspace/policy/approval paths)
+  - instructions to update MCP config/env and restart for runtime path changes
+  - policy-managed path rules with absolute-path validation
+  - mapping: `Allowed` => `allowed.paths_whitelist`, `Blocked` => `blocked.paths`, `Requires Approval` => `requires_confirmation.paths`
+  - editable/removable path entries
 - Status badges reflect applied policy only (post-`Apply`).
 - `Apply` performs validation, atomic write, and appends `ui/config_changes.log`.
 

@@ -7,6 +7,22 @@ Last updated: 2026-02-25
 - Operator behavior reference: `MANUAL.md`
 
 ## What was just changed
+- Added packaged runtime CLI for public onboarding:
+  - `airg-init`, `airg-server`, `airg-ui`, `airg-up`, `airg-doctor`
+  - `pyproject.toml` entrypoints and install workflow (`pip install .`, `uvx --from ...`)
+- Added release automation baseline:
+  - `.github/workflows/ci-package.yml` runs tests, UI build, and Python package build
+  - CI artifacts include `python-dist` and `ui-dist`
+- Added production UI serving path:
+  - Flask backend now serves built frontend from `ui_v3/dist` at `/` (with build-missing hint if absent)
+- Added dedicated `Paths` page in UI:
+  - runtime paths shown read-only with explicit restart guidance
+  - path CRUD with absolute-path validation and policy tier mapping (`allowed.paths_whitelist`, `blocked.paths`, `requires_confirmation.paths`)
+  - basic/advanced toggle behavior aligned with Commands page
+- Updated docs to clarify:
+  - Python version requirements (macOS 3.9 friction and recommended 3.12+)
+  - install folder vs runtime state vs `AIRG_WORKSPACE` model
+  - multi-workspace allowance via `allowed.paths_whitelist`
 - Re-categorized default `policy.json` to basic-protection mode:
   - kept severe/high-impact operations in `blocked`.
   - moved default behavior to allow for non-severe commands (cleared default `requires_confirmation` and `requires_simulation` command/path lists).

@@ -97,10 +97,15 @@ Frontend:
 4. Open `http://127.0.0.1:5173`
 
 Current UI v3 scope:
-- three-layer navigation rail + command tabs + main panel
+- three-layer navigation rail + command tabs + main panel, including dedicated `Paths` page
 - approvals panel with polling and approve/deny actions
-- command table with tier columns, tooltip descriptions, status badges, retry/budget metadata editors
+- command table with tier columns, clickable command details modal, status badges, retry/budget metadata editors
 - advanced JSON editor (bidirectional with table state)
+- paths policy editor with absolute-path validation:
+  - `Allowed` -> `allowed.paths_whitelist`
+  - `Blocked` -> `blocked.paths`
+  - `Requires Approval` -> `requires_confirmation.paths`
+- runtime path display in `Paths` page is read-only and managed by MCP config/env
 - validate/apply/reload flows against Flask REST API
 
 Security path note:

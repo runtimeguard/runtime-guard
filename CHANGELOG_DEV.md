@@ -1,5 +1,17 @@
 # CHANGELOG_DEV
 
+## 2026-02-25 (packaging + paths UI iteration)
+- Added Phase-1 packaging baseline via `pyproject.toml` with CLI entrypoints: `airg-init`, `airg-server`, `airg-ui`.
+- Added `airg-up` one-command sidecar startup (UI backend + MCP server) for local operator convenience.
+- Added `airg-doctor` environment diagnostics (policy readability, runtime path placement, file permissions, UI build presence, backend listen status).
+- Made policy path configurable with `AIRG_POLICY_PATH` and aligned runtime init flow around explicit path/bootstrap behavior.
+- Updated docs for packaging/public install flow, MCP config snippets, Python version requirements, and `AIRG_WORKSPACE` separation guidance.
+- Added CI packaging workflow (`.github/workflows/ci-package.yml`) for tests, frontend build, and Python package build artifacts.
+- Added dedicated `Paths` page to UI and moved runtime path display out of `Commands`.
+- Added runtime path display as read-only with explicit instruction to change MCP config/env + restart.
+- Added path policy CRUD in UI with absolute-path validation and tier mapping to `allowed.paths_whitelist`, `blocked.paths`, and `requires_confirmation.paths`.
+- Standardized left rail card sizing and improved Paths UX labels/examples for operator clarity.
+
 ## 2026-02-25 (approval DB hardening)
 - Added confirmation coverage in `policy.json` for `sqlite3`, `tail`, `grep`, `awk`, `sed`, `head`, and `less`.
 - Added confirmation path guards for `activity.log` and `approvals.db` to increase visibility for sensitive command-path access.
