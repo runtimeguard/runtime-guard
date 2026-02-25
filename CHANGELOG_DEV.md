@@ -1,5 +1,13 @@
 # CHANGELOG_DEV
 
+## 2026-02-25 (approval surface hardening)
+- Removed `approve_command` from the MCP tool surface (`server.py`, `tools/__init__.py`) so agents cannot self-approve via in-band tool calls.
+- Updated confirmation block messaging in `execute_command` to require out-of-band human approval via control-plane GUI/API before retry.
+- Kept approval logic in shared backend modules (`approvals.py`) and Flask endpoints (`/approvals/approve`, `/approvals/deny`) for operator-driven workflow continuity.
+- Updated policy override metadata default/value from `approve_command` to `out_of_band_operator_approval` to match current architecture.
+- Updated audit source attribution model docs and runtime behavior so server side-effects are `mcp-server` and operator decisions are `human-operator`.
+- Updated test suite/docs to use out-of-band approval semantics instead of in-band `approve_command`.
+
 ## 2026-02-25 (control plane v3 foundation)
 - Added shared SQLite approval store in `approvals.py` and migrated pending approval lifecycle to persistent records.
 - Extended approval records with `requested_at`, `session_id`, `affected_paths`, and `expires_at` for UI/reporting use.

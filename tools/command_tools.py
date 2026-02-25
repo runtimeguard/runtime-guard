@@ -1,6 +1,6 @@
 import subprocess
 
-from approvals import issue_or_reuse_approval_token, consume_command_approval
+from approvals import issue_or_reuse_approval_token
 from audit import append_log_entry, build_log_entry
 from backup import MODIFYING_COMMAND_RE, backup_paths, extract_paths
 from budget import check_and_record_cumulative_budget
@@ -115,7 +115,7 @@ def execute_command(command: str, retry_count: int = 0) -> str:
             return (
                 f"[POLICY BLOCK] {result.reason}\n\n"
                 "This command requires an explicit confirmation handshake.\n"
-                f"Call approve_command with this exact command and token:\n"
+                "Ask a human operator to approve it via the control-plane GUI/API using this exact command and token, then retry execute_command:\n"
                 f"approval_token={token}\n"
                 f"token_expires_at={expires_at.isoformat()}Z"
             )
@@ -162,35 +162,3 @@ def execute_command(command: str, retry_count: int = 0) -> str:
     if proc.returncode != 0:
         return stderr or f"Command exited with code {proc.returncode}"
     return stdout
-
-
-def approve_command(command: str, approval_token: str) -> str:
-    approved, reason, matched_rule = consume_command_approval(command, approval_token, source="mcp.approve_command")
-    if not approved:
-        result = PolicyResult(
-            allowed=False,
-            reason=reason or "Approval denied",
-            decision_tier="blocked",
-            matched_rule=matched_rule,
-        )
-        append_log_entry(
-            build_log_entry(
-                "approve_command",
-                result,
-                command=command,
-                approval_token=approval_token,
-            )
-        )
-        return f"[POLICY BLOCK] {result.reason}"
-
-    result = PolicyResult(allowed=True, reason="approved", decision_tier="allowed", matched_rule=None)
-    append_log_entry(
-        build_log_entry(
-            "approve_command",
-            result,
-            command=command,
-            approval_token=approval_token,
-            event="command_approved",
-        )
-    )
-    return "Command approved for this session. Re-run execute_command with the same command."

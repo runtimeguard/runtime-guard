@@ -5,9 +5,10 @@ import re
 import tempfile
 import unittest
 
+import approvals
 import backup
 import policy_engine
-from tools.command_tools import approve_command, execute_command
+from tools.command_tools import execute_command
 from tools.file_tools import delete_file, list_directory, read_file, write_file
 
 from tests.test_helpers import apply_test_environment, install_test_policy, reset_runtime_state, restore_policy
@@ -55,7 +56,7 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertEqual(result.decision_tier, "requires_simulation")
         self.assertIn("could not be safely simulated", result.reason)
 
-    def test_confirmation_handshake_and_approve_command(self):
+    def test_confirmation_handshake_via_out_of_band_approval(self):
         self._write("safe.txt", "hello")
         policy_engine.POLICY["requires_confirmation"]["commands"] = ["cat"]
 
@@ -67,8 +68,12 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertIsNotNone(token_match)
         token = token_match.group(1)
 
-        approved = approve_command("cat safe.txt", token)
-        self.assertIn("approved", approved.lower())
+        approved, reason, matched_rule = approvals.consume_command_approval(
+            "cat safe.txt",
+            token,
+            source="test.operator",
+        )
+        self.assertTrue(approved, msg=reason or matched_rule)
 
         output = execute_command("cat safe.txt")
         self.assertEqual(output, "hello")

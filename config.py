@@ -103,7 +103,7 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if not isinstance(overrides, dict):
         raise ValueError("requires_simulation.cumulative_budget.overrides must be an object")
     overrides.setdefault("enabled", True)
-    overrides.setdefault("require_confirmation_tool", "approve_command")
+    overrides.setdefault("require_confirmation_tool", "out_of_band_operator_approval")
     overrides.setdefault("token_ttl_seconds", 300)
     overrides.setdefault("max_override_actions", 1)
     overrides.setdefault("audit_reason_required", True)

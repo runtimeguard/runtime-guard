@@ -3,7 +3,6 @@
 from mcp.server.fastmcp import FastMCP
 
 from tools import (
-    approve_command,
     delete_file,
     execute_command,
     list_directory,
@@ -19,7 +18,6 @@ for tool in [
     server_info,
     restore_backup,
     execute_command,
-    approve_command,
     read_file,
     write_file,
     delete_file,

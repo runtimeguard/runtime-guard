@@ -56,7 +56,7 @@ DEFAULT_TEST_POLICY = {
             },
             "overrides": {
                 "enabled": True,
-                "require_confirmation_tool": "approve_command",
+                "require_confirmation_tool": "out_of_band_operator_approval",
                 "token_ttl_seconds": 300,
                 "max_override_actions": 1,
                 "audit_reason_required": True,

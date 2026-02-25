@@ -3,7 +3,7 @@
 This manual explains current runtime behavior as implemented today.
 
 ## 1. What the server does
-- Exposes MCP tools: `server_info`, `execute_command`, `approve_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
+- Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
 - Applies policy from `policy.json` before side effects.
 - Logs all actions to `activity.log`.
 - Creates backups for destructive operations in `backups/`.
@@ -29,7 +29,7 @@ Examples:
 ## 4. Confirmation handshake behavior
 Current flow:
 1. `execute_command` is blocked with a token when `requires_confirmation` matches.
-2. `approve_command(command, token)` whitelists that exact normalized command hash for this server session.
+2. A human operator approves out-of-band via control-plane GUI/API (`/approvals/approve`) using exact `command` + `token`.
 3. Re-running the exact command can proceed.
 
 Storage model:
@@ -38,9 +38,9 @@ Storage model:
 - approved commands are persisted as one-time session+command grants in SQLite and consumed by MCP confirmation checks on retry.
 
 Current security status:
-- Merge freeze is active because approval separation-of-duties is not enforced yet.
-- The same agent/tool context can currently request and approve in-line.
-- This is documented as a release blocker in `STATUS.md`.
+- MCP no longer exposes an agent-callable approval tool.
+- Approval decisions come from out-of-band operator channels (GUI/API) and are persisted in SQLite.
+- Operator actions are logged as `source: "human-operator"` in `activity.log`.
 
 ## 5. Simulation behavior
 - Simulation is used for wildcard blast-radius checks (`requires_simulation.commands`).
@@ -117,10 +117,10 @@ Before merge to `main`:
 1. Unit tests must pass (`python3 -m unittest discover -s tests -p 'test_*.py'`).
 2. Manual MCP gate from `tests.md` must pass.
 3. Linux validation checkpoint must pass.
-4. Approval separation gate must pass (agent cannot self-approve).
+4. Approval separation gate must pass (agent cannot approve via MCP tool surface).
 
 ## 14. Known high-priority limitations
-- Approval separation-of-duties blocker (merge freeze).
+- Operator endpoint authentication/authorization remains local-trust oriented and should be hardened before broad deployment.
 - `shell=True` remains in command execution path.
 - Simulation diagnostics are partially obscured when confirmation wins tier precedence.
 - Cumulative budget defaults may be too high to trigger in typical manual runs.

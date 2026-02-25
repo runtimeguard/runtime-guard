@@ -54,8 +54,8 @@ Current defaults (from `policy.json`):
 ### `requires_confirmation`
 Soft block until one-time explicit approval is provided through handshake:
 - `execute_command(...)` returns `approval_token` + expiry.
-- client must call `approve_command(command, approval_token)` with exact command match.
-- successful approval stores command hash in `SESSION_WHITELIST`, allowing same normalized command for this process session.
+- human operator approves out-of-band via control-plane GUI/API (`/approvals/approve`) with exact command match.
+- successful approval stores a one-time session+command grant in shared SQLite, consumed on next retry.
 - pending approvals are persisted in SQLite (`approvals.db`) so multiple processes (MCP server + Flask UI) can read/update shared approval state.
 
 ### `requires_simulation`
@@ -141,7 +141,6 @@ Backup behavior:
 ## MCP tool to action map
 - `server_info`: returns build/workspace/base metadata.
 - `execute_command`: policy-check command, track retries, optional backup, execute in constrained env (`shell=True`, `/bin/bash`, cwd=`WORKSPACE_ROOT`, 30s timeout).
-- `approve_command`: validates token-command pair and whitelists command hash for session.
 - `read_file`: path policy + file-size guard, then read text (`errors="replace"`).
 - `write_file`: path policy, optional pre-overwrite backup, write text.
 - `delete_file`: path policy, existence/type checks, pre-delete backup, delete file.

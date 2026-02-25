@@ -10,7 +10,7 @@ Operator reference:
   - `policy_engine.py`, `approvals.py`, `budget.py`
   - `backup.py`, `audit.py`, `executor.py`
   - tool handlers under `tools/`
-- Exposes guarded tools: `server_info`, `execute_command`, `approve_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
+- Exposes guarded tools: `server_info`, `execute_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
 - Policy-driven enforcement loaded from `policy.json` at startup.
 - Audit-first behavior with JSONL logs in `activity.log` and pre-change backups in `backups/`.
 
@@ -49,7 +49,7 @@ Primary workflow (recommended for destructive-behavior testing):
 3. Run tool-driven scenarios, especially:
    - blocked destructive commands (`rm -rf`, `dd`, sensitive paths/extensions)
    - simulation-gated wildcard deletes (`rm *.tmp`) over/under threshold
-   - confirmation handshake (`execute_command` -> `approve_command` -> re-run)
+   - confirmation handshake (`execute_command` -> human approves in GUI/API -> re-run)
    - backup + recovery checks for write/delete/command-modify paths
    - cumulative budget checks (multiple sub-threshold commands should still hit aggregate limits)
 

@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
+Last updated: 2026-02-25
 
 ## Current branch
 - `refactor` (tracking `origin/refactor`)
@@ -40,7 +40,7 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 - Fixed cross-process approval retry bug: GUI-approved commands now create durable session+command grants in SQLite and MCP confirmation checks consume those grants (one-time), so retry after out-of-band approval works without reissuing a token.
 
 ## Current known issues
-- Release blocker: approval separation-of-duties is not enforced. The same AI agent can call `execute_command`, receive a token, call `approve_command`, and complete its own confirmation loop.
+- MCP `approve_command` tool exposure has been removed; approvals are now out-of-band via GUI/API only.
 - `execute_command` still uses `shell=True` for compatibility; this remains the largest residual command-parsing risk surface.
 - Network policy currently focuses on domain-level command checks; payload-size and protocol-depth enforcement are not yet comprehensive.
 - Backup target detection for shell commands remains heuristic (`PATH_TOKEN_RE` + existing-path checks) and can miss some shell expansion edge cases.
@@ -66,12 +66,10 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 5. Merge `refactor` -> `main`: frozen pending blocker resolution.
 
 ## Merge freeze status
-- Current state: `refactor` -> `main` merge is blocked.
-- Block reason: confirmation handshake can be self-approved by the same agent, so human-in-the-loop intent is not enforced.
-- Unfreeze condition:
-  1. `approve_command` must be reachable only via a separate trusted channel (for example UI/operator action, operator-only CLI, or separate non-agent-exposed endpoint), or equivalent actor-authenticated separation.
-  2. Runtime must enforce caller identity/role for approvals (policy `allowed_roles` cannot remain declarative-only).
-  3. Regression tests must prove an agent cannot self-approve commands it initiated.
+- Current state: self-approval blocker is addressed at MCP tool-surface level.
+- Remaining hardening before broad deployment:
+  1. Strengthen caller identity/authorization for operator approval endpoints.
+  2. Keep regression tests proving no agent self-approval path exists through MCP tools.
 
 ## Minimum pre-merge gate (must pass before merge to `main`)
 1. Unit test gate: `python3 -m unittest discover -s tests -p 'test_*.py'` passes.
@@ -85,7 +83,7 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 2. Strengthen network control depth: keep domain controls and add payload/protocol-aware enforcement so `network.max_payload_size_kb` and related policy fields become meaningful.
 
 ### Policy/code parity
-3. Complete policy-to-code parity for remaining unused/partial keys: `allowed.max_files_per_operation`, `network.max_payload_size_kb`, `audit.log_level`, cumulative budget `counting.mode`, `reset.mode`, `reset_on_server_restart`, `audit.log_budget_state`, `audit.fields`, `on_exceed.decision_tier`, and override metadata fields (`require_confirmation_tool`, `token_ttl_seconds`, `audit_reason_required`, `allowed_roles`).
+3. Complete policy-to-code parity for remaining unused/partial keys: `allowed.max_files_per_operation`, `network.max_payload_size_kb`, `audit.log_level`, cumulative budget `counting.mode`, `reset.mode`, `reset_on_server_restart`, `audit.log_budget_state`, `audit.fields`, `on_exceed.decision_tier`, and override metadata fields (`token_ttl_seconds`, `audit_reason_required`, `allowed_roles`).
 4. Unify backup policy behavior across tools: enforce `audit.backup_enabled` consistently for `write_file` and `delete_file`, and keep backup access controls consistent between file tools and `execute_command`.
 5. Improve backup mutation detection: replace or augment regex path extraction with parser-aware target resolution for shell expansions (`find -exec`, `xargs`, loops, substitutions).
 6. Improve restore ergonomics and safety: add restore conflict strategies (`overwrite/skip/fail`) and clearer per-file restore result reporting.

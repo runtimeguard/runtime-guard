@@ -31,7 +31,7 @@ class UIPolicyServiceTests(unittest.TestCase):
                     "counting": {"mode": "affected_paths", "dedupe_paths": True, "include_noop_attempts": False, "commands_included": ["rm"]},
                     "reset": {"mode": "sliding_window", "window_seconds": 3600, "idle_reset_seconds": 900, "reset_on_server_restart": True},
                     "on_exceed": {"decision_tier": "blocked", "matched_rule": "requires_simulation.cumulative_budget_exceeded", "message": "x"},
-                    "overrides": {"enabled": True, "require_confirmation_tool": "approve_command", "token_ttl_seconds": 300, "max_override_actions": 1, "audit_reason_required": True, "allowed_roles": ["human-operator"]},
+                    "overrides": {"enabled": True, "require_confirmation_tool": "out_of_band_operator_approval", "token_ttl_seconds": 300, "max_override_actions": 1, "audit_reason_required": True, "allowed_roles": ["human-operator"]},
                     "audit": {"log_budget_state": True, "fields": ["budget_scope"]},
                 },
             },
