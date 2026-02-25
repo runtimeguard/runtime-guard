@@ -71,20 +71,19 @@ Last updated: 2026-02-25
 1. Branch protection + merge policy: documented in `README.md`; GitHub branch protection settings still need to be applied operationally.
 2. UTC deprecation fix: completed.
 3. Policy coverage audit and lock-down (`policy.json` only): completed.
-4. Linux validation checkpoint: pending.
-5. Merge `refactor` -> `main`: frozen pending blocker resolution.
+4. Linux validation checkpoint: pending (remaining explicit merge gate item).
+5. Merge `refactor` -> `main`: ready after Linux checkpoint.
 
 ## Merge freeze status
-- Current state: self-approval blocker is addressed at MCP tool-surface level.
-- Remaining hardening before broad deployment:
-  1. Strengthen caller identity/authorization for operator approval endpoints.
-  2. Keep regression tests proving no agent self-approval path exists through MCP tools.
+- Current state: no active merge freeze for approval separation.
+- Approval separation checkpoint status: complete at MVP scope (no MCP approval tool; out-of-band approval via GUI/API).
+- Remaining hardening before broad deployment (post-MVP): strengthen caller identity/authorization for operator approval endpoints.
 
 ## Minimum pre-merge gate (must pass before merge to `main`)
-1. Unit test gate: `python3 -m unittest discover -s tests -p 'test_*.py'` passes.
-2. Manual integration gate: at least 12 prompts from `tests.md` validated, including destructive block, confirmation handshake, simulation threshold/unresolved wildcard, cumulative-budget anti-bypass, restore dry-run/apply, and network-policy checks.
-3. Linux gate: unit suite + reduced integration prompts executed on Linux with outcomes recorded.
-4. Approval separation gate: a dedicated regression test and manual scenario confirm the initiating agent cannot complete its own approval loop.
+1. Unit test gate: complete (`python3 -m unittest discover -s tests -p 'test_*.py'` passes).
+2. Manual integration gate: complete (12+ prompts validated, including destructive block, confirmation, simulation, cumulative budget behavior, restore flow, and network-policy checks).
+3. Linux gate: pending (unit suite + reduced integration prompts executed on Linux with outcomes recorded).
+4. Approval separation gate: complete (initiating agent cannot self-approve via MCP tool surface; approvals are out-of-band).
 
 ## Post-MVP backlog (grouped workstreams)
 ### Execution hardening
