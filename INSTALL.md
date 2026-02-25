@@ -25,7 +25,7 @@ Default runtime state locations:
 ## Basic setup (MCP server only)
 1. Clone and install:
 ```bash
-git clone https://github.com/jimmyracheta/ai-runtime-guard.git
+git clone --branch main https://github.com/jimmyracheta/ai-runtime-guard.git
 cd ai-runtime-guard
 python3 -m venv venv
 source venv/bin/activate
@@ -112,6 +112,10 @@ Quick non-interactive defaults:
 ```bash
 airg-setup --quickstart --yes
 ```
+
+Branch note:
+1. Public installation should use `main` branch or tagged releases.
+2. `dev` is for ongoing integration work and may be unstable.
 
 ## Policy change lifecycle
 1. Policy edits can be done by file edit or GUI Apply.

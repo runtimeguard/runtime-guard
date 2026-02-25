@@ -53,6 +53,9 @@ Quick start:
 3. `airg-setup` (or `airg init --wizard`)
 4. `airg-doctor`
 
+Release branch note:
+1. Public users should install from `main` (or a tagged release), not `dev`.
+
 Runtime notes:
 1. In normal use, your AI client starts `airg-server` automatically via MCP config.
 2. Web GUI (`airg-ui`) is optional unless you need GUI policy editing or approval actions.
