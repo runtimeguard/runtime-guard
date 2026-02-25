@@ -97,3 +97,4 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 15. Add UI operator warnings:
     - when any command is set to `requires_confirmation`, show a warning that approval increases security but may reduce agent autonomy and introduce operational friction;
     - when command budget configuration is present, show a warning that budget is cumulative and applies per configured session scope (not per-command enforcement unless runtime override support is implemented).
+16. Post-MVP hardening review (after packaging + approval workflow rewrite): evaluate restart-based budget bypass risk where MCP process restarts reset in-memory session state, and decide whether to persist budget state across restarts and/or block agent-driven service restart controls.
