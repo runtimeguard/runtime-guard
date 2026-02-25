@@ -4,6 +4,7 @@ import hashlib
 import json
 import pathlib
 import tempfile
+import re
 from typing import Any
 
 import config
@@ -24,6 +25,85 @@ def load_catalog(path: pathlib.Path | None = None) -> dict:
     return json.loads(path.read_text())
 
 
+def _slugify_tab_id(label: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(label).strip().lower()).strip("-")
+    return slug or "custom"
+
+
+def _validate_ui_catalog(policy: dict) -> None:
+    ui_catalog = policy.get("ui_catalog")
+    if ui_catalog is None:
+        return
+    if not isinstance(ui_catalog, dict):
+        raise ValueError("policy.ui_catalog must be an object")
+    tabs = ui_catalog.get("tabs", [])
+    if not isinstance(tabs, list):
+        raise ValueError("policy.ui_catalog.tabs must be an array")
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            raise ValueError("policy.ui_catalog.tabs entries must be objects")
+        if "id" not in tab or "label" not in tab:
+            raise ValueError("policy.ui_catalog.tabs entries must include 'id' and 'label'")
+        if not isinstance(tab["id"], str) or not tab["id"].strip():
+            raise ValueError("policy.ui_catalog.tabs[*].id must be a non-empty string")
+        if tab["id"] == "all":
+            raise ValueError("policy.ui_catalog.tabs cannot redefine reserved id 'all'")
+        if not isinstance(tab["label"], str) or not tab["label"].strip():
+            raise ValueError("policy.ui_catalog.tabs[*].label must be a non-empty string")
+        commands = tab.get("commands", [])
+        if not isinstance(commands, list):
+            raise ValueError("policy.ui_catalog.tabs[*].commands must be an array")
+        for cmd in commands:
+            if not isinstance(cmd, str):
+                raise ValueError("policy.ui_catalog.tabs[*].commands entries must be strings")
+        descriptions = tab.get("descriptions", {})
+        if not isinstance(descriptions, dict):
+            raise ValueError("policy.ui_catalog.tabs[*].descriptions must be an object")
+        for k, v in descriptions.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                raise ValueError("policy.ui_catalog.tabs[*].descriptions keys and values must be strings")
+
+
+def merged_catalog(policy: dict, catalog: dict) -> dict:
+    result = {"tabs": []}
+    by_id: dict[str, dict] = {}
+
+    for tab in catalog.get("tabs", []):
+        tid = str(tab.get("id", "")).strip()
+        if not tid:
+            continue
+        entry = {
+            "id": tid,
+            "label": str(tab.get("label", tid)),
+            "commands": [str(x) for x in tab.get("commands", []) if str(x).strip()],
+            "descriptions": {str(k): str(v) for k, v in (tab.get("descriptions") or {}).items()},
+        }
+        by_id[tid] = entry
+
+    ui_tabs = ((policy.get("ui_catalog") or {}).get("tabs") or [])
+    for tab in ui_tabs:
+        tid = str(tab.get("id", "")).strip()
+        if not tid:
+            tid = _slugify_tab_id(tab.get("label", "custom"))
+        label = str(tab.get("label", tid)).strip() or tid
+        commands = [str(x) for x in tab.get("commands", []) if str(x).strip()]
+        descriptions = {str(k): str(v) for k, v in (tab.get("descriptions") or {}).items()}
+        if tid in by_id:
+            base = by_id[tid]
+            merged_commands = sorted(set(base.get("commands", []) + commands))
+            merged_descriptions = {**base.get("descriptions", {}), **descriptions}
+            by_id[tid] = {**base, "label": label, "commands": merged_commands, "descriptions": merged_descriptions}
+        else:
+            by_id[tid] = {"id": tid, "label": label, "commands": sorted(set(commands)), "descriptions": descriptions}
+
+    # Ensure `all` is always first and present for UI.
+    if "all" not in by_id:
+        by_id["all"] = {"id": "all", "label": "All Commands", "commands": [], "descriptions": {}}
+    result["tabs"].append(by_id.pop("all"))
+    result["tabs"].extend([by_id[k] for k in sorted(by_id.keys())])
+    return result
+
+
 def command_descriptions(catalog: dict) -> dict[str, str]:
     out: dict[str, str] = {}
     for tab in catalog.get("tabs", []):
@@ -39,6 +119,7 @@ def policy_hash(policy: dict) -> str:
 
 def validate_policy(candidate: dict) -> tuple[bool, dict[str, Any]]:
     try:
+        _validate_ui_catalog(candidate)
         normalized = config._validate_and_normalize_policy(copy.deepcopy(candidate))
         return True, {"normalized": normalized, "errors": []}
     except Exception as exc:
@@ -63,6 +144,26 @@ def all_known_commands(policy: dict, catalog: dict) -> list[str]:
     for tab in catalog.get("tabs", []):
         commands.update(str(x) for x in tab.get("commands", []))
     return sorted(commands)
+
+
+def visible_tabs(catalog: dict) -> list[dict[str, str]]:
+    tabs: list[dict[str, str]] = []
+    for tab in catalog.get("tabs", []):
+        tid = str(tab.get("id", "")).strip()
+        if not tid:
+            continue
+        tabs.append({"id": tid, "label": str(tab.get("label", tid))})
+    return tabs
+
+
+def tab_command_map(catalog: dict) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for tab in catalog.get("tabs", []):
+        tid = str(tab.get("id", "")).strip()
+        if not tid:
+            continue
+        out[tid] = sorted(set(str(x) for x in tab.get("commands", []) if str(x).strip()))
+    return out
 
 
 def command_context_map(catalog: dict, commands: list[str]) -> dict[str, list[str]]:

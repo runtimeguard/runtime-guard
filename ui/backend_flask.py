@@ -53,7 +53,8 @@ def get_policy():
         return jsonify({"error": "policy.json not found"}), 404
     try:
         policy = service.load_policy()
-        catalog = service.load_catalog()
+        base_catalog = service.load_catalog()
+        catalog = service.merged_catalog(policy, base_catalog)
     except json.JSONDecodeError:
         return jsonify({"error": "policy.json contains invalid JSON"}), 400
     all_commands = service.all_known_commands(policy, catalog)
@@ -66,6 +67,8 @@ def get_policy():
             "all_commands": all_commands,
             "descriptions": service.command_descriptions(catalog),
             "contexts": service.command_context_map(catalog, all_commands),
+            "tabs": service.visible_tabs(catalog),
+            "tab_commands": service.tab_command_map(catalog),
         }
     )
 

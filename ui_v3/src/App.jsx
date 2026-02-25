@@ -7,15 +7,7 @@ const RAIL_ITEMS = [
   { id: 'reports', label: 'Reports', icon: '📊' },
   { id: 'settings', label: 'Settings', icon: '⚙️' }
 ]
-const COMMAND_TABS = ['all', 'macos', 'linux', 'github', 'email', 'network']
-const TAB_LABELS = {
-  all: 'All Commands',
-  macos: 'macOS',
-  linux: 'Linux',
-  github: 'GitHub/Git',
-  email: 'Email/Notify',
-  network: 'Network'
-}
+const DEFAULT_TABS = [{ id: 'all', label: 'All Commands' }]
 const COLUMN_DEFS = [
   { key: 'allowed', label: 'Allowed', group: 'basic' },
   { key: 'blocked', label: 'Blocked', group: 'basic' },
@@ -45,6 +37,15 @@ const STATUS_LABEL = {
 
 function deepClone(v) {
   return JSON.parse(JSON.stringify(v))
+}
+
+function slugifyCategoryId(label) {
+  const slug = String(label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug || 'custom'
+}
+
+function normalizeCommandName(cmd) {
+  return String(cmd || '').trim().replace(/\s+/g, ' ')
 }
 
 function tierFor(policy, cmd) {
@@ -110,7 +111,14 @@ export default function App() {
   const [pendingApprovals, setPendingApprovals] = useState([])
   const [descriptions, setDescriptions] = useState({})
   const [contexts, setContexts] = useState({})
+  const [tabDefs, setTabDefs] = useState(DEFAULT_TABS)
+  const [tabCommands, setTabCommands] = useState({ all: [] })
   const [allCommands, setAllCommands] = useState([])
+  const [commandModal, setCommandModal] = useState({ open: false, command: '' })
+  const [newCommand, setNewCommand] = useState('')
+  const [newComment, setNewComment] = useState('')
+  const [newCommandTabs, setNewCommandTabs] = useState([])
+  const [newCategoryLabel, setNewCategoryLabel] = useState('')
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(() => {
@@ -128,12 +136,25 @@ export default function App() {
     const res = await fetch(`${API_BASE}/policy`)
     if (!res.ok) throw new Error(`Policy load failed (${res.status})`)
     const payload = await res.json()
+    const payloadContexts = payload.contexts || {}
+    const fallbackTabs = (() => {
+      const labels = new Set()
+      for (const list of Object.values(payloadContexts)) {
+        for (const label of list || []) labels.add(String(label))
+      }
+      const extras = Array.from(labels)
+        .sort((a, b) => a.localeCompare(b))
+        .map((label) => ({ id: slugifyCategoryId(label), label }))
+      return [{ id: 'all', label: 'All Commands' }, ...extras]
+    })()
     setPolicyHash(payload.hash || '')
     setAppliedPolicy(payload.policy)
     setDraftPolicy(deepClone(payload.policy))
     setJsonText(JSON.stringify(payload.policy, null, 2))
     setDescriptions(payload.descriptions || {})
-    setContexts(payload.contexts || {})
+    setContexts(payloadContexts)
+    setTabDefs(payload.tabs?.length ? payload.tabs : fallbackTabs)
+    setTabCommands(payload.tab_commands || { all: payload.all_commands || [] })
     setAllCommands(payload.all_commands || [])
     setJsonError('')
     setLoaded(true)
@@ -169,13 +190,17 @@ export default function App() {
     }
   }, [draftPolicy])
 
+  useEffect(() => {
+    if (!tabDefs.some((t) => t.id === activeTab)) {
+      setActiveTab('all')
+    }
+  }, [activeTab, tabDefs])
+
   const commandRows = useMemo(() => {
-    const base = activeTab === 'all'
-      ? allCommands
-      : allCommands.filter((cmd) => (contexts[cmd] || []).map((c) => c.toLowerCase()).includes(TAB_LABELS[activeTab].toLowerCase()))
+    const base = activeTab === 'all' ? allCommands : (tabCommands[activeTab] || [])
     const q = search.trim().toLowerCase()
     return base.filter((cmd) => !q || cmd.toLowerCase().includes(q))
-  }, [allCommands, activeTab, contexts, search])
+  }, [allCommands, activeTab, search, tabCommands])
 
   function onJsonChange(next) {
     setJsonText(next)
@@ -218,6 +243,105 @@ export default function App() {
     if (unsaved && !window.confirm('Discard unsaved edits and reload from backend?')) return
     await fetchPolicy()
     setMessage('Reloaded latest policy')
+  }
+
+  function ensureUiCatalogTab(policy, id, label) {
+    const next = deepClone(policy)
+    next.ui_catalog = next.ui_catalog || {}
+    next.ui_catalog.tabs = Array.isArray(next.ui_catalog.tabs) ? next.ui_catalog.tabs : []
+    let tab = next.ui_catalog.tabs.find((t) => t.id === id)
+    if (!tab) {
+      tab = { id, label, commands: [], descriptions: {} }
+      next.ui_catalog.tabs.push(tab)
+    } else {
+      tab.label = label
+      tab.commands = Array.isArray(tab.commands) ? tab.commands : []
+      tab.descriptions = typeof tab.descriptions === 'object' && tab.descriptions ? tab.descriptions : {}
+    }
+    return next
+  }
+
+  function onCreateCategory() {
+    const label = String(newCategoryLabel || '').trim()
+    if (!label) {
+      setMessage('Category name is required')
+      return
+    }
+    const id = slugifyCategoryId(label)
+    if (tabDefs.some((t) => t.id === id)) {
+      setMessage(`Category "${label}" already exists`)
+      return
+    }
+    setDraftPolicy((prev) => ensureUiCatalogTab(prev, id, label))
+    setTabDefs((prev) => [...prev, { id, label }])
+    setTabCommands((prev) => ({ ...prev, [id]: [] }))
+    setNewCategoryLabel('')
+    setMessage(`Category "${label}" added`)
+  }
+
+  function onAddCommand() {
+    const command = normalizeCommandName(newCommand)
+    if (!command) {
+      setMessage('Command text is required')
+      return
+    }
+    const selectedTabs = newCommandTabs.length ? newCommandTabs : (activeTab !== 'all' ? [activeTab] : [])
+    if (!selectedTabs.length) {
+      setMessage('Select at least one category')
+      return
+    }
+    const validTabs = selectedTabs.filter((id) => id !== 'all' && tabDefs.some((t) => t.id === id))
+    if (!validTabs.length) {
+      setMessage('Select at least one valid non-All category')
+      return
+    }
+
+    setDraftPolicy((prev) => {
+      let next = deepClone(prev)
+      for (const tabId of validTabs) {
+        const tabLabel = tabDefs.find((t) => t.id === tabId)?.label || tabId
+        next = ensureUiCatalogTab(next, tabId, tabLabel)
+        const tab = next.ui_catalog.tabs.find((t) => t.id === tabId)
+        if (!tab.commands.includes(command)) {
+          tab.commands.push(command)
+          tab.commands.sort()
+        }
+        if (String(newComment || '').trim()) {
+          tab.descriptions[command] = String(newComment).trim()
+        }
+      }
+      return next
+    })
+
+    setAllCommands((prev) => Array.from(new Set([...prev, command])).sort())
+    if (String(newComment || '').trim()) {
+      const comment = String(newComment).trim()
+      setDescriptions((prev) => ({ ...prev, [command]: comment }))
+    }
+    setContexts((prev) => {
+      const next = { ...prev }
+      for (const tabId of validTabs) {
+        const label = tabDefs.find((t) => t.id === tabId)?.label || tabId
+        const cur = new Set(next[command] || [])
+        cur.add(label)
+        next[command] = Array.from(cur)
+      }
+      return next
+    })
+    setTabCommands((prev) => {
+      const next = { ...prev }
+      for (const tabId of validTabs) {
+        const cur = new Set(next[tabId] || [])
+        cur.add(command)
+        next[tabId] = Array.from(cur).sort()
+      }
+      next.all = Array.from(new Set([...(next.all || []), command])).sort()
+      return next
+    })
+    setNewCommand('')
+    setNewComment('')
+    setNewCommandTabs(activeTab !== 'all' ? [activeTab] : [])
+    setMessage(`Command "${command}" added`)
   }
 
   async function approve(token, command) {
@@ -292,7 +416,14 @@ export default function App() {
         <div className="bg-white">
           <div className="font-semibold text-slate-800 flex items-center gap-2">
             <span className="font-mono">{cmd}</span>
-            <span className="text-slate-400 cursor-help" title={descriptions[cmd] || 'No description available'}>ⓘ</span>
+            <button
+              type="button"
+              className="text-slate-400 hover:text-slate-600"
+              onClick={() => setCommandModal({ open: true, command: cmd })}
+              title="View command details"
+            >
+              ⓘ
+            </button>
             <span className={`px-2 py-0.5 rounded-full border text-xs ${STATUS_STYLE[appliedTier]}`}>{STATUS_LABEL[appliedTier]}</span>
             {applied.retry_override !== undefined && <span className="text-xs px-2 py-0.5 border rounded-full text-slate-600">Retry {applied.retry_override}</span>}
             {applied.budget && <span className="text-xs px-2 py-0.5 border rounded-full text-slate-600">Budget set</span>}
@@ -412,8 +543,58 @@ export default function App() {
 
   function CommandsPanel() {
     const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? ADVANCED_GRID_TAIL : ''}`.replaceAll('_', ' ')
+    const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
     return (
       <>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3">
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Command</div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
+                <input
+                  value={newCommand}
+                  onChange={(e) => setNewCommand(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2"
+                  placeholder="Command (e.g. git cherry-pick)"
+                />
+                <input
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2"
+                  placeholder="Description/comment shown in info modal"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {nonAllTabs.map((tab) => (
+                  <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={newCommandTabs.includes(tab.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
+                        else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
+                      }}
+                    />
+                    <span>{tab.label}</span>
+                  </label>
+                ))}
+              </div>
+              <button onClick={onAddCommand} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add command</button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Category</div>
+              <div className="flex gap-2">
+                <input
+                  value={newCategoryLabel}
+                  onChange={(e) => setNewCategoryLabel(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2 flex-1"
+                  placeholder="Category name (e.g. Databases)"
+                />
+                <button onClick={onCreateCategory} className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm">Add category</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div className="flex items-center justify-between mb-3">
           <input
             value={search}
@@ -487,6 +668,36 @@ export default function App() {
     )
   }
 
+  function CommandInfoModal() {
+    if (!commandModal.open) return null
+    const cmd = commandModal.command
+    const contextsForCmd = contexts[cmd] || []
+    return (
+      <div className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4" onClick={() => setCommandModal({ open: false, command: '' })}>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div className="font-semibold text-slate-800">Command Details</div>
+            <button className="text-slate-500 hover:text-slate-700" onClick={() => setCommandModal({ open: false, command: '' })}>✕</button>
+          </div>
+          <div className="p-4 space-y-3 text-sm">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Command</div>
+              <div className="font-mono text-slate-800">{cmd}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Description</div>
+              <div className="text-slate-700">{descriptions[cmd] || 'No description available for this command.'}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Categories</div>
+              <div className="text-slate-700">{contextsForCmd.length ? contextsForCmd.join(', ') : 'Uncategorized'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[#f0f1f3] text-slate-800 font-[system-ui]">
       <div className="border-b border-slate-200 bg-white/80 backdrop-blur px-5 py-4 sticky top-0 z-10">
@@ -534,13 +745,13 @@ export default function App() {
 
         {activeRail === 'commands' ? (
           <aside className="border-r border-slate-200 bg-white p-3 space-y-2">
-            {COMMAND_TABS.map((tab) => (
+            {tabDefs.map((tab) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm ${activeTab === tab ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm ${activeTab === tab.id ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'}`}
               >
-                {TAB_LABELS[tab]}
+                {tab.label}
               </button>
             ))}
           </aside>
@@ -557,6 +768,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <CommandInfoModal />
     </div>
   )
 }
