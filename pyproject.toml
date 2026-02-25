@@ -14,6 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
+airg = "airg_cli:main"
+airg-setup = "airg_cli:main_setup_entrypoint"
 airg-init = "airg_cli:main_init"
 airg-server = "airg_cli:main_server"
 airg-ui = "airg_cli:main_ui"

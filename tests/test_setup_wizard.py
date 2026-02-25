@@ -1,0 +1,41 @@
+import pathlib
+import tempfile
+import unittest
+
+import airg_cli
+
+
+class SetupWizardTests(unittest.TestCase):
+    def test_merge_additional_workspaces_dedupes(self) -> None:
+        policy = {"allowed": {"paths_whitelist": ["/a", "/b"]}}
+        merged = airg_cli._merge_additional_workspaces(policy, ["/b", "/c"])
+        self.assertEqual(merged["allowed"]["paths_whitelist"], ["/a", "/b", "/c"])
+
+    def test_apply_backup_override(self) -> None:
+        policy = {"audit": {"backup_root": "/old"}}
+        updated = airg_cli._apply_backup_override(policy, "/new")
+        self.assertEqual(updated["audit"]["backup_root"], "/new")
+
+    def test_agent_config_payload_includes_required_env(self) -> None:
+        paths = {
+            "policy_path": pathlib.Path("/tmp/policy.json"),
+            "approval_db_path": pathlib.Path("/tmp/approvals.db"),
+            "approval_hmac_key_path": pathlib.Path("/tmp/approvals.db.hmac.key"),
+        }
+        payload = airg_cli._agent_config_payload("claude_desktop", "/tmp/ws", paths)
+        env = payload["mcpServers"]["ai-runtime-guard"]["env"]
+        self.assertEqual(env["AIRG_WORKSPACE"], "/tmp/ws")
+        self.assertEqual(env["AIRG_POLICY_PATH"], "/tmp/policy.json")
+        self.assertEqual(env["AIRG_APPROVAL_DB_PATH"], "/tmp/approvals.db")
+        self.assertEqual(env["AIRG_APPROVAL_HMAC_KEY_PATH"], "/tmp/approvals.db.hmac.key")
+
+    def test_write_agent_config_outputs_creates_file(self) -> None:
+        payload = {"hello": "world"}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = airg_cli._write_agent_config_outputs("generic", payload, pathlib.Path(tmp))
+            self.assertTrue(out.exists())
+            self.assertIn("generic.mcp.json", str(out))
+
+
+if __name__ == "__main__":
+    unittest.main()

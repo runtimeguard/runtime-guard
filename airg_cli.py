@@ -1,11 +1,14 @@
 import argparse
 import json
+import importlib.util
 import os
 import pathlib
 import platform
 import runpy
+import shutil
 import socket
 import stat
+import sys
 import threading
 import time
 from typing import Any
@@ -51,21 +54,39 @@ def _policy_template() -> dict[str, Any]:
 
 
 def _resolve_paths() -> dict[str, pathlib.Path]:
+    return _resolve_paths_with_overrides()
+
+
+def _resolve_paths_with_overrides(
+    *,
+    policy_path: str = "",
+    approval_db_path: str = "",
+    approval_hmac_key_path: str = "",
+) -> dict[str, pathlib.Path]:
     policy_override = os.environ.get("AIRG_POLICY_PATH", "")
     db_override = os.environ.get("AIRG_APPROVAL_DB_PATH", "")
     key_override = os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", "")
-    cfg_dir = pathlib.Path(policy_override).expanduser().resolve().parent if policy_override else _default_base_config_dir()
-    state_dir = pathlib.Path(db_override).expanduser().resolve().parent if db_override else _default_base_state_dir()
+    policy_selected = policy_path or policy_override
+    db_selected = approval_db_path or db_override
+    key_selected = approval_hmac_key_path or key_override
+
+    cfg_dir = pathlib.Path(policy_selected).expanduser().resolve().parent if policy_selected else _default_base_config_dir()
+    state_dir = pathlib.Path(db_selected).expanduser().resolve().parent if db_selected else _default_base_state_dir()
     return {
         "config_dir": cfg_dir,
         "state_dir": state_dir,
-        "policy_path": pathlib.Path(policy_override if policy_override else str(cfg_dir / "policy.json")).expanduser().resolve(),
-        "approval_db_path": pathlib.Path(db_override if db_override else str(state_dir / "approvals.db")).expanduser().resolve(),
-        "approval_hmac_key_path": pathlib.Path(key_override if key_override else str(state_dir / "approvals.db.hmac.key")).expanduser().resolve(),
+        "policy_path": pathlib.Path(policy_selected if policy_selected else str(cfg_dir / "policy.json")).expanduser().resolve(),
+        "approval_db_path": pathlib.Path(db_selected if db_selected else str(state_dir / "approvals.db")).expanduser().resolve(),
+        "approval_hmac_key_path": pathlib.Path(key_selected if key_selected else str(state_dir / "approvals.db.hmac.key")).expanduser().resolve(),
     }
 
 
-def _apply_runtime_env(paths: dict[str, pathlib.Path]) -> None:
+def _apply_runtime_env(paths: dict[str, pathlib.Path], *, force: bool = False) -> None:
+    if force:
+        os.environ["AIRG_POLICY_PATH"] = str(paths["policy_path"])
+        os.environ["AIRG_APPROVAL_DB_PATH"] = str(paths["approval_db_path"])
+        os.environ["AIRG_APPROVAL_HMAC_KEY_PATH"] = str(paths["approval_hmac_key_path"])
+        return
     os.environ.setdefault("AIRG_POLICY_PATH", str(paths["policy_path"]))
     os.environ.setdefault("AIRG_APPROVAL_DB_PATH", str(paths["approval_db_path"]))
     os.environ.setdefault("AIRG_APPROVAL_HMAC_KEY_PATH", str(paths["approval_hmac_key_path"]))
@@ -108,9 +129,20 @@ def _ensure_policy_file(paths: dict[str, pathlib.Path], force: bool = False) -> 
         pass
 
 
-def _init_runtime(force_policy: bool = False) -> None:
-    paths = _resolve_paths()
-    _apply_runtime_env(paths)
+def _init_runtime(
+    force_policy: bool = False,
+    *,
+    policy_path: str = "",
+    approval_db_path: str = "",
+    approval_hmac_key_path: str = "",
+    force_env: bool = False,
+) -> dict[str, pathlib.Path]:
+    paths = _resolve_paths_with_overrides(
+        policy_path=policy_path,
+        approval_db_path=approval_db_path,
+        approval_hmac_key_path=approval_hmac_key_path,
+    )
+    _apply_runtime_env(paths, force=force_env)
     _secure_permissions(paths)
     _ensure_policy_file(paths, force=force_policy)
 
@@ -136,6 +168,195 @@ def _init_runtime(force_policy: bool = False) -> None:
         )
     )
     print("[airg] Initialization complete.")
+    return paths
+
+
+def _looks_executable(command: str) -> bool:
+    return shutil.which(command) is not None
+
+
+def _preflight_checks() -> tuple[list[str], list[str]]:
+    issues: list[str] = []
+    warnings: list[str] = []
+    major, minor = sys.version_info.major, sys.version_info.minor
+    if (major, minor) < (3, 10):
+        issues.append("Python >= 3.10 is required.")
+    elif platform.system() == "Darwin" and (major, minor) < (3, 12):
+        warnings.append("Python 3.12+ is recommended on macOS for smoother dependency installs.")
+    if os.environ.get("VIRTUAL_ENV", "").strip() == "":
+        warnings.append("No active virtual environment detected.")
+    if not _looks_executable("pip") and importlib.util.find_spec("pip") is None:
+        issues.append("pip is unavailable (not in PATH and python -m pip not available).")
+    return issues, warnings
+
+
+def _prompt_text(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    raw = input(f"{prompt}{suffix}: ").strip()
+    return raw if raw else default
+
+
+def _prompt_yes_no(prompt: str, default: bool = True) -> bool:
+    marker = "Y/n" if default else "y/N"
+    raw = input(f"{prompt} ({marker}): ").strip().lower()
+    if not raw:
+        return default
+    return raw in {"y", "yes"}
+
+
+def _load_policy_from_path(path: pathlib.Path) -> dict[str, Any]:
+    if not path.exists():
+        return _policy_template()
+    return json.loads(path.read_text())
+
+
+def _save_policy_to_path(path: pathlib.Path, policy: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(policy, indent=2) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _merge_additional_workspaces(policy: dict[str, Any], paths: list[str]) -> dict[str, Any]:
+    out = dict(policy)
+    allowed = dict(out.get("allowed") or {})
+    existing = [str(p) for p in (allowed.get("paths_whitelist") or [])]
+    merged = sorted(set(existing + paths))
+    allowed["paths_whitelist"] = merged
+    out["allowed"] = allowed
+    return out
+
+
+def _apply_backup_override(policy: dict[str, Any], backup_root: str) -> dict[str, Any]:
+    if not backup_root:
+        return policy
+    out = dict(policy)
+    audit = dict(out.get("audit") or {})
+    audit["backup_root"] = backup_root
+    out["audit"] = audit
+    return out
+
+
+def _agent_config_payload(agent: str, workspace: str, paths: dict[str, pathlib.Path]) -> dict[str, Any]:
+    env_block = {
+        "AIRG_WORKSPACE": workspace,
+        "AIRG_POLICY_PATH": str(paths["policy_path"]),
+        "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
+        "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
+    }
+    if agent in {"claude_desktop", "cursor", "generic"}:
+        return {
+            "mcpServers": {
+                "ai-runtime-guard": {
+                    "command": "airg-server",
+                    "args": [],
+                    "env": env_block,
+                }
+            }
+        }
+    return {
+        "command": "airg-server",
+        "args": [],
+        "env": env_block,
+    }
+
+
+def _write_agent_config_outputs(agent: str, payload: dict[str, Any], out_dir: pathlib.Path) -> pathlib.Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / f"{agent}.mcp.json"
+    out_file.write_text(json.dumps(payload, indent=2) + "\n")
+    return out_file
+
+
+def _run_setup(
+    *,
+    quickstart: bool,
+    yes: bool,
+    workspace: str,
+    policy_path: str,
+    approval_db_path: str,
+    approval_hmac_key_path: str,
+    backup_root: str,
+    additional_workspaces: str,
+    agent: str,
+    force_policy: bool,
+    enable_ui: str,
+    out_dir: str,
+) -> None:
+    issues, warnings = _preflight_checks()
+    for warning in warnings:
+        print(f"[airg][warn] {warning}")
+    if issues:
+        for issue in issues:
+            print(f"[airg][error] {issue}")
+        raise SystemExit(1)
+
+    selected_agent = (agent or "generic").strip().lower()
+    if selected_agent not in {"claude_desktop", "cursor", "generic"}:
+        print(f"[airg][warn] Unknown agent '{selected_agent}', falling back to generic.")
+        selected_agent = "generic"
+
+    selected_workspace = workspace.strip()
+    selected_policy_path = policy_path.strip()
+    selected_db_path = approval_db_path.strip()
+    selected_key_path = approval_hmac_key_path.strip()
+    selected_backup_root = backup_root.strip()
+    selected_additional = [p.strip() for p in additional_workspaces.split(",") if p.strip()]
+
+    if not yes and not quickstart:
+        selected_workspace = _prompt_text("Primary workspace path", selected_workspace or str(pathlib.Path.home() / "airg-workspace"))
+        selected_policy_path = _prompt_text("Custom policy path (blank=default)", selected_policy_path)
+        selected_db_path = _prompt_text("Custom approval DB path (blank=default)", selected_db_path)
+        selected_key_path = _prompt_text("Custom approval HMAC key path (blank=default)", selected_key_path)
+        selected_backup_root = _prompt_text("Custom backup root path (blank=default)", selected_backup_root)
+        selected_enable_ui = _prompt_yes_no("Do you want to use the Policy GUI?", default=True)
+        enable_ui = "yes" if selected_enable_ui else "no"
+        if _prompt_yes_no("Add additional workspace paths to whitelist?", default=False):
+            raw_extra = _prompt_text("Comma-separated absolute paths", ",".join(selected_additional))
+            selected_additional = [p.strip() for p in raw_extra.split(",") if p.strip()]
+        selected_agent = _prompt_text("Agent type (claude_desktop/cursor/generic)", selected_agent)
+        if selected_agent not in {"claude_desktop", "cursor", "generic"}:
+            selected_agent = "generic"
+
+    if not selected_workspace:
+        selected_workspace = str(pathlib.Path.home() / "airg-workspace")
+    workspace_path = pathlib.Path(selected_workspace).expanduser().resolve()
+    workspace_path.mkdir(parents=True, exist_ok=True)
+
+    path_overrides = _init_runtime(
+        force_policy=force_policy,
+        policy_path=selected_policy_path,
+        approval_db_path=selected_db_path,
+        approval_hmac_key_path=selected_key_path,
+        force_env=True,
+    )
+    os.environ["AIRG_WORKSPACE"] = str(workspace_path)
+
+    current_policy = _load_policy_from_path(path_overrides["policy_path"])
+    current_policy = _merge_additional_workspaces(current_policy, [str(pathlib.Path(p).expanduser().resolve()) for p in selected_additional if pathlib.Path(p).expanduser().is_absolute()])
+    if selected_backup_root:
+        backup_override = pathlib.Path(selected_backup_root).expanduser().resolve()
+        current_policy = _apply_backup_override(current_policy, str(backup_override))
+    _save_policy_to_path(path_overrides["policy_path"], current_policy)
+
+    payload = _agent_config_payload(selected_agent, str(workspace_path), path_overrides)
+    output_root = pathlib.Path(out_dir).expanduser().resolve()
+    output_path = _write_agent_config_outputs(selected_agent, payload, output_root)
+
+    print(f"[airg] workspace={workspace_path}")
+    print(f"[airg] policy={path_overrides['policy_path']}")
+    print(f"[airg] approval_db={path_overrides['approval_db_path']}")
+    print(f"[airg] approval_hmac_key={path_overrides['approval_hmac_key_path']}")
+    print(f"[airg] agent config written: {output_path}")
+    print("[airg] MCP config snippet:")
+    print(json.dumps(payload, indent=2))
+    print("[airg] Running doctor checks...")
+    main_doctor()
+    print("[airg] Setup complete.")
+    if enable_ui.lower() in {"yes", "true", "1"}:
+        print("[airg] Next: run `airg-ui` for policy management UI.")
 
 
 def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
@@ -166,6 +387,37 @@ def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
 
 def main_init() -> None:
     _init_runtime(force_policy=False)
+
+
+def main_setup_entrypoint() -> None:
+    parser = argparse.ArgumentParser(description="Guided setup for ai-runtime-guard")
+    parser.add_argument("--quickstart", action="store_true", help="Use defaults with minimal prompts.")
+    parser.add_argument("--yes", action="store_true", help="Non-interactive mode (accept defaults).")
+    parser.add_argument("--workspace", default="", help="Primary workspace path.")
+    parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH.")
+    parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH.")
+    parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH.")
+    parser.add_argument("--backup-root", default="", help="Override audit.backup_root.")
+    parser.add_argument("--additional-workspaces", default="", help="Comma-separated absolute workspace paths to whitelist.")
+    parser.add_argument("--agent", default="generic", help="Agent target: claude_desktop, cursor, generic.")
+    parser.add_argument("--force-policy", action="store_true", help="Regenerate policy file from template before applying wizard updates.")
+    parser.add_argument("--enable-ui", default="yes", choices=["yes", "no"], help="Whether to keep UI management workflow enabled.")
+    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Output directory for generated MCP config snippets.")
+    args = parser.parse_args()
+    _run_setup(
+        quickstart=args.quickstart,
+        yes=args.yes,
+        workspace=args.workspace,
+        policy_path=args.policy_path,
+        approval_db_path=args.approval_db_path,
+        approval_hmac_key_path=args.approval_hmac_key_path,
+        backup_root=args.backup_root,
+        additional_workspaces=args.additional_workspaces,
+        agent=args.agent,
+        force_policy=args.force_policy,
+        enable_ui=args.enable_ui,
+        out_dir=args.out_dir,
+    )
 
 
 def main_server() -> None:
@@ -314,10 +566,38 @@ def main_doctor() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ai-runtime-guard CLI")
-    parser.add_argument("command", choices=["init", "server", "ui", "up", "doctor"], help="Command to run")
+    parser.add_argument("command", choices=["init", "setup", "server", "ui", "up", "doctor"], help="Command to run")
     parser.add_argument("--force-policy", action="store_true", help="Used with 'init': overwrite existing policy template")
+    parser.add_argument("--wizard", action="store_true", help="Used with 'init': run guided setup wizard.")
+    parser.add_argument("--quickstart", action="store_true", help="Wizard mode: use defaults with minimal prompts.")
+    parser.add_argument("--yes", action="store_true", help="Wizard mode: non-interactive defaults.")
+    parser.add_argument("--workspace", default="", help="Wizard mode: primary workspace path.")
+    parser.add_argument("--policy-path", default="", help="Wizard mode: override AIRG_POLICY_PATH.")
+    parser.add_argument("--approval-db-path", default="", help="Wizard mode: override AIRG_APPROVAL_DB_PATH.")
+    parser.add_argument("--approval-hmac-key-path", default="", help="Wizard mode: override AIRG_APPROVAL_HMAC_KEY_PATH.")
+    parser.add_argument("--backup-root", default="", help="Wizard mode: override audit.backup_root.")
+    parser.add_argument("--additional-workspaces", default="", help="Wizard mode: comma-separated absolute workspace paths.")
+    parser.add_argument("--agent", default="generic", help="Wizard mode: claude_desktop, cursor, generic.")
+    parser.add_argument("--enable-ui", default="yes", choices=["yes", "no"], help="Wizard mode: UI workflow preference.")
+    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Wizard mode: output directory for generated MCP config.")
     args = parser.parse_args()
 
+    if args.command == "setup" or (args.command == "init" and args.wizard):
+        _run_setup(
+            quickstart=args.quickstart,
+            yes=args.yes,
+            workspace=args.workspace,
+            policy_path=args.policy_path,
+            approval_db_path=args.approval_db_path,
+            approval_hmac_key_path=args.approval_hmac_key_path,
+            backup_root=args.backup_root,
+            additional_workspaces=args.additional_workspaces,
+            agent=args.agent,
+            force_policy=args.force_policy,
+            enable_ui=args.enable_ui,
+            out_dir=args.out_dir,
+        )
+        return
     if args.command == "init":
         _init_runtime(force_policy=args.force_policy)
         return

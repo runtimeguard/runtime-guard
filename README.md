@@ -50,12 +50,19 @@ Recommended packaged workflow:
 2. `cd ai-runtime-guard`
 3. `python3 -m venv venv && source venv/bin/activate`
 4. `pip install --upgrade pip && pip install .`
-5. `airg-init`
-6. `mkdir -p ~/airg-workspace`
-7. `export AIRG_WORKSPACE=~/airg-workspace`
-8. `airg-doctor` (fix warnings before first use)
-9. Start MCP server: `airg-server`
-10. Optional UI backend: `airg-ui` (open `http://127.0.0.1:5001`)
+5. Guided setup (recommended): `airg-setup`
+6. Alternative quick init: `airg-init`
+7. `mkdir -p ~/airg-workspace`
+8. `export AIRG_WORKSPACE=~/airg-workspace`
+9. `airg-doctor` (fix warnings before first use)
+10. Start MCP server: `airg-server`
+11. Optional UI backend: `airg-ui` (open `http://127.0.0.1:5001`)
+
+Wizard options:
+1. Alias command: `airg init --wizard`
+2. Non-interactive defaults: `airg-setup --quickstart --yes`
+3. Example advanced non-interactive:
+   - `airg-setup --yes --workspace ~/airg-workspace --agent claude_desktop --additional-workspaces /opt/project-a,/opt/project-b`
 
 Source/dev workflow:
 1. `git clone https://github.com/jimmyracheta/ai-runtime-guard.git`
@@ -146,7 +153,7 @@ Example JSON snippet:
 ```
 
 Best practice:
-1. Run `airg-init` and copy the printed env block into your MCP client config.
+1. Run `airg-setup` or `airg-init` and copy the printed env block into your MCP client config.
 2. Keep explicit `AIRG_*` paths in client config so launches are deterministic across restarts.
 
 ## AIRG_WORKSPACE (important)
