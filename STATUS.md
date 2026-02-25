@@ -3,7 +3,7 @@
 Last updated: 2026-02-25
 
 ## Current branch
-- `refactor` (tracking `origin/refactor`)
+- `dev` (tracking `origin/dev`)
 - Operator behavior reference: `MANUAL.md`
 
 ## What was just changed
@@ -26,7 +26,7 @@ Last updated: 2026-02-25
   - `config.py`, `models.py`, `audit.py`, `policy_engine.py`, `approvals.py`, `budget.py`, `backup.py`, `executor.py`
   - `tools/command_tools.py`, `tools/file_tools.py`, `tools/restore_tools.py`
 - Kept `server.py` as a thin MCP entrypoint wiring tool registrations.
-- Added a refactor-compatible in-repo test suite under `tests/`:
+- Added an in-repo modular test suite under `tests/`:
   - `tests/test_attacker_suite.py`
   - `tests/test_retry_clamp.py`
   - `tests/test_helpers.py`
@@ -77,21 +77,19 @@ Last updated: 2026-02-25
 2. UTC deprecation fix: completed.
 3. Policy coverage audit and lock-down (`policy.json` only): completed.
 4. Linux validation checkpoint: moved to post-merge v1.1 validation task (untested but expected to work).
-5. Merge `refactor` -> `main`: ready from current MVP gate perspective.
+5. Release to `main`: completed (tagged `v0.9`).
 
 ## Merge freeze status
 - Current state: no active merge freeze for approval separation.
 - Approval separation checkpoint status: complete at MVP scope (no MCP approval tool; out-of-band approval via GUI/API).
 - Remaining hardening before broad deployment (post-MVP): strengthen caller identity/authorization for operator approval endpoints.
 
-## Pre-merge gate status (for `refactor` -> `main`)
+## Release gate status (`v0.9`)
 Completed checkpoints:
 1. Unit test gate: complete (`python3 -m unittest discover -s tests -p 'test_*.py'` passes).
 2. Manual integration gate: complete (12+ prompts validated, including destructive block, confirmation, simulation, cumulative budget behavior, restore flow, and network-policy checks).
 3. Approval separation gate: complete (initiating agent cannot self-approve via MCP tool surface; approvals are out-of-band).
-
-Remaining checkpoint:
-1. None blocking MVP merge.
+4. `main` release completed and tagged as `v0.9`.
 
 ## Post-merge validation (v1.1)
 1. Linux gate: pending (unit suite + reduced integration prompts executed on Linux with outcomes recorded).

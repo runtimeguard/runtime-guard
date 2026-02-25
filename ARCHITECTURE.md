@@ -27,7 +27,7 @@ Primary runtime artifacts:
 - `ui_v3/`: Vite React + Tailwind control-plane frontend.
 
 ## Dependency guardrails
-The refactor assumes a one-way dependency direction:
+The modular architecture assumes a one-way dependency direction:
 - `config.py`/`models.py` at the base
 - runtime modules (`audit`, `policy_engine`, `approvals`, `budget`, `backup`, `executor`) above
 - `tools/*` at the top, with `server.py` only wiring registrations
