@@ -23,6 +23,8 @@ Primary runtime artifacts:
 - `activity.log`: JSONL audit trail (one object per event).
 - `backups/`: timestamped snapshots with per-backup `manifest.json`.
 - `ui/`: local control-plane UI for policy editing (`ui/server.py`, `ui/service.py`, static frontend assets).
+- `ui/backend_flask.py`: REST backend for policy + approvals endpoints used by control-plane UI v3.
+- `ui_v3/`: Vite React + Tailwind control-plane frontend.
 
 ## Dependency guardrails
 The refactor assumes a one-way dependency direction:
@@ -54,6 +56,7 @@ Soft block until one-time explicit approval is provided through handshake:
 - `execute_command(...)` returns `approval_token` + expiry.
 - client must call `approve_command(command, approval_token)` with exact command match.
 - successful approval stores command hash in `SESSION_WHITELIST`, allowing same normalized command for this process session.
+- pending approvals are persisted in SQLite (`approvals.db`) so multiple processes (MCP server + Flask UI) can read/update shared approval state.
 
 ### `requires_simulation`
 For selected commands (currently `rm`, `mv`), wildcard impact is simulated before execution:

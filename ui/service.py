@@ -65,6 +65,21 @@ def all_known_commands(policy: dict, catalog: dict) -> list[str]:
     return sorted(commands)
 
 
+def command_context_map(catalog: dict, commands: list[str]) -> dict[str, list[str]]:
+    context_map: dict[str, list[str]] = {cmd: [] for cmd in commands}
+    for tab in catalog.get("tabs", []):
+        tab_id = str(tab.get("id", ""))
+        if tab_id == "all":
+            continue
+        label = str(tab.get("label", tab_id))
+        for cmd in tab.get("commands", []):
+            c = str(cmd)
+            context_map.setdefault(c, [])
+            if label not in context_map[c]:
+                context_map[c].append(label)
+    return context_map
+
+
 def get_command_override(policy: dict, command: str) -> dict:
     return (
         policy.get("ui_overrides", {})

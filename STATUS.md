@@ -33,6 +33,10 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
   - `All Commands` view + search filter so non-catalog commands are visible
   - command tooltip descriptions and applied-state status badges (updated after Apply)
   - per-command retry/budget editor fields persisted as `policy.ui_overrides.commands.*`
+- Added v3 control plane architecture:
+  - Flask backend (`ui/backend_flask.py`) with REST endpoints for policy + approvals
+  - Vite + React + Tailwind frontend (`ui_v3/`) with three-layer navigation and approvals panel
+- Replaced in-memory-only pending approval storage with a shared SQLite approval store in `approvals.py` (configurable path via `AIRG_APPROVAL_DB_PATH`).
 
 ## Current known issues
 - Release blocker: approval separation-of-duties is not enforced. The same AI agent can call `execute_command`, receive a token, call `approve_command`, and complete its own confirmation loop.
@@ -44,6 +48,7 @@ Last updated: 2026-02-24 (merge freeze: self-approval separation-of-duties flaw)
 - When `requires_confirmation` matches first (for example `rm`), user-facing responses no longer distinguish simulation causes (`bulk_file_threshold` vs `wildcard_unresolved`) even though simulation still runs.
 - Cumulative budget limits are currently high enough that practical MVP prompt runs may not trigger budget blocks.
 - UI per-command retry/budget overrides are stored as policy metadata for now; runtime does not yet enforce per-command override values.
+- Legacy UI server (`ui/server.py`) remains in repo; v3 runtime path is Flask backend + `ui_v3` frontend.
 
 ## Core use cases (from README; do not edit without explicit product decision)
 1. Block destructive commands and sensitive path/extension access.

@@ -1,0 +1,47 @@
+import pathlib
+import tempfile
+import unittest
+
+import approvals
+
+
+class ApprovalStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = pathlib.Path(self.tmp.name) / "approvals.db"
+        self.orig_db = approvals.APPROVAL_DB_PATH
+        approvals.APPROVAL_DB_PATH = self.db
+        approvals.reset_approval_state_for_tests()
+
+    def tearDown(self):
+        approvals.APPROVAL_DB_PATH = self.orig_db
+        approvals.reset_approval_state_for_tests()
+        self.tmp.cleanup()
+
+    def test_issue_and_list_pending_approvals(self):
+        token, _exp = approvals.issue_or_reuse_approval_token(
+            "rm test.txt",
+            session_id="sess-1",
+            affected_paths=["/tmp/a", "/tmp/b"],
+        )
+        self.assertTrue(token)
+        pending = approvals.list_pending_approvals()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["session_id"], "sess-1")
+        self.assertEqual(pending[0]["command"], "rm test.txt")
+        self.assertEqual(pending[0]["affected_paths"], ["/tmp/a", "/tmp/b"])
+
+    def test_consume_and_deny_paths(self):
+        token, _ = approvals.issue_or_reuse_approval_token("cat x.txt", session_id="sess-2")
+        ok, reason, _rule = approvals.consume_command_approval("cat x.txt", token)
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+
+        token2, _ = approvals.issue_or_reuse_approval_token("cat y.txt", session_id="sess-2")
+        denied, msg = approvals.deny_command_approval(token2)
+        self.assertTrue(denied)
+        self.assertIn("removed", msg)
+
+
+if __name__ == "__main__":
+    unittest.main()

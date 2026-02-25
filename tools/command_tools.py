@@ -4,7 +4,7 @@ from approvals import issue_or_reuse_approval_token, consume_command_approval
 from audit import append_log_entry, build_log_entry
 from backup import MODIFYING_COMMAND_RE, backup_paths, extract_paths
 from budget import check_and_record_cumulative_budget
-from config import MAX_RETRIES, POLICY, SERVER_BUILD, WORKSPACE_ROOT
+from config import MAX_RETRIES, POLICY, SERVER_BUILD, SESSION_ID, WORKSPACE_ROOT
 from executor import run_shell_command
 from models import PolicyResult
 from policy_engine import (
@@ -106,7 +106,12 @@ def execute_command(command: str, retry_count: int = 0) -> str:
 
     if not result.allowed:
         if result.decision_tier == "requires_confirmation":
-            token, expires_at = issue_or_reuse_approval_token(command)
+            approval_paths = simulation["affected"] if simulation and simulation.get("affected") else extract_paths(command)
+            token, expires_at = issue_or_reuse_approval_token(
+                command,
+                session_id=SESSION_ID,
+                affected_paths=approval_paths,
+            )
             return (
                 f"[POLICY BLOCK] {result.reason}\n\n"
                 "This command requires an explicit confirmation handshake.\n"

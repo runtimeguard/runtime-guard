@@ -1,5 +1,12 @@
 # CHANGELOG_DEV
 
+## 2026-02-25 (control plane v3 foundation)
+- Added shared SQLite approval store in `approvals.py` and migrated pending approval lifecycle to persistent records.
+- Extended approval records with `requested_at`, `session_id`, `affected_paths`, and `expires_at` for UI/reporting use.
+- Added Flask backend (`ui/backend_flask.py`) with policy and approvals REST endpoints for local UI integration.
+- Added Vite + React + Tailwind frontend (`ui_v3/`) with three-layer navigation, command policy editor panel, and approvals queue panel.
+- Added approvals store unit coverage (`tests/test_approvals_store.py`).
+
 ## 2026-02-24 (release freeze: approval separation flaw)
 - Identified a release-blocking security gap during MVP gate testing: the same agent can request a confirmation-gated command and then call `approve_command` to approve itself.
 - Declared merge freeze for `refactor` -> `main` until separation-of-duties is enforced for approvals.

@@ -32,6 +32,10 @@ Current flow:
 2. `approve_command(command, token)` whitelists that exact normalized command hash for this server session.
 3. Re-running the exact command can proceed.
 
+Storage model:
+- pending approvals are persisted in `approvals.db` (SQLite) so separate processes can read/update the same queue.
+- each pending record includes `token`, `command`, `session_id`, `requested_at`, `expires_at`, and optional `affected_paths`.
+
 Current security status:
 - Merge freeze is active because approval separation-of-duties is not enforced yet.
 - The same agent/tool context can currently request and approve in-line.
@@ -87,12 +91,15 @@ Still limited:
 - Deep payload/protocol enforcement is not complete.
 
 ## 11. Local policy UI behavior (current)
-- Loads policy and command catalog.
-- Tabs include `All Commands` and category views.
-- Search filter available.
-- Tier columns are explicitly labeled.
-- Command tooltip and applied-state status badge shown.
-- Status badge reflects applied config (after `Apply`), not unsaved edits.
+Current recommended UI stack:
+- Backend: Flask (`ui/backend_flask.py`)
+- Frontend: Vite React + Tailwind (`ui_v3/`)
+
+Behavior:
+- Three-layer navigation: rail (`Approvals`, `Commands`, `Reports`, `Settings`) + command tabs + content panel.
+- Approvals panel polls backend and supports `approve`/`deny` actions against shared SQLite approval store.
+- Commands panel supports search, tier radios, tooltip descriptions, applied-state badges, retry/budget metadata inputs, and advanced JSON editor.
+- Status badges reflect applied policy only (post-`Apply`).
 - `Apply` performs validation, atomic write, and appends `ui/config_changes.log`.
 
 ## 12. What is automatic vs manual in UI command catalog

@@ -21,20 +21,26 @@ Operator reference:
 4. Optional workspace override: `export AIRG_WORKSPACE=/absolute/path/to/sandbox`
 5. Start MCP server over stdio: `python server.py`
 
-## Local policy UI (MVP skeleton)
-Run the local control-plane UI for policy editing:
-1. `python3 -m ui.server --host 127.0.0.1 --port 8765`
-2. Open `http://127.0.0.1:8765`
-3. Optional passcode guard: `export AIRG_UI_PASSCODE=your-passcode` and send `X-UI-PASSCODE` in requests.
+## Local policy UI (v3)
+React + Tailwind frontend (Vite) with a Flask backend.
 
-Current UI scope:
-- load current `policy.json`
-- tabbed command views (`All Commands`, `macOS`, `Linux`, `GitHub`, `Email`, `Network`) with search filter
-- named tier columns (`Allowed`, `Simulation`, `Requires Approval`, `Blocked`)
-- per-command applied-state status badges + tooltip descriptions
-- per-command retry/budget editor fields stored in policy metadata (`ui_overrides.commands`)
-- validate and apply with atomic write
-- append-only config change log at `ui/config_changes.log`
+Backend:
+1. `python3 -m venv venv && source venv/bin/activate`
+2. `pip install -r requirements.txt`
+3. `python3 ui/backend_flask.py`
+
+Frontend:
+1. `cd ui_v3`
+2. `npm install`
+3. `npm run dev`
+4. Open `http://127.0.0.1:5173`
+
+Current UI v3 scope:
+- three-layer navigation rail + command tabs + main panel
+- approvals panel with polling and approve/deny actions
+- command table with tier columns, tooltip descriptions, status badges, retry/budget metadata editors
+- advanced JSON editor (bidirectional with table state)
+- validate/apply/reload flows against Flask REST API
 
 ## How to test
 Primary workflow (recommended for destructive-behavior testing):
