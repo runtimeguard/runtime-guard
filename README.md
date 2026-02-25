@@ -62,19 +62,16 @@ Optional local unit tests in this repo:
 3. `main` should be protected in GitHub settings: no direct pushes, at least one review, and required checks before merge.
 4. Approval separation at MCP tool surface is complete (approval remains out-of-band via GUI/API).
 
-## Minimum pre-merge gate
-1. Unit security regressions pass:
+## Completed pre-merge checkpoints
+1. Unit security regressions:
    - `python3 -m unittest discover -s tests -p 'test_*.py'`
-2. Manual MCP integration validation passes for at least 12 prompts from `tests.md`, including:
-   - 3 blocked destructive command scenarios
-   - 2 confirmation-handshake scenarios
-   - 2 simulation scenarios (threshold + unresolved wildcard)
-   - 2 cumulative-budget anti-bypass scenarios
-   - 1 restore flow scenario (dry-run token + apply)
-   - 2 network-policy scenarios
-3. Linux checkpoint before MVP release:
-   - run the same unit suite on Linux
-   - execute a reduced manual prompt set on Linux and record outcomes in `STATUS.md`
-4. Approval separation checkpoint:
+2. Manual MCP integration validation:
+   - at least 12 prompts from `tests.md`, including destructive block, confirmation flow, simulation, cumulative-budget behavior, restore flow, and network-policy checks.
+3. Approval separation:
    - approvals come from a separate trusted/operator channel (GUI/API), not MCP tool calls
    - initiating agent cannot self-approve via MCP tool surface
+
+## Remaining pre-merge checkpoint
+1. Linux validation before MVP release:
+   - run the same unit suite on Linux
+   - execute a reduced manual prompt set on Linux and record outcomes in `STATUS.md`

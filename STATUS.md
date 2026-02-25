@@ -79,11 +79,14 @@ Last updated: 2026-02-25
 - Approval separation checkpoint status: complete at MVP scope (no MCP approval tool; out-of-band approval via GUI/API).
 - Remaining hardening before broad deployment (post-MVP): strengthen caller identity/authorization for operator approval endpoints.
 
-## Minimum pre-merge gate (must pass before merge to `main`)
+## Pre-merge gate status (for `refactor` -> `main`)
+Completed checkpoints:
 1. Unit test gate: complete (`python3 -m unittest discover -s tests -p 'test_*.py'` passes).
 2. Manual integration gate: complete (12+ prompts validated, including destructive block, confirmation, simulation, cumulative budget behavior, restore flow, and network-policy checks).
-3. Linux gate: pending (unit suite + reduced integration prompts executed on Linux with outcomes recorded).
-4. Approval separation gate: complete (initiating agent cannot self-approve via MCP tool surface; approvals are out-of-band).
+3. Approval separation gate: complete (initiating agent cannot self-approve via MCP tool surface; approvals are out-of-band).
+
+Remaining checkpoint:
+1. Linux gate: pending (unit suite + reduced integration prompts executed on Linux with outcomes recorded).
 
 ## Post-MVP backlog (grouped workstreams)
 ### Execution hardening
