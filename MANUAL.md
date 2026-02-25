@@ -34,6 +34,10 @@ Packaged CLI alternative:
 3. `airg-up` starts Flask backend as a sidecar and then starts MCP server (stdio) in one command.
 4. `airg-doctor` runs environment, path, permission, and UI-build diagnostics.
 
+Note:
+1. In packaged flow, `airg-init` already performs secure runtime path setup.
+2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
+
 ### AIRG_WORKSPACE model
 `AIRG_WORKSPACE` defines the operational sandbox root for AI agent actions.
 
@@ -47,6 +51,7 @@ Operational guidance:
 2. Example install path: `~/Documents/Projects/ai-runtime-guard`
 3. Example workspace path: `~/airg-workspace`
 4. Do not use the install folder as the default destructive-test workspace.
+5. If you need multiple workspaces, add explicit extra roots under `policy.allowed.paths_whitelist`.
 
 ### MVP capabilities and caveats snapshot
 Capabilities:

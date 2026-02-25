@@ -150,6 +150,18 @@ Correct pattern:
 1. Set `AIRG_WORKSPACE` to a dedicated disposable folder.
 2. Keep project folder read-only from normal agent tasks whenever possible.
 
+## Deployment model FAQ
+1. Do I need to run `source scripts/setup_runtime_env.sh`?
+   - If you use packaged flow with `airg-init`, no. `airg-init` sets up secure default paths and files.
+   - If you run directly from source (`python server.py`, `python ui/backend_flask.py`), yes, it is recommended.
+2. What folders are involved?
+   - Install folder (`airg-install`): where the code/package lives.
+   - Runtime state folder (Application Support/state dir): where `approvals.db` and HMAC key live.
+   - Workspace folder (`AIRG_WORKSPACE`, often `airg-workspace`): where agent actions are intended to run.
+3. Does the agent only work inside one workspace?
+   - By default, yes, it is anchored to `AIRG_WORKSPACE`.
+   - Additional allowed roots can be configured with `policy.allowed.paths_whitelist`.
+
 ## How to test
 Primary workflow (recommended for destructive-behavior testing):
 1. Register this MCP server in your AI agent/client.
