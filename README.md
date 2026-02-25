@@ -49,52 +49,16 @@ Runtime notes:
 1. In normal use, your AI client starts `airg-server` automatically via MCP config.
 2. Web GUI (`airg-ui`) is optional unless you need GUI policy editing or approval actions.
 
-## Local policy UI (v3)
-React + Tailwind frontend (Vite) with Flask backend (`ui/backend_flask.py`).
+## Web GUI (optional)
+A local web interface is available for policy editing, approval management, and audit review.
 
-Serve mode (recommended):
-1. Build frontend once (or after frontend code changes):
-   - `cd ui_v3`
-   - `npm install`
-   - `npm run build`
-2. Start backend (serves API + built UI):
-   - packaged workflow: `airg-ui`
-   - source workflow: `python3 ui/backend_flask.py`
-3. Open `http://127.0.0.1:5001`
+Start it with:
+```bash
+airg-ui
+```
+Open `http://127.0.0.1:5001`
 
-Dev mode (frontend hot reload):
-1. Terminal A: start backend API (`airg-ui` or `python3 ui/backend_flask.py`)
-2. Terminal B:
-   - `cd ui_v3`
-   - `npm install`
-   - `npm run dev`
-3. Open `http://127.0.0.1:5173`
-
-Rebuild rule:
-1. Backend-only Python changes: no frontend rebuild required.
-2. Frontend changes (`ui_v3/src/*`): run `npm run build` for serve mode.
-
-Current UI v3 scope:
-- three-layer navigation rail (`Approvals`, `Policy`, `Reports`, `Settings`) + policy tabs (`Commands`, `Paths`, `Extensions`) + main panel
-- approvals panel with polling and approve/deny actions
-- command table with tier columns, clickable command details modal, status badges, retry/budget metadata editors
-- advanced JSON editor (bidirectional with table state)
-- paths policy editor with absolute-path validation:
-  - `Allowed` -> `allowed.paths_whitelist`
-  - `Blocked` -> `blocked.paths`
-  - `Requires Approval` -> `requires_confirmation.paths`
-- runtime path display in `Paths` page is read-only and managed by MCP config/env
-- extensions policy editor for blocked extension patterns (`blocked.extensions`)
-- shared policy actions across tabs: reload, validate, apply, revert last apply, reset to defaults
-- global header keeps policy hash + unsaved-changes indicator; per-tier status legend was removed to reduce cross-page noise
-- `Revert Last Apply` and `Reset to Defaults` are enabled only when backend snapshot files exist (`policy.json.last-applied`, `policy.json.defaults`)
-
-Security path note:
-- `scripts/setup_runtime_env.sh` configures approval files outside workspace by default:
-  - macOS: `~/Library/Application Support/ai-runtime-guard/`
-  - Linux: `${XDG_STATE_HOME:-~/.local/state}/ai-runtime-guard/`
-- This avoids repeated approval-store hardening warnings and is the recommended default for public packaging.
-- Built UI path can be overridden with `AIRG_UI_DIST_PATH`.
+See [INSTALL.md](INSTALL.md) for advanced setup, dev mode, and frontend rebuild instructions.
 
 ## MCP client configuration (example)
 For clients that support a stdio command-based MCP config, point to the packaged entrypoint.
