@@ -2,7 +2,7 @@
 
 This file tracks agent-specific MCP setup for `ai-runtime-guard`.
 
-Use this together with [INSTALL.md](/Users/liviu/Documents/ai-runtime-guard/INSTALL.md).
+Use this together with `INSTALL.md`.
 
 ## AIRG variables to include in MCP config
 Always set these explicitly in agent MCP config:

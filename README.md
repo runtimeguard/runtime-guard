@@ -45,7 +45,7 @@ Caveats:
 5. Cumulative budget behavior depends on configured thresholds; defaults may need tuning for your workflow.
 
 ## How to run
-Use [INSTALL.md](/Users/liviu/Documents/ai-runtime-guard/INSTALL.md) for full setup.
+See `INSTALL.md` for full setup.
 
 Quick start:
 1. `python3 -m venv venv && source venv/bin/activate`
@@ -116,9 +116,9 @@ Example JSON snippet:
       "args": [],
       "env": {
         "AIRG_WORKSPACE": "/absolute/path/to/agent-workspace",
-        "AIRG_POLICY_PATH": "/Users/<you>/Library/Application Support/ai-runtime-guard/policy.json",
-        "AIRG_APPROVAL_DB_PATH": "/Users/<you>/Library/Application Support/ai-runtime-guard/approvals.db",
-        "AIRG_APPROVAL_HMAC_KEY_PATH": "/Users/<you>/Library/Application Support/ai-runtime-guard/approvals.db.hmac.key"
+        "AIRG_POLICY_PATH": "~/Library/Application Support/ai-runtime-guard/policy.json",
+        "AIRG_APPROVAL_DB_PATH": "~/Library/Application Support/ai-runtime-guard/approvals.db",
+        "AIRG_APPROVAL_HMAC_KEY_PATH": "~/Library/Application Support/ai-runtime-guard/approvals.db.hmac.key"
       }
     }
   }
@@ -162,7 +162,7 @@ Correct pattern:
    - Additional allowed roots can be configured with `policy.allowed.paths_whitelist`.
 
 ## How to test
-Testing guidance is in [INSTALL.md](/Users/liviu/Documents/ai-runtime-guard/INSTALL.md) under `Post-install smoke test`.
+Testing guidance is in `INSTALL.md` under `Post-install smoke test`.
 
 Automated tests:
 1. `python3 -m unittest discover -s tests -p 'test_*.py'`

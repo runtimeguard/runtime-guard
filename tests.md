@@ -53,7 +53,7 @@ Before merge to `main`, run and document a scenario proving:
 2. `Please use execute_command to run "ls -la".`
 3. `Please use execute_command to run "cat  /etc/passwd".`
 4. `Please use execute_command to run "rm  -rf  /tmp/test".`
-5. `Please use delete_file to delete "/Users/liviu/Documents/ai-runtime-guard/test_write.txt".`
+5. `Please use delete_file to delete "/absolute/path/to/your/workspace/test_write.txt".`
 
 ## Confirmation handshake flow
 1. `Please run execute_command with "cat safe_test.txt". If blocked for confirmation, stop and ask the human operator to approve in the GUI with the exact command + token, then retry execute_command.`
