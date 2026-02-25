@@ -8,6 +8,21 @@ This manual explains current runtime behavior as implemented today.
 - Logs all actions to `activity.log`.
 - Creates backups for destructive operations in `backups/`.
 
+### MVP capabilities and caveats snapshot
+Capabilities:
+1. Default basic profile blocks severe actions and allows non-severe actions.
+2. Advanced tiers (`requires_simulation`, `requires_confirmation`) are policy-available and per-command configurable.
+3. Approvals are out-of-band (GUI/API), not agent-invokable via MCP tools.
+4. Runtime includes audit logging, backup/restore flows, normalization, and path/workspace hardening.
+5. GUI supports policy editing, plus adding custom commands and custom categories.
+
+Caveats:
+1. Runtime policy reload is startup-based; after policy changes, restart MCP server (and usually reconnect agent client).
+2. “Basic/Advanced” are policy conventions rather than hard runtime modes.
+3. Redaction and obfuscation defenses are pattern-based and not exhaustive.
+4. Some blast-radius/target inference for complex shell patterns is heuristic.
+5. Cumulative budget efficacy depends on threshold tuning.
+
 ## 2. Policy tier order (most important)
 Command checks run in strict precedence:
 1. `blocked`
@@ -129,17 +144,20 @@ Current recommended UI stack:
 Behavior:
 - Three-layer navigation: rail (`Approvals`, `Commands`, `Reports`, `Settings`) + command tabs + content panel.
 - Approvals panel polls backend and supports `approve`/`deny` actions against shared SQLite approval store.
-- Commands panel supports search, tier radios, tooltip descriptions, applied-state badges, retry/budget metadata inputs, and advanced JSON editor.
+- Commands panel supports search, tier radios, clickable command-info modal, applied-state badges, retry/budget metadata inputs, and advanced JSON editor.
+- Commands panel supports adding custom commands (with optional description/comment) and assigning them to one or more categories.
+- Commands panel supports adding custom categories.
 - Status badges reflect applied policy only (post-`Apply`).
 - `Apply` performs validation, atomic write, and appends `ui/config_changes.log`.
 
 ## 13. What is automatic vs manual in UI command catalog
 Automatic:
 - Commands added to policy command lists appear in `All Commands`.
+- Commands/categories added in UI are persisted in `policy.json` (`ui_catalog`) and reloaded automatically.
 
 Manual:
-- Category/tab placement and descriptions are maintained in `ui/catalog.json`.
-- New category tabs require editing `ui/catalog.json`.
+- Editing base shipped defaults in `ui/catalog.json` is optional.
+- Runtime enforcement still depends on MCP server restart after policy Apply.
 
 ## 14. Merge and release gates (current)
 Before merge to `main`:

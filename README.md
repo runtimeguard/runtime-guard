@@ -16,6 +16,24 @@ Operator reference:
 - Default policy profile is **basic protection**: severe actions are blocked, all others are allowed.
 - Advanced tiers (`requires_confirmation`, `requires_simulation`, cumulative budgets) remain available in policy for opt-in use.
 
+## MVP capabilities and caveats
+Capabilities:
+1. Basic protection by default: explicitly destructive/sensitive actions are blocked; non-severe actions are allowed.
+2. Advanced policy tiers are available per command/path: simulation and human approval.
+3. Out-of-band approval workflow is active via GUI/API; agent self-approval via MCP tool surface is removed.
+4. Audit logging is comprehensive across agent actions, operator approvals, and server-side events.
+5. Backups are created for destructive/overwrite paths with restore support.
+6. Command normalization and policy matching reduce common obfuscation bypasses.
+7. Workspace/path protections and blocked sensitive paths harden the guardrails around the runtime and approval store.
+8. GUI policy control supports command tiering plus user-added commands and user-added categories.
+
+Caveats:
+1. Policy updates are loaded at server startup; after Apply, restart MCP server (and usually reconnect/restart agent client) to enforce new runtime behavior.
+2. “Basic vs Advanced” is a policy profile convention, not a separate runtime mode switch.
+3. Redaction/obfuscation is pattern-based and not a formal guarantee for all sensitive data shapes.
+4. Some shell-target inference remains heuristic for complex command constructs.
+5. Cumulative budget behavior depends on configured thresholds; defaults may need tuning for your workflow.
+
 ## How to run
 1. `cd /Users/liviu/Documents/ai-runtime-guard`
 2. `python3 -m venv venv && source venv/bin/activate`
