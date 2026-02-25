@@ -21,6 +21,14 @@ const ADVANCED_TIER_COLUMNS = COLUMN_DEFS.filter((c) => c.group === 'advanced')
 const BASIC_GRID_COLS = 'minmax(320px,1fr)_90px_90px'
 const ADVANCED_GRID_TAIL = '_90px_90px_80px_100px_110px_120px'
 const ADVANCED_TOGGLE_KEY = 'airg.ui.showAdvancedSettings'
+const PATHS_ADVANCED_TOGGLE_KEY = 'airg.ui.showAdvancedPaths'
+const RUNTIME_PATH_LABELS = {
+  AIRG_WORKSPACE: 'Agent Workspace',
+  AIRG_POLICY_PATH: 'Policy File',
+  AIRG_APPROVAL_DB_PATH: 'Approval Database',
+  AIRG_APPROVAL_HMAC_KEY_PATH: 'Approval Signing Key',
+  AIRG_UI_DIST_PATH: 'UI Build Path',
+}
 
 const STATUS_STYLE = {
   allowed: 'bg-green-100 text-green-700 border-green-200',
@@ -47,6 +55,10 @@ function slugifyCategoryId(label) {
 
 function normalizeCommandName(cmd) {
   return String(cmd || '').trim().replace(/\s+/g, ' ')
+}
+
+function isAbsolutePath(path) {
+  return String(path || '').startsWith('/')
 }
 
 function tierFor(policy, cmd) {
@@ -121,11 +133,17 @@ export default function App() {
   const [newComment, setNewComment] = useState('')
   const [newCommandTabs, setNewCommandTabs] = useState([])
   const [newCategoryLabel, setNewCategoryLabel] = useState('')
+  const [newPathValue, setNewPathValue] = useState('')
+  const [newPathTier, setNewPathTier] = useState('blocked')
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem(ADVANCED_TOGGLE_KEY) === '1'
+  })
+  const [showPathAdvanced, setShowPathAdvanced] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(PATHS_ADVANCED_TOGGLE_KEY) === '1'
   })
   const pollRef = useRef(null)
 
@@ -184,6 +202,12 @@ export default function App() {
       window.localStorage.setItem(ADVANCED_TOGGLE_KEY, showAdvanced ? '1' : '0')
     }
   }, [showAdvanced])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PATHS_ADVANCED_TOGGLE_KEY, showPathAdvanced ? '1' : '0')
+    }
+  }, [showPathAdvanced])
 
   useEffect(() => {
     // Table edits are source-of-truth while editing. Keep JSON textarea in sync
@@ -347,6 +371,45 @@ export default function App() {
     setMessage(`Command "${command}" added`)
   }
 
+  function pathTierFor(policy, path) {
+    if ((policy?.blocked?.paths || []).includes(path)) return 'blocked'
+    if ((policy?.requires_confirmation?.paths || []).includes(path)) return 'requires_confirmation'
+    if ((policy?.allowed?.paths_whitelist || []).includes(path)) return 'allowed'
+    return 'allowed'
+  }
+
+  function setPathTier(policy, path, tier) {
+    const next = deepClone(policy)
+    const remove = (arr = []) => arr.filter((x) => x !== path)
+    next.blocked.paths = remove(next.blocked?.paths)
+    next.requires_confirmation.paths = remove(next.requires_confirmation?.paths)
+    next.allowed.paths_whitelist = remove(next.allowed?.paths_whitelist)
+    if (tier === 'blocked') next.blocked.paths.push(path)
+    if (tier === 'requires_confirmation') next.requires_confirmation.paths.push(path)
+    if (tier === 'allowed') next.allowed.paths_whitelist.push(path)
+    next.blocked.paths = Array.from(new Set(next.blocked.paths)).sort()
+    next.requires_confirmation.paths = Array.from(new Set(next.requires_confirmation.paths)).sort()
+    next.allowed.paths_whitelist = Array.from(new Set(next.allowed.paths_whitelist)).sort()
+    return next
+  }
+
+  function removePath(policy, path) {
+    const next = deepClone(policy)
+    next.blocked.paths = (next.blocked?.paths || []).filter((p) => p !== path)
+    next.requires_confirmation.paths = (next.requires_confirmation?.paths || []).filter((p) => p !== path)
+    next.allowed.paths_whitelist = (next.allowed?.paths_whitelist || []).filter((p) => p !== path)
+    return next
+  }
+
+  function renamePath(policy, oldPath, newPath) {
+    const normalized = String(newPath || '').trim()
+    if (!normalized || !isAbsolutePath(normalized)) return policy
+    const currentTier = pathTierFor(policy, oldPath)
+    let next = removePath(policy, oldPath)
+    next = setPathTier(next, normalized, currentTier)
+    return next
+  }
+
   async function approve(token, command) {
     const res = await fetch(`${API_BASE}/approvals/approve`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, command })
@@ -380,7 +443,7 @@ export default function App() {
       <button
         key={item.id}
         onClick={() => setActiveRail(item.id)}
-        className={`relative flex flex-col items-center justify-center gap-1 py-3 rounded-xl text-xs transition border ${
+        className={`relative w-full min-h-[102px] flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-xs transition border ${
           isActive ? 'bg-brand text-white border-brand' : 'bg-white text-slate-700 border-slate-200 hover:border-brand/40'
         } ${pending > 0 && item.id === 'approvals' ? 'ring-1 ring-amber-300 bg-amber-50 text-amber-700' : ''}`}
       >
@@ -549,53 +612,49 @@ export default function App() {
     const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
     return (
       <>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3">
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Command</div>
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Command</div>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
+            <input
+              value={newCommand}
+              onChange={(e) => setNewCommand(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2"
+              placeholder="Command (e.g. git cherry-pick)"
+            />
+            <input
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2"
+              placeholder="Description/comment shown in info modal"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {nonAllTabs.map((tab) => (
+              <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
                 <input
-                  value={newCommand}
-                  onChange={(e) => setNewCommand(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2"
-                  placeholder="Command (e.g. git cherry-pick)"
+                  type="checkbox"
+                  checked={newCommandTabs.includes(tab.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
+                    else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
+                  }}
                 />
-                <input
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2"
-                  placeholder="Description/comment shown in info modal"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {nonAllTabs.map((tab) => (
-                  <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={newCommandTabs.includes(tab.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
-                        else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
-                      }}
-                    />
-                    <span>{tab.label}</span>
-                  </label>
-                ))}
-              </div>
-              <button onClick={onAddCommand} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add command</button>
-            </div>
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Category</div>
-              <div className="flex gap-2">
-                <input
-                  value={newCategoryLabel}
-                  onChange={(e) => setNewCategoryLabel(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 flex-1"
-                  placeholder="Category name (e.g. Databases)"
-                />
-                <button onClick={onCreateCategory} className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm">Add category</button>
-              </div>
-            </div>
+                <span>{tab.label}</span>
+              </label>
+            ))}
+          </div>
+          <button onClick={onAddCommand} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add command</button>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-2">
+          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Category</div>
+          <div className="flex gap-2">
+            <input
+              value={newCategoryLabel}
+              onChange={(e) => setNewCategoryLabel(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 flex-1"
+              placeholder="Category name (e.g. Databases)"
+            />
+            <button onClick={onCreateCategory} className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm">Add category</button>
           </div>
         </div>
         <div className="flex items-center justify-between mb-3">
@@ -672,6 +731,41 @@ export default function App() {
   }
 
   function PathsPanel() {
+    const allPaths = Array.from(new Set([
+      ...((draftPolicy?.allowed?.paths_whitelist) || []),
+      ...((draftPolicy?.blocked?.paths) || []),
+      ...((draftPolicy?.requires_confirmation?.paths) || []),
+    ])).sort()
+
+    const visiblePaths = allPaths.filter((p) => showPathAdvanced || pathTierFor(draftPolicy, p) !== 'requires_confirmation')
+    const pathGridColumns = `minmax(420px,1fr)_90px_90px${showPathAdvanced ? '_120px' : ''}_90px`.replaceAll('_', ' ')
+
+    const onAddPath = () => {
+      const p = String(newPathValue || '').trim()
+      if (!p) {
+        setMessage('Path is required')
+        return
+      }
+      if (!isAbsolutePath(p)) {
+        setMessage('Only absolute paths are allowed (must start with /)')
+        return
+      }
+      setDraftPolicy((prev) => setPathTier(prev, p, newPathTier))
+      setNewPathValue('')
+      setMessage(`Path "${p}" added`)
+    }
+
+    const onEditPath = (oldPath) => {
+      const next = window.prompt('Edit absolute path', oldPath)
+      if (next === null) return
+      const normalized = String(next || '').trim()
+      if (!normalized || !isAbsolutePath(normalized)) {
+        setMessage('Only absolute paths are allowed (must start with /)')
+        return
+      }
+      setDraftPolicy((prev) => renamePath(prev, oldPath, normalized))
+    }
+
     return (
       <div className="space-y-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
@@ -679,7 +773,7 @@ export default function App() {
           <div className="grid grid-cols-1 gap-2">
             {Object.entries(runtimePaths).map(([key, value]) => (
               <div key={key} className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-2 items-center">
-                <div className="text-xs font-mono text-slate-500">{key}</div>
+                <div className="text-xs text-slate-600">{RUNTIME_PATH_LABELS[key] || key}</div>
                 <input
                   value={String(value || '')}
                   readOnly
@@ -692,6 +786,78 @@ export default function App() {
             Runtime paths are managed by MCP client configuration/env. To change workspace paths, update your AI agent MCP config,
             then restart the MCP server and agent client.
           </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Path</div>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_320px_auto] gap-2 items-center">
+            <input
+              value={newPathValue}
+              onChange={(e) => setNewPathValue(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs"
+              placeholder="/absolute/path"
+            />
+            <div className="flex items-center gap-3 text-xs">
+              <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'allowed'} onChange={() => setNewPathTier('allowed')} /> Allowed</label>
+              <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'blocked'} onChange={() => setNewPathTier('blocked')} /> Blocked</label>
+              {showPathAdvanced && (
+                <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'requires_confirmation'} onChange={() => setNewPathTier('requires_confirmation')} /> Requires Approval</label>
+              )}
+            </div>
+            <button onClick={onAddPath} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add path</button>
+          </div>
+          <div className="text-xs text-slate-500">Example: <span className="font-mono">/Users/your_username/Documents/Folder</span></div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto">
+          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns: pathGridColumns }}>
+            <div />
+            <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
+            {showPathAdvanced ? (
+              <div className="col-span-2 rounded-md bg-blue-50 py-1 text-slate-700 border-l-2 border-slate-300 pl-4 pr-2 flex items-center justify-between">
+                <span className="font-semibold">Advanced</span>
+                <button
+                  onClick={() => setShowPathAdvanced(false)}
+                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                >
+                  Hide advanced settings
+                </button>
+              </div>
+            ) : (
+              <div className="col-span-1 py-1 px-2 flex items-center justify-end">
+                <button
+                  onClick={() => setShowPathAdvanced(true)}
+                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                >
+                  Show advanced settings
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2 pt-2" style={{ gridTemplateColumns: pathGridColumns }}>
+            <div>Path</div>
+            <div className="text-center">Allowed</div>
+            <div className="text-center">Blocked</div>
+            {showPathAdvanced && <div className="text-center bg-blue-50 border-l-2 border-slate-300 pl-4">Requires Approval</div>}
+            <div className="text-center">Actions</div>
+          </div>
+          {visiblePaths.map((p) => {
+            const tier = pathTierFor(draftPolicy, p)
+            return (
+              <div key={p} className="grid gap-2 items-center border-b border-slate-200 py-2 text-sm" style={{ gridTemplateColumns: pathGridColumns }}>
+                <div className="border border-slate-300 rounded px-2 py-1 font-mono text-xs bg-white">{p}</div>
+                <label className="flex justify-center"><input type="radio" checked={tier === 'allowed'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'allowed'))} /></label>
+                <label className="flex justify-center"><input type="radio" checked={tier === 'blocked'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'blocked'))} /></label>
+                {showPathAdvanced && (
+                  <label className="flex justify-center bg-blue-50 border-l-2 border-slate-300 pl-4">
+                    <input type="radio" checked={tier === 'requires_confirmation'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'requires_confirmation'))} />
+                  </label>
+                )}
+                <div className="flex justify-center gap-2">
+                  <button onClick={() => onEditPath(p)} className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-xs">Edit</button>
+                  <button onClick={() => setDraftPolicy((prev) => removePath(prev, p))} className="px-2 py-1 rounded border border-red-300 text-red-700 text-xs">Remove</button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     )
@@ -761,7 +927,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[74px_170px_1fr] gap-0 min-h-[calc(100vh-84px)]">
+      <div className="grid grid-cols-[96px_170px_1fr] gap-0 min-h-[calc(100vh-84px)]">
         <nav className="border-r border-slate-200 p-2 bg-white">
           <div className="space-y-2">
             {renderRailItem(RAIL_ITEMS[0])}
