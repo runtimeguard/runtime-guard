@@ -1,0 +1,56 @@
+name: CI Package
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+    tags: ["v*"]
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install build
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Build UI (production)
+        run: |
+          cd ui_v3
+          npm install
+          npm run build
+
+      - name: Build Python package
+        run: |
+          python -m build
+
+      - name: Upload Python dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+      - name: Upload UI dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui_v3/dist/*

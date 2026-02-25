@@ -7,6 +7,8 @@ __pycache__/
 
 # Runtime log (contains command history — keep off version control)
 activity.log
+approvals.db
+approvals.db.hmac.key
 
 # Environment variables / secrets
 .env
@@ -18,6 +20,13 @@ activity.log
 backups/
 simtest/
 tmp_test.txt
+ui/config_changes.log
 
 # Test caches
 .pytest_cache/
+
+# UI build/dependency artifacts
+ui_v3/node_modules/
+ui_v3/dist/
+ui_v3/.vite/
+ui_v3/package-lock.json

@@ -26,6 +26,9 @@ Use semantic versions:
    - `python3 airg_cli.py --help`
 6. Review docs for release accuracy:
    - `README.md`, `MANUAL.md`, `STATUS.md`
+7. Verify CI workflow green:
+   - `.github/workflows/ci-package.yml`
+   - validates tests, UI build, and Python package build.
 
 ## Packaging validation
 Use a virtual environment:
@@ -53,6 +56,9 @@ Use a virtual environment:
    - breaking changes
    - upgrade steps
    - known limitations
+5. Attach CI artifacts from the tag workflow run:
+   - `python-dist` (wheel/sdist)
+   - `ui-dist` (built frontend)
 
 ## Optional publish channels
 ### GitHub release artifacts (recommended first)
