@@ -17,11 +17,17 @@ const TAB_LABELS = {
   network: 'Network'
 }
 const COLUMN_DEFS = [
-  { key: 'allowed', label: 'Allowed' },
-  { key: 'requires_simulation', label: 'Simulation' },
-  { key: 'requires_confirmation', label: 'Requires Approval' },
-  { key: 'blocked', label: 'Blocked' }
+  { key: 'allowed', label: 'Allowed', group: 'basic' },
+  { key: 'blocked', label: 'Blocked', group: 'basic' },
+  { key: 'requires_simulation', label: 'Simulation', group: 'advanced' },
+  { key: 'requires_confirmation', label: 'Requires Approval', group: 'advanced' }
 ]
+
+const BASIC_TIER_COLUMNS = COLUMN_DEFS.filter((c) => c.group === 'basic')
+const ADVANCED_TIER_COLUMNS = COLUMN_DEFS.filter((c) => c.group === 'advanced')
+const BASIC_GRID_COLS = 'minmax(320px,1fr)_90px_90px'
+const ADVANCED_GRID_TAIL = '_90px_90px_80px_100px_110px_120px'
+const ADVANCED_TOGGLE_KEY = 'airg.ui.showAdvancedSettings'
 
 const STATUS_STYLE = {
   allowed: 'bg-green-100 text-green-700 border-green-200',
@@ -107,6 +113,10 @@ export default function App() {
   const [allCommands, setAllCommands] = useState([])
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(ADVANCED_TOGGLE_KEY) === '1'
+  })
   const pollRef = useRef(null)
 
   const unsaved = useMemo(() => {
@@ -144,6 +154,12 @@ export default function App() {
     pollRef.current = setInterval(fetchApprovals, 3000)
     return () => clearInterval(pollRef.current)
   }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ADVANCED_TOGGLE_KEY, showAdvanced ? '1' : '0')
+    }
+  }, [showAdvanced])
 
   useEffect(() => {
     // Table edits are source-of-truth while editing. Keep JSON textarea in sync
@@ -255,8 +271,9 @@ export default function App() {
     const appliedTier = tierFor(appliedPolicy, cmd)
     const applied = getOverride(appliedPolicy, cmd)
     const draftOverride = getOverride(draftPolicy, cmd)
-    const contextList = (contexts[cmd] || []).join(', ') || 'Unmapped'
+    const contextList = (contexts[cmd] || []).join(', ') || 'Uncategorized'
     const allowAdvanced = currentTier !== 'allowed'
+    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? ADVANCED_GRID_TAIL : ''}`.replaceAll('_', ' ')
 
     const onRetry = (value) => {
       const next = value === '' ? undefined : Math.max(0, Math.min(10, parseInt(value, 10) || 0))
@@ -271,8 +288,8 @@ export default function App() {
     }
 
     return (
-      <div className="grid grid-cols-[minmax(320px,1fr)_repeat(4,90px)_80px_100px_110px_120px] gap-2 items-center border-b border-slate-200 py-2 text-sm">
-        <div>
+      <div className="grid gap-2 items-center border-b border-slate-200 py-2 text-sm" style={{ gridTemplateColumns }}>
+        <div className="bg-white">
           <div className="font-semibold text-slate-800 flex items-center gap-2">
             <span className="font-mono">{cmd}</span>
             <span className="text-slate-400 cursor-help" title={descriptions[cmd] || 'No description available'}>ⓘ</span>
@@ -282,8 +299,8 @@ export default function App() {
           </div>
           <div className="text-xs text-slate-400">{contextList}</div>
         </div>
-        {COLUMN_DEFS.map((col) => (
-          <label key={col.key} className="flex justify-center">
+        {BASIC_TIER_COLUMNS.map((col) => (
+          <label key={col.key} className="flex justify-center bg-white">
             <input
               type="radio"
               name={`tier-${cmd}`}
@@ -292,45 +309,62 @@ export default function App() {
             />
           </label>
         ))}
-        <input
-          type="number"
-          min={0}
-          max={10}
-          placeholder="-"
-          disabled={!allowAdvanced}
-          title={!allowAdvanced ? 'Retry override is not relevant when command is Allowed' : 'Per-command metadata (runtime enforcement pending)'}
-          className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400"
-          value={draftOverride.retry_override ?? ''}
-          onChange={(e) => onRetry(e.target.value)}
-        />
-        <input
-          type="number"
-          min={0}
-          placeholder="-"
-          disabled={!allowAdvanced}
-          title={!allowAdvanced ? 'Budget metadata disabled when command is Allowed' : 'Per-command metadata (runtime enforcement pending)'}
-          className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400"
-          value={draftOverride?.budget?.max_ops_per_session ?? ''}
-          onChange={(e) => onBudget('max_ops_per_session', e.target.value)}
-        />
-        <input
-          type="number"
-          min={0}
-          placeholder="-"
-          disabled={!allowAdvanced}
-          className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400"
-          value={draftOverride?.budget?.max_unique_paths_per_session ?? ''}
-          onChange={(e) => onBudget('max_unique_paths_per_session', e.target.value)}
-        />
-        <input
-          type="number"
-          min={0}
-          placeholder="-"
-          disabled={!allowAdvanced}
-          className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400"
-          value={draftOverride?.budget?.max_bytes_per_session ?? ''}
-          onChange={(e) => onBudget('max_bytes_per_session', e.target.value)}
-        />
+        {showAdvanced && ADVANCED_TIER_COLUMNS.map((col) => (
+          <label
+            key={col.key}
+            className={`flex justify-center bg-blue-50 ${col.key === 'requires_simulation' ? 'border-l-2 border-slate-300 pl-4' : ''}`}
+          >
+            <input
+              type="radio"
+              name={`tier-${cmd}`}
+              checked={currentTier === col.key}
+              onChange={() => setDraftPolicy((p) => setTier(p, cmd, col.key))}
+            />
+          </label>
+        ))}
+        {showAdvanced && (
+          <>
+            <input
+              type="number"
+              min={0}
+              max={10}
+              placeholder="-"
+              disabled={!allowAdvanced}
+              title={!allowAdvanced ? 'Retry override is not relevant when command is Allowed' : 'Per-command metadata (runtime enforcement pending)'}
+              className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400 border-l-2 border-slate-300 pl-4 bg-white/80"
+              value={draftOverride.retry_override ?? ''}
+              onChange={(e) => onRetry(e.target.value)}
+            />
+            <input
+              type="number"
+              min={0}
+              placeholder="-"
+              disabled={!allowAdvanced}
+              title={!allowAdvanced ? 'Budget metadata disabled when command is Allowed' : 'Per-command metadata (runtime enforcement pending)'}
+              className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400 bg-white/80"
+              value={draftOverride?.budget?.max_ops_per_session ?? ''}
+              onChange={(e) => onBudget('max_ops_per_session', e.target.value)}
+            />
+            <input
+              type="number"
+              min={0}
+              placeholder="-"
+              disabled={!allowAdvanced}
+              className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400 bg-white/80"
+              value={draftOverride?.budget?.max_unique_paths_per_session ?? ''}
+              onChange={(e) => onBudget('max_unique_paths_per_session', e.target.value)}
+            />
+            <input
+              type="number"
+              min={0}
+              placeholder="-"
+              disabled={!allowAdvanced}
+              className="border rounded px-2 py-1 disabled:bg-slate-100 disabled:text-slate-400 bg-white/80"
+              value={draftOverride?.budget?.max_bytes_per_session ?? ''}
+              onChange={(e) => onBudget('max_bytes_per_session', e.target.value)}
+            />
+          </>
+        )}
       </div>
     )
   }
@@ -377,6 +411,7 @@ export default function App() {
   }
 
   function CommandsPanel() {
+    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? ADVANCED_GRID_TAIL : ''}`.replaceAll('_', ' ')
     return (
       <>
         <div className="flex items-center justify-between mb-3">
@@ -388,16 +423,44 @@ export default function App() {
           />
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto">
-          <div className="grid grid-cols-[minmax(320px,1fr)_repeat(4,90px)_80px_100px_110px_120px] gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2">
-            <div>Command</div>
-            <div className="text-center">Allowed</div>
-            <div className="text-center">Simulation</div>
-            <div className="text-center">Requires Approval</div>
-            <div className="text-center">Blocked</div>
-            <div className="text-center">Retry</div>
-            <div className="text-center">Budget Ops</div>
-            <div className="text-center">Budget Paths</div>
-            <div className="text-center">Budget Bytes</div>
+          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns }}>
+            <div />
+            <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
+            {showAdvanced ? (
+              <div className="col-span-6 rounded-md bg-blue-50 py-1 text-slate-700 border-l-2 border-slate-300 pl-4 pr-2 flex items-center justify-between">
+                <span className="font-semibold">Advanced</span>
+                <button
+                  onClick={() => setShowAdvanced(false)}
+                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                >
+                  Hide advanced settings
+                </button>
+              </div>
+            ) : (
+              <div className="col-span-1 py-1 px-2 flex items-center justify-end">
+                <button
+                  onClick={() => setShowAdvanced(true)}
+                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                >
+                  Show advanced settings
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2 pt-2" style={{ gridTemplateColumns }}>
+            <div className="bg-white">Command</div>
+            <div className="text-center bg-white">Allowed</div>
+            <div className="text-center bg-white">Blocked</div>
+            {showAdvanced && (
+              <>
+                <div className="text-center bg-blue-50 border-l-2 border-slate-300 pl-4">Simulation</div>
+                <div className="text-center bg-blue-50">Requires Approval</div>
+                <div className="text-center bg-blue-50 border-l-2 border-slate-300 pl-4">Retry</div>
+                <div className="text-center bg-blue-50">Budget Ops</div>
+                <div className="text-center bg-blue-50">Budget Paths</div>
+                <div className="text-center bg-blue-50">Budget Bytes</div>
+              </>
+            )}
           </div>
           {commandRows.map((cmd) => <CommandRow key={cmd} cmd={cmd} />)}
         </div>
@@ -425,19 +488,35 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-warmbg text-slate-800 font-[system-ui]">
+    <div className="min-h-screen bg-[#f0f1f3] text-slate-800 font-[system-ui]">
       <div className="border-b border-slate-200 bg-white/80 backdrop-blur px-5 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Policy Control Plane</h1>
             <div className="text-xs text-slate-500 mt-1">Policy hash: <span className="font-mono">{policyHash || '-'}</span></div>
           </div>
-          <div className="flex items-center gap-2">
-            {['allowed', 'requires_simulation', 'requires_confirmation', 'blocked'].map((k) => (
-              <span key={k} className={`px-2 py-0.5 rounded-full border text-xs ${STATUS_STYLE[k]}`}>{STATUS_LABEL[k]}</span>
-            ))}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">Basic</span>
+                <div className="flex items-center gap-2">
+                  {['allowed', 'blocked'].map((k) => (
+                    <span key={k} className={`px-2 py-0.5 rounded-full border text-xs ${STATUS_STYLE[k]}`}>{STATUS_LABEL[k]}</span>
+                  ))}
+                </div>
+              </div>
+              <span className="h-6 border-l border-slate-300 mx-2" />
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wide text-slate-500">Advanced</span>
+                <div className="flex items-center gap-2">
+                  {['requires_simulation', 'requires_confirmation'].map((k) => (
+                    <span key={k} className={`px-2 py-0.5 rounded-full border text-xs ${STATUS_STYLE[k]}`}>{STATUS_LABEL[k]}</span>
+                  ))}
+                </div>
+              </div>
+              {unsaved && <span className="text-xs text-amber-700 font-medium flex items-center gap-1 ml-2"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unsaved changes</span>}
+            </div>
             <span className="text-xs italic text-slate-500">Status badges reflect applied policy (after Apply), not unsaved edits</span>
-            {unsaved && <span className="text-xs text-amber-700 font-medium flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unsaved changes</span>}
           </div>
         </div>
       </div>
