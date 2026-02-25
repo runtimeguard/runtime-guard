@@ -9,6 +9,7 @@ import secrets
 import sqlite3
 import stat
 import uuid
+from contextlib import contextmanager
 
 from audit import append_log_entry
 from config import (
@@ -51,14 +52,18 @@ def _from_z(raw: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
 
 
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
     APPROVAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _warn_if_world_accessible(APPROVAL_DB_PATH.parent)
     _warn_if_store_inside_workspace()
     conn = sqlite3.connect(APPROVAL_DB_PATH)
     conn.row_factory = sqlite3.Row
     _enforce_db_file_permissions()
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _log_security_warning(event: str, reason: str, **kwargs) -> None:
