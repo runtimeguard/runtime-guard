@@ -15,18 +15,21 @@ Use semantic versions:
 
 ## Pre-release checklist (run on `dev`)
 1. Confirm clean working tree (or intentionally staged changes only).
-2. Run unit tests:
+2. Verify runtime prerequisites are documented:
+   - Python `>=3.10` required (`3.12+` recommended on macOS).
+   - `AIRG_WORKSPACE` must be configured as a separate sandbox path from install directory.
+3. Run unit tests:
    - `python3 -m unittest discover -s tests -p 'test_*.py'`
-3. Run UI build:
+4. Run UI build:
    - `cd ui_v3 && npm install && npm run build`
-4. Validate runtime path bootstrap:
+5. Validate runtime path bootstrap:
    - `source scripts/setup_runtime_env.sh`
-5. Validate packaged CLI behavior:
+6. Validate packaged CLI behavior:
    - `python3 airg_cli.py init`
    - `python3 airg_cli.py --help`
-6. Review docs for release accuracy:
+7. Review docs for release accuracy:
    - `README.md`, `MANUAL.md`, `STATUS.md`
-7. Verify CI workflow green:
+8. Verify CI workflow green:
    - `.github/workflows/ci-package.yml`
    - validates tests, UI build, and Python package build.
 

@@ -2,6 +2,12 @@
 
 This manual explains current runtime behavior as implemented today.
 
+## 0. Runtime prerequisites
+Python:
+1. Required: Python `>=3.10`.
+2. Recommended: Python `3.12+`.
+3. On macOS, system Python is often `3.9` and can cause dependency install failures; use a newer Python (Homebrew/python.org) and create a fresh venv from that version.
+
 ## 1. What the server does
 - Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
 - Applies policy from `policy.json` before side effects.
@@ -27,6 +33,20 @@ Packaged CLI alternative:
 2. `airg-server` (MCP server) and/or `airg-ui` (Flask backend for control plane)
 3. `airg-up` starts Flask backend as a sidecar and then starts MCP server (stdio) in one command.
 4. `airg-doctor` runs environment, path, permission, and UI-build diagnostics.
+
+### AIRG_WORKSPACE model
+`AIRG_WORKSPACE` defines the operational sandbox root for AI agent actions.
+
+Behavior:
+1. `execute_command` runs with this directory as working directory.
+2. File/tool path checks are evaluated against this root and policy path rules.
+3. Traversal outside workspace is blocked.
+
+Operational guidance:
+1. Install folder and workspace should be separate.
+2. Example install path: `~/Documents/Projects/ai-runtime-guard`
+3. Example workspace path: `~/airg-workspace`
+4. Do not use the install folder as the default destructive-test workspace.
 
 ### MVP capabilities and caveats snapshot
 Capabilities:

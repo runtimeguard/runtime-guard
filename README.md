@@ -16,6 +16,16 @@ Operator reference:
 - Default policy profile is **basic protection**: severe actions are blocked, all others are allowed.
 - Advanced tiers (`requires_confirmation`, `requires_simulation`, cumulative budgets) remain available in policy for opt-in use.
 
+## Requirements
+Python:
+1. Required: Python `>=3.10` (project package metadata enforces this).
+2. Recommended on macOS: Python `3.12+` (Homebrew or python.org install).
+3. macOS system Python `3.9` is often too old and may fail dependency install (notably `mcp` package constraints and modern tooling expectations).
+
+Why this matters:
+1. `ai-runtime-guard` depends on package versions that are not reliably installable on Python 3.9.
+2. Clean install friction is significantly lower with a modern Python runtime.
+
 ## MVP capabilities and caveats
 Capabilities:
 1. Basic protection by default: explicitly destructive/sensitive actions are blocked; non-severe actions are allowed.
@@ -119,6 +129,26 @@ Example JSON snippet:
 ```
 
 If your client does not inherit shell environment, run `airg-init` first and pass explicit `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, and `AIRG_APPROVAL_HMAC_KEY_PATH` in client `env`.
+
+## AIRG_WORKSPACE (important)
+`AIRG_WORKSPACE` is the root directory that agent tool operations are allowed to act inside by default.
+
+How it works:
+1. `execute_command` starts from `AIRG_WORKSPACE` as its working directory.
+2. File tools (`read_file`, `write_file`, `delete_file`, `list_directory`) enforce workspace/path policy relative to this root.
+3. Traversal attempts outside this root are blocked by policy checks.
+
+Recommended setup:
+1. Keep install source code in one location (example: `~/Documents/Projects/ai-runtime-guard`).
+2. Use a separate sandbox workspace for agent operations (example: `~/airg-workspace`).
+
+Incorrect pattern (common friction):
+1. Setting `AIRG_WORKSPACE` to the project install folder and testing destructive commands there.
+2. This can mix runtime code/config with test side effects and produce confusing results.
+
+Correct pattern:
+1. Set `AIRG_WORKSPACE` to a dedicated disposable folder.
+2. Keep project folder read-only from normal agent tasks whenever possible.
 
 ## How to test
 Primary workflow (recommended for destructive-behavior testing):
