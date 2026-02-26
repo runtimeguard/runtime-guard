@@ -100,15 +100,15 @@ npm run dev
 3. Open `http://127.0.0.1:5173`
 
 ### Linux-specific GUI note
-On some Linux source installs, `airg-ui`/`airg-doctor` may not auto-detect the built frontend path.
+On Linux source installs, `airg-ui`/`airg-doctor` now probe common source/package UI locations automatically.
 
-If UI build detection fails, set:
+If detection still fails in your environment, set:
 ```bash
 export AIRG_UI_DIST_PATH=/absolute/path/to/ai-runtime-guard/ui_v3/dist
 airg-ui
 ```
 
-If `airg-doctor` warns about missing UI build under `site-packages` but the GUI works at `http://127.0.0.1:5001`, treat it as a known path-resolution warning and continue.
+Use the same env var when running `airg-doctor` if you need deterministic path resolution.
 
 ## Guided setup (optional)
 Wizard:
