@@ -23,6 +23,11 @@ Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or 
 - Advanced tiers available for opt-in: simulation gating, human approval workflows, cumulative budget limits
 - Local web GUI for policy editing, approval management, and audit log review
 
+## Important limitation
+1. AIRG can only enforce actions that go through its MCP tools.
+2. If an AI client exposes native shell/file tools outside MCP (for example, Claude Code Bash), those tools can bypass AIRG policy enforcement.
+3. Client-side instructions to avoid native tools are a mitigation, not a guarantee.
+
 ## Requirements
 Python:
 1. Required: Python `>=3.10` (project package metadata enforces this).
@@ -124,7 +129,7 @@ Automated tests:
 1. `python3 -m unittest discover -s tests -p 'test_*.py'`
 
 ## Branch and release policy (current)
-1. `main` is the release branch (currently tagged `v0.9`).
+1. `main` is the release branch (currently tagged `v1.0`).
 2. `dev` is the active integration branch for ongoing work.
 3. Use short-lived feature branches from `dev`, then merge back into `dev`.
 4. Promote releases by merging `dev` -> `main` after gates are satisfied, then tag (`v1.0`, `v1.1`, etc.).
