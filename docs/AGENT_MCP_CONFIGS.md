@@ -154,6 +154,7 @@ This workspace is protected by ai-runtime-guard MCP server.
 
 Note:
 1. This is a client-behavior mitigation, not a hard AIRG enforcement boundary.
+2. If Claude Code uses native Bash/file tools, those actions occur outside MCP and AIRG cannot enforce policy on them.
 
 ## Cursor
 ### GUI setup

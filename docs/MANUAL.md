@@ -253,3 +253,4 @@ Linux validation note:
 - `shell=True` remains in command execution path.
 - Cumulative budget defaults may be too high to trigger in typical manual runs.
 - Per-command UI override fields are metadata only today.
+- AIRG enforcement only applies to MCP tool calls; native client shell/file tools (for example Claude Code Bash) can bypass AIRG controls.

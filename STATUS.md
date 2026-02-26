@@ -72,6 +72,7 @@ Last updated: 2026-02-25
 
 ## Current known issues
 - MCP `approve_command` tool exposure has been removed; approvals are now out-of-band via GUI/API only.
+- AIRG policy enforcement applies only to MCP tool calls; AI clients with native shell/file tools outside MCP can bypass AIRG controls if those tools are used.
 - `execute_command` still uses `shell=True` for compatibility; this remains the largest residual command-parsing risk surface.
 - Network policy currently focuses on domain-level command checks; payload-size and protocol-depth enforcement are not yet comprehensive.
 - Backup target detection for shell commands remains heuristic (`PATH_TOKEN_RE` + existing-path checks) and can miss some shell expansion edge cases.
