@@ -14,6 +14,18 @@ Python:
 - Logs all actions to `activity.log`.
 - Creates backups for destructive operations in `backups/`.
 
+### Product scope (intentional)
+1. AIRG is designed to prevent accidental damage (hallucinated deletes, wrong-path writes, broad wildcard actions, accidental secret access).
+2. AIRG is not a full malicious-actor containment boundary.
+3. Core controls:
+   - block severe destructive/exfiltration actions by policy
+   - enforce workspace/path boundaries
+   - gate mass/wildcard actions through simulation/budget controls
+   - optionally require operator approval for selected risky commands
+   - automatically create backups before destructive/overwrite operations
+   - comprehensively audit allowed/blocked actions and operator decisions
+4. Enforcement boundary: AIRG controls MCP tool calls only. Native client tools outside MCP are out of scope for AIRG enforcement.
+
 ### Runtime environment setup (recommended)
 Before starting MCP server and UI backend, source:
 - `source scripts/setup_runtime_env.sh`

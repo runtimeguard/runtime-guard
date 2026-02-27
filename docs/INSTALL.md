@@ -144,6 +144,7 @@ Branch note:
 5. Blast-radius simulation, when configured, evaluates candidate targets relative to the current workspace context. Directory-depth/path checks are anchored from `AIRG_WORKSPACE`.
 6. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
 7. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
+8. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, gate mass/wildcard operations, back up destructive/overwrite targets automatically, and keep full audit logs.
 
 ## Post-install smoke test
 1. Confirm blocked command is denied (`rm -rf ...` test target in workspace).

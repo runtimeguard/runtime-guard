@@ -17,6 +17,18 @@ All actions — allowed and blocked — are logged to a full audit trail.
 ## Who it's for
 Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or any MCP-compatible client) who want guardrails on what the agent can actually do to their system.
 
+## Design scope
+1. AIRG is designed to reduce accidental damage from AI agent mistakes or hallucinations.
+2. AIRG is not positioned as a full malicious-actor containment system.
+3. AIRG enforces only MCP-routed actions; native client shell/file tools outside MCP are outside AIRG enforcement.
+4. Core controls:
+   - block high-risk destructive/exfiltration commands and paths
+   - enforce workspace boundaries
+   - gate mass/wildcard actions with simulation and budget limits
+   - optionally require human approval for selected risky actions
+   - automatically back up destructive/overwrite targets before applying changes
+   - log allowed/blocked actions and operator decisions to an audit trail
+
 ## How it works
 - Python MCP server with policy-driven enforcement loaded from `policy.json`
 - Default profile is **basic protection**: severe actions blocked, everything else allowed
