@@ -216,17 +216,26 @@ Current recommended UI stack:
 - Frontend: Vite React + Tailwind (`ui_v3/`)
 
 Behavior:
-- Three-layer navigation: rail (`Approvals`, `Policy`, `Reports`, `Settings`) + policy tabs (`Commands`, `Paths`, `Extensions`) + content panel.
+- Three-layer navigation: rail (`Approvals`, `Policy`, `Reports`, `Settings`) + policy tabs (`Commands`, `Paths`, `Extensions`, `Network`, `Advanced Policy`) + content panel.
 - Approvals panel polls backend and supports `approve`/`deny` actions against shared SQLite approval store.
-- Commands panel supports search, tier radios, clickable command-info modal, applied-state badges, retry/budget metadata inputs, and advanced JSON editor.
+- Commands panel supports search, tier radios, clickable command-info modal, applied-state badges, and advanced JSON editor.
 - Commands panel supports adding custom commands (with optional description/comment) and assigning them to one or more categories.
 - Commands panel supports adding custom categories.
+- Commands panel advanced tier visibility toggle controls only command tier radios (`Simulation`, `Requires Approval`); global retry/budget controls are configured on `Advanced Policy`.
 - Paths panel is separate from Commands and includes:
   - read-only runtime path display (workspace/policy/approval paths)
   - instructions to update MCP config/env and restart for runtime path changes
   - policy-managed path rules with absolute-path validation
   - mapping: `Allowed` => `allowed.paths_whitelist`, `Blocked` => `blocked.paths`, `Requires Approval` => `requires_confirmation.paths`
   - editable/removable path entries
+- Network panel includes:
+  - `network.enforcement_mode` control (`off` / `monitor` / `enforce`)
+  - editable `network.commands` list (used to trigger network policy evaluation)
+  - editable domain whitelist/blocklist with precedence guidance
+- Advanced Policy panel includes global simulation/budget controls:
+  - `requires_simulation.max_retries` and `bulk_file_threshold`
+  - cumulative budget enable/scope/limits
+  - counting controls (`mode`, `dedupe_paths`, `include_noop_attempts`, `commands_included`)
 - Status badges reflect applied policy only (post-`Apply`).
 - Shared policy actions are available across all policy tabs: `Reload`, `Validate`, `Apply`, `Revert Last Apply`, `Reset to Defaults`.
 - `Apply`/`Revert`/`Reset` perform validation + atomic write and append `ui/config_changes.log`.

@@ -1,5 +1,20 @@
 # CHANGELOG_DEV
 
+## 2026-02-27 (policy UI parity pass: network + advanced settings split)
+- Extended Policy tabs with `Network` and `Advanced Policy` pages.
+- Commands page now focuses on tier selection only (basic/advanced radios) and removed per-command retry/budget fields to avoid implying unsupported runtime behavior.
+- Added Commands-page guidance to configure global simulation/budget controls on `Advanced Policy`.
+- Added Network page controls for:
+  - `network.enforcement_mode` (`off`, `monitor`, `enforce`)
+  - `network.commands` list management
+  - domain whitelist + blocklist management with precedence guidance text.
+- Added Advanced Policy page controls for global/session simulation and cumulative budget settings:
+  - `requires_simulation.max_retries`, `bulk_file_threshold`
+  - cumulative budget `enabled`, `scope`, `limits`
+  - counting controls (`mode`, `dedupe_paths`, `include_noop_attempts`, `commands_included`).
+- Updated docs (`docs/MANUAL.md`, `docs/INSTALL.md`) to reflect the new configuration layout and semantics.
+- Verified frontend compiles successfully with `npm run build` in `ui_v3`.
+
 ## 2026-02-27 (v1.1 release flow + scope clarification)
 - Updated release messaging/docs for `v1.1` readiness:
   - added `v1.1` section in `CHANGELOG.md`

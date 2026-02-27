@@ -71,6 +71,7 @@ Notes:
 Use this when you want:
 1. Easier policy edits (instead of editing `policy.json` manually).
 2. Human approval workflow when `requires_confirmation` is enabled.
+3. Policy pages for commands, paths, extensions, network controls, and global advanced simulation/budget settings.
 
 ### Serve mode (recommended)
 1. Build UI:
