@@ -128,7 +128,7 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     _ensure_list(allowed, "paths_whitelist")
     allowed.setdefault("max_files_per_operation", 10)
     allowed.setdefault("max_file_size_mb", 10)
-    allowed.setdefault("max_directory_depth", 5)
+    allowed.setdefault("max_directory_depth", 100)
 
     network = _ensure_dict("network")
     network.setdefault("enforcement_mode", "off")
