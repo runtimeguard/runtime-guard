@@ -29,6 +29,7 @@
   },
 
   "requires_confirmation": {
+    "_comment": "session_whitelist_enabled is a legacy compatibility toggle; keep true for the current one-time approval grant flow.",
     "commands": [],
     "paths": [],
     "session_whitelist_enabled": true,
