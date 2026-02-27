@@ -70,7 +70,7 @@ Operational guidance:
 4. Do not use the install folder as the default destructive-test workspace.
 5. If you need multiple workspaces, add explicit extra roots under `policy.allowed.paths_whitelist`.
 
-### MVP capabilities and caveats snapshot
+### Current capabilities and caveats snapshot
 Capabilities:
 1. Default basic profile blocks severe actions and allows non-severe actions.
 2. Advanced tiers (`requires_simulation`, `requires_confirmation`) are policy-available and per-command configurable.
@@ -306,8 +306,7 @@ Before merge to `main`:
 3. Approval separation gate must pass (agent cannot approve via MCP tool surface).
 
 Linux validation note:
-- Linux is currently untested but expected to work.
-- Linux validation is tracked as a post-merge v1.1 validation task.
+- Linux validation has been completed and documented (`docs/LINUX_VALIDATION.md`).
 
 ## 15. Known high-priority limitations
 - Operator endpoint authentication/authorization remains local-trust oriented and should be hardened before broad deployment.

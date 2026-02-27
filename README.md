@@ -141,9 +141,9 @@ Automated tests:
 1. `python3 -m unittest discover -s tests -p 'test_*.py'`
 
 ## Branch and release policy (current)
-1. `main` is the release branch (currently tagged `v1.0`).
+1. `main` is the release branch (currently tagged `v1.1`).
 2. `dev` is the active integration branch for ongoing work.
 3. Use short-lived feature branches from `dev`, then merge back into `dev`.
-4. Promote releases by merging `dev` -> `main` after gates are satisfied, then tag (`v1.0`, `v1.1`, etc.).
+4. Promote releases by merging `dev` -> `main` after gates are satisfied, then tag (`v1.1`, `v1.2`, etc.).
 5. `main` should stay protected in GitHub settings: no direct pushes, at least one review, and required checks before merge.
 6. Approval separation at MCP tool surface is complete (approval remains out-of-band via GUI/API).

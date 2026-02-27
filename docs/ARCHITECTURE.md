@@ -176,4 +176,4 @@ The UI can store per-command editor metadata in:
 
 Current behavior:
 - metadata is persisted by UI apply flow and included in audit diffs
-- runtime enforcement is unchanged for MVP; these fields are planning/config scaffolding for later per-command enforcement work
+- runtime enforcement is unchanged in current v1.1 baseline; these fields are planning/config scaffolding for later per-command enforcement work

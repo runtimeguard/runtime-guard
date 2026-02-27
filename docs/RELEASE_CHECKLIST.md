@@ -15,7 +15,19 @@ git status --short
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
-4. Push `dev`:
+4. Build UI assets:
+```bash
+cd ui_v3
+npm install
+npm run build
+cd ..
+```
+5. Build Python package artifacts:
+```bash
+python3 -m pip install --upgrade build
+python3 -m build
+```
+6. Push `dev`:
 ```bash
 git push origin dev
 ```
@@ -49,7 +61,17 @@ git rev-parse vX.Y
 ```
 2. Confirm GitHub release/tag is visible.
 3. Confirm branch protections are still enabled on `main`.
-4. Announce release notes from `CHANGELOG.md`.
+4. Run packaged CLI smoke checks:
+```bash
+airg-setup --quickstart --yes
+airg-doctor
+airg-server   # startup smoke (Ctrl+C)
+airg-ui       # startup smoke (Ctrl+C)
+```
+5. Confirm policy baseline reflects current runtime:
+   - contains `network.block_unknown_domains`
+   - does not rely on removed `network.max_payload_size_kb`
+6. Announce release notes from `CHANGELOG.md`.
 
 ## 5. If tag was created before PR merge (re-tag fix)
 1. Delete local tag:
