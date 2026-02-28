@@ -9,34 +9,7 @@ This roadmap defines the next packaging and architecture milestones after v1.1.1
 
 ---
 
-## v1.2 - Reporting Foundation
-
-Goal: add operator-visible reporting without changing enforcement semantics.
-
-### Scope
-1. Add `reports.db` in runtime state path, sourced from incremental ingest of `activity.log`.
-2. Build Reports GUI section:
-- Dashboard tab (cards + rolling 7-day summaries)
-- Log tab (auto-refresh feed with filters)
-3. Add retention controls for reports storage:
-- age-based retention
-- size-based cap
-- daily prune
-4. Add doctor checks for reports DB health and ingest lag.
-
-### Non-goals
-1. No major-issue anomaly detection yet (mass-delete alarms deferred).
-2. No per-agent isolation changes in v1.2.
-
-### Acceptance gates
-1. Reports ingest is stable under log append/rotation/truncation.
-2. Dashboard and log views are consistent with source `activity.log`.
-3. Unit/API/UI smoke tests pass.
-4. `airg-doctor` validates reports DB creation and lag warnings.
-
----
-
-## v1.3 - Agent Identity and Multi-Agent Policy Model
+## v1.2 - Agent Identity and Multi-Agent Policy Model
 
 Goal: refactor runtime identity/session model to support per-agent attribution and policy isolation.
 
@@ -60,6 +33,34 @@ Goal: refactor runtime identity/session model to support per-agent attribution a
 2. Per-agent policy/workspace boundaries are enforceable and test-covered.
 3. Approval and budget checks are isolated per agent session as designed.
 4. Backward-compatibility path for single-agent installs is documented and validated.
+
+---
+
+## v1.3 - Reporting Foundation
+
+Goal: add operator-visible reporting on top of agent-aware event identity.
+
+### Scope
+1. Add `reports.db` in runtime state path, sourced from incremental ingest of `activity.log`.
+2. Build Reports GUI section:
+- Dashboard tab (cards + rolling 7-day summaries)
+- Log tab (auto-refresh feed with filters)
+3. Add retention controls for reports storage:
+- age-based retention
+- size-based cap
+- daily prune
+4. Add doctor checks for reports DB health and ingest lag.
+5. Ensure report dimensions include `agent_id` and session-scoped identity fields from v1.2.
+
+### Non-goals
+1. No major-issue anomaly detection yet (mass-delete alarms deferred).
+
+### Acceptance gates
+1. Reports ingest is stable under log append/rotation/truncation.
+2. Dashboard and log views are consistent with source `activity.log`.
+3. Agent-level reporting is accurate for concurrent clients.
+4. Unit/API/UI smoke tests pass.
+5. `airg-doctor` validates reports DB creation and lag warnings.
 
 ---
 
@@ -94,4 +95,3 @@ Goal: expand delivery channels after identity/session architecture stabilizes.
 1. Network payload-size enforcement.
 2. Runtime activation of metadata-only budget override fields.
 3. Advanced anomaly detection (mass-delete or high-risk pattern alerting).
-
