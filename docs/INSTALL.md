@@ -13,6 +13,7 @@ This guide separates setup into:
 1. Install folder: where repo/package code lives.
 2. Workspace (`AIRG_WORKSPACE`): where agent actions are intended to run.
 3. Runtime state files: `policy.json`, `approvals.db`, HMAC key, backups.
+4. Runtime log file: `activity.log`.
 
 Do not use the install folder as the workspace.
 
@@ -51,7 +52,8 @@ mkdir -p ~/airg-workspace
         "AIRG_WORKSPACE": "/absolute/path/to/airg-workspace",
         "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
         "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
-        "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key"
+        "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
+        "AIRG_LOG_PATH": "/absolute/path/to/activity.log"
       }
     }
   }
@@ -111,6 +113,12 @@ airg-ui
 
 Use the same env var when running `airg-doctor` if you need deterministic path resolution.
 
+For deterministic startup and path visibility, you can run:
+```bash
+airg-ui --with-runtime-env
+```
+This prints resolved runtime paths before launching the UI backend.
+
 ## Guided setup (optional)
 Wizard:
 ```bash
@@ -154,3 +162,17 @@ Branch note:
 3. Confirm `activity.log` gets entries.
 4. If approval is enabled, confirm token appears and GUI approve/deny works.
 5. Confirm backup/restore dry-run path works for destructive file action.
+
+## Troubleshooting
+1. `claude mcp list` shows AIRG as disconnected:
+   - Use absolute command path for server in client config.
+   - Verify with `airg-doctor`.
+2. UI loads legacy/minimal page:
+   - Build v3 frontend (`cd ui_v3 && npm install && npm run build`).
+   - Ensure `AIRG_UI_DIST_PATH` points to `ui_v3/dist`.
+3. Approvals loop with new token on every retry:
+   - Check HMAC key file is non-empty (`wc -c <approval_hmac_key_path>`).
+   - Restart UI and MCP client after fixing paths/secrets.
+4. Exports do not seem to apply:
+   - Env exports only affect the current shell process tree.
+   - Start `airg-ui` and your client from shells with the intended env values.

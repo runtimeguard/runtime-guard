@@ -1,5 +1,28 @@
 # CHANGELOG_DEV
 
+## 2026-02-28 (linux friction hardening pass)
+- Implemented runtime log path defaults to user state storage (`AIRG_LOG_PATH`, defaulting to platform state dir) instead of package/repo-local paths.
+- Updated setup/runtime bootstrap to include `AIRG_LOG_PATH` in generated env blocks and MCP snippets.
+- Fixed setup key-material bug: runtime init now creates non-empty approval HMAC key content instead of touching an empty file.
+- Added approval self-heal for empty HMAC key files in `approvals.py`; empty key files are regenerated and warning-audited.
+- Updated audit writer to create parent directories before appending entries to avoid first-write failures.
+- Removed legacy UI static fallback from UI dist discovery in CLI and Flask backend; v3 build is now the deterministic target.
+- Added `airg-ui --with-runtime-env` to initialize/print resolved runtime paths before launching UI backend.
+- Expanded `airg-doctor` diagnostics:
+  - prints resolved workspace/policy/db/key/log/ui paths
+  - warns on empty HMAC key files
+  - checks log file permissions and placement alongside existing runtime checks.
+- Updated docs for Linux setup and MCP env guidance:
+  - added `AIRG_LOG_PATH` to config examples
+  - documented shell env scope pitfalls and UI startup troubleshooting
+  - documented new UI startup mode (`--with-runtime-env`).
+- Added validation and execution planning docs:
+  - `docs/LINUX_VALIDATION_V2.md`
+  - `docs/LINUX_FIX_CHECKLIST.md`
+- Added regression tests:
+  - setup permissions test verifies non-empty HMAC key creation
+  - approval store test verifies empty HMAC key regeneration behavior.
+
 ## 2026-02-27 (network policy precedence + default-deny toggle)
 - Updated network enforcement logic to support explicit unknown-domain policy:
   - added `network.block_unknown_domains` (`false` by default)

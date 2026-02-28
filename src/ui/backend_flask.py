@@ -27,9 +27,7 @@ def _candidate_ui_dist_paths() -> list[pathlib.Path]:
     candidates.extend(
         [
             BASE_DIR / "ui_v3" / "dist",
-            BASE_DIR / "ui" / "static",
             pathlib.Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ui_v3" / "dist",
-            pathlib.Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ui" / "static",
         ]
     )
     return candidates
@@ -102,6 +100,7 @@ def get_policy():
                 "AIRG_APPROVAL_HMAC_KEY_PATH": str(
                     pathlib.Path(os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key"))
                 ),
+                "AIRG_LOG_PATH": str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH))),
                 "AIRG_UI_DIST_PATH": str(UI_DIST_PATH),
             },
         }

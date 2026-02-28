@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import pathlib
+import platform
 import uuid
 
 
@@ -13,15 +14,48 @@ def _module_base_dir() -> pathlib.Path:
     return here
 
 
+def _default_base_state_dir() -> pathlib.Path:
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            return pathlib.Path(appdata) / "ai-runtime-guard"
+    if platform.system() == "Darwin":
+        return pathlib.Path.home() / "Library" / "Application Support" / "ai-runtime-guard"
+    xdg = os.environ.get("XDG_STATE_HOME", "")
+    if xdg:
+        return pathlib.Path(xdg) / "ai-runtime-guard"
+    return pathlib.Path.home() / ".local" / "state" / "ai-runtime-guard"
+
+
+def _default_base_config_dir() -> pathlib.Path:
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            return pathlib.Path(appdata) / "ai-runtime-guard"
+    if platform.system() == "Darwin":
+        return pathlib.Path.home() / "Library" / "Application Support" / "ai-runtime-guard"
+    xdg = os.environ.get("XDG_CONFIG_HOME", "")
+    if xdg:
+        return pathlib.Path(xdg) / "ai-runtime-guard"
+    return pathlib.Path.home() / ".config" / "ai-runtime-guard"
+
+
 # Startup configuration
 BASE_DIR = _module_base_dir()
-LOG_PATH = str(BASE_DIR / "activity.log")
+LOG_PATH = str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", str(_default_base_state_dir() / "activity.log"))).expanduser().resolve())
 BACKUP_DIR = str(BASE_DIR / "backups")
-POLICY_PATH = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", str(BASE_DIR / "policy.json"))).expanduser().resolve()
+POLICY_PATH = pathlib.Path(
+    os.environ.get("AIRG_POLICY_PATH", str(_default_base_config_dir() / "policy.json"))
+).expanduser().resolve()
 
 
 def _load_policy() -> dict:
-    with open(POLICY_PATH) as f:
+    path = POLICY_PATH
+    if not path.exists():
+        fallback = BASE_DIR / "policy.json"
+        if fallback.exists():
+            path = fallback
+    with open(path) as f:
         return json.load(f)
 
 

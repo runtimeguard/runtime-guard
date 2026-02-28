@@ -33,6 +33,7 @@ Before starting MCP server and UI backend, source:
 This exports:
 - `AIRG_APPROVAL_DB_PATH`
 - `AIRG_APPROVAL_HMAC_KEY_PATH`
+- `AIRG_LOG_PATH`
 
 Default locations created by the script:
 - macOS: `~/Library/Application Support/ai-runtime-guard/`
@@ -46,13 +47,14 @@ Packaged CLI alternative:
 3. `airg-server` (MCP server) and/or `airg-ui` (Flask backend for control plane)
 4. `airg-up` starts Flask backend as a sidecar and then starts MCP server (stdio) in one command.
 5. `airg-doctor` runs environment, path, permission, and UI-build diagnostics.
+6. `airg-ui --with-runtime-env` initializes and prints resolved runtime paths before launching UI backend.
 6. Recommended gate: run `airg-doctor` and resolve warnings before first MCP client connection.
 
 Note:
 1. In packaged flow, `airg-setup` already performs secure runtime path setup.
 2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
 3. `airg-setup`/`airg-init` seed `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
-4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, and `AIRG_APPROVAL_HMAC_KEY_PATH`.
+4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, and `AIRG_LOG_PATH`.
 5. `airg-setup` asks guided questions (workspace, runtime paths, optional additional workspaces, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
 
 ### AIRG_WORKSPACE model
@@ -289,6 +291,7 @@ Serving model:
 - `ui/backend_flask.py` now serves both REST API endpoints and built frontend assets from `ui_v3/dist` when present.
 - If the frontend build is missing, backend API routes still work and `/` returns a build-missing hint.
 - Override built UI path with `AIRG_UI_DIST_PATH` when needed.
+- Legacy UI fallback is no longer used in normal flow, which prevents silent serving of stale assets.
 
 ## 13. What is automatic vs manual in UI command catalog
 Automatic:

@@ -5,6 +5,7 @@ import os
 import pathlib
 import platform
 import runpy
+import secrets
 import shutil
 import socket
 import stat
@@ -36,9 +37,7 @@ def _candidate_ui_dist_paths() -> list[pathlib.Path]:
     return [
         *candidates,
         here / "ui_v3" / "dist",
-        here / "ui" / "static",
         pathlib.Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ui_v3" / "dist",
-        pathlib.Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "ui" / "static",
     ]
 
 
@@ -105,18 +104,21 @@ def _resolve_paths_with_overrides(
     policy_override = os.environ.get("AIRG_POLICY_PATH", "")
     db_override = os.environ.get("AIRG_APPROVAL_DB_PATH", "")
     key_override = os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", "")
+    log_override = os.environ.get("AIRG_LOG_PATH", "")
     policy_selected = policy_path or policy_override
     db_selected = approval_db_path or db_override
     key_selected = approval_hmac_key_path or key_override
 
     cfg_dir = pathlib.Path(policy_selected).expanduser().resolve().parent if policy_selected else _default_base_config_dir()
     state_dir = pathlib.Path(db_selected).expanduser().resolve().parent if db_selected else _default_base_state_dir()
+    log_path = pathlib.Path(log_override).expanduser().resolve() if log_override else (state_dir / "activity.log").resolve()
     return {
         "config_dir": cfg_dir,
         "state_dir": state_dir,
         "policy_path": pathlib.Path(policy_selected if policy_selected else str(cfg_dir / "policy.json")).expanduser().resolve(),
         "approval_db_path": pathlib.Path(db_selected if db_selected else str(state_dir / "approvals.db")).expanduser().resolve(),
         "approval_hmac_key_path": pathlib.Path(key_selected if key_selected else str(state_dir / "approvals.db.hmac.key")).expanduser().resolve(),
+        "log_path": log_path,
     }
 
 
@@ -125,22 +127,43 @@ def _apply_runtime_env(paths: dict[str, pathlib.Path], *, force: bool = False) -
         os.environ["AIRG_POLICY_PATH"] = str(paths["policy_path"])
         os.environ["AIRG_APPROVAL_DB_PATH"] = str(paths["approval_db_path"])
         os.environ["AIRG_APPROVAL_HMAC_KEY_PATH"] = str(paths["approval_hmac_key_path"])
+        os.environ["AIRG_LOG_PATH"] = str(paths["log_path"])
         return
     os.environ.setdefault("AIRG_POLICY_PATH", str(paths["policy_path"]))
     os.environ.setdefault("AIRG_APPROVAL_DB_PATH", str(paths["approval_db_path"]))
     os.environ.setdefault("AIRG_APPROVAL_HMAC_KEY_PATH", str(paths["approval_hmac_key_path"]))
+    os.environ.setdefault("AIRG_LOG_PATH", str(paths["log_path"]))
+
+
+def _ensure_hmac_key_file(path: pathlib.Path) -> None:
+    if not path.exists() or path.stat().st_size == 0:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(secrets.token_hex(32) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _secure_permissions(paths: dict[str, pathlib.Path]) -> None:
-    for directory in [paths["config_dir"], paths["state_dir"], paths["approval_db_path"].parent, paths["approval_hmac_key_path"].parent]:
+    for directory in [
+        paths["config_dir"],
+        paths["state_dir"],
+        paths["approval_db_path"].parent,
+        paths["approval_hmac_key_path"].parent,
+        paths["log_path"].parent,
+    ]:
         directory.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(directory, 0o700)
         except OSError:
             pass
-    for file_path in [paths["approval_db_path"], paths["approval_hmac_key_path"]]:
-        if not file_path.exists():
-            file_path.touch()
+    if not paths["approval_db_path"].exists():
+        paths["approval_db_path"].touch()
+    _ensure_hmac_key_file(paths["approval_hmac_key_path"])
+    if not paths["log_path"].exists():
+        paths["log_path"].touch()
+    for file_path in [paths["approval_db_path"], paths["log_path"]]:
         try:
             os.chmod(file_path, 0o600)
         except OSError:
@@ -190,6 +213,7 @@ def _init_runtime(
     print(f"[airg] AIRG_POLICY_PATH={paths['policy_path']}")
     print(f"[airg] AIRG_APPROVAL_DB_PATH={paths['approval_db_path']}")
     print(f"[airg] AIRG_APPROVAL_HMAC_KEY_PATH={paths['approval_hmac_key_path']}")
+    print(f"[airg] AIRG_LOG_PATH={paths['log_path']}")
     print("[airg] Suggested MCP env block (copy into your client config):")
     print(
         json.dumps(
@@ -201,6 +225,7 @@ def _init_runtime(
                     "AIRG_POLICY_PATH": str(paths["policy_path"]),
                     "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
                     "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
+                    "AIRG_LOG_PATH": str(paths["log_path"]),
                 },
             },
             indent=2,
@@ -284,6 +309,7 @@ def _agent_config_payload(agent: str, workspace: str, paths: dict[str, pathlib.P
         "AIRG_POLICY_PATH": str(paths["policy_path"]),
         "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
         "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
+        "AIRG_LOG_PATH": str(paths["log_path"]),
     }
     if agent in {"claude_desktop", "cursor", "generic"}:
         return {
@@ -388,6 +414,7 @@ def _run_setup(
     print(f"[airg] policy={path_overrides['policy_path']}")
     print(f"[airg] approval_db={path_overrides['approval_db_path']}")
     print(f"[airg] approval_hmac_key={path_overrides['approval_hmac_key_path']}")
+    print(f"[airg] log_path={path_overrides['log_path']}")
     print(f"[airg] agent config written: {output_path}")
     print("[airg] MCP config snippet:")
     print(json.dumps(payload, indent=2))
@@ -405,6 +432,7 @@ def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
         ("policy_path", paths["policy_path"]),
         ("approval_db_path", paths["approval_db_path"]),
         ("approval_hmac_key_path", paths["approval_hmac_key_path"]),
+        ("log_path", paths["log_path"]),
     ]
     for label, target in checks:
         try:
@@ -468,11 +496,25 @@ def main_server() -> None:
     runpy.run_module("server", run_name="__main__")
 
 
-def main_ui() -> None:
-    paths = _resolve_paths()
-    _apply_runtime_env(paths)
-    _secure_permissions(paths)
-    _ensure_policy_file(paths, force=False)
+def main_ui(with_runtime_env: bool | None = None) -> None:
+    if with_runtime_env is None:
+        parser = argparse.ArgumentParser(description="Run AIRG local UI backend")
+        parser.add_argument(
+            "--with-runtime-env",
+            action="store_true",
+            help="Initialize and print resolved AIRG runtime paths before launching UI.",
+        )
+        args = parser.parse_args()
+        with_runtime_env = bool(args.with_runtime_env)
+
+    if with_runtime_env:
+        paths = _init_runtime(force_policy=False, force_env=False)
+        print("[airg] UI started with resolved runtime env values.")
+    else:
+        paths = _resolve_paths()
+        _apply_runtime_env(paths)
+        _secure_permissions(paths)
+        _ensure_policy_file(paths, force=False)
     _warn_if_paths_inside_unsafe_roots(paths)
     os.environ.setdefault("AIRG_UI_DIST_PATH", str(_resolve_ui_dist_path()))
     runpy.run_module("ui.backend_flask", run_name="__main__")
@@ -529,6 +571,8 @@ def main_doctor() -> None:
     print(f"[airg] policy_path={paths['policy_path']}")
     print(f"[airg] approval_db_path={paths['approval_db_path']}")
     print(f"[airg] approval_hmac_key_path={paths['approval_hmac_key_path']}")
+    print(f"[airg] log_path={paths['log_path']}")
+    print(f"[airg] workspace={pathlib.Path(os.environ.get('AIRG_WORKSPACE', str(_project_root()))).expanduser().resolve()}")
 
     # Policy file
     if not paths["policy_path"].exists():
@@ -546,13 +590,17 @@ def main_doctor() -> None:
             mode = stat.S_IMODE(d.stat().st_mode)
             if mode & 0o077:
                 warnings.append(f"Directory too open: {d} mode={oct(mode)} (recommended 0o700)")
-    for f in [paths["approval_db_path"], paths["approval_hmac_key_path"]]:
+    for f in [paths["approval_db_path"], paths["approval_hmac_key_path"], paths["log_path"]]:
         if f.exists():
             mode = stat.S_IMODE(f.stat().st_mode)
             if mode != 0o600:
                 warnings.append(f"File permissions weak: {f} mode={oct(mode)} (recommended 0o600)")
         else:
             warnings.append(f"File missing (will be created at runtime): {f}")
+    if paths["approval_hmac_key_path"].exists() and paths["approval_hmac_key_path"].stat().st_size == 0:
+        warnings.append(
+            f"HMAC key is empty: {paths['approval_hmac_key_path']} (approval signatures will fail across processes)"
+        )
 
     # Workspace overlap check
     workspace = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(_project_root()))).expanduser().resolve()
@@ -560,6 +608,7 @@ def main_doctor() -> None:
         (paths["policy_path"], "policy_path"),
         (paths["approval_db_path"], "approval_db_path"),
         (paths["approval_hmac_key_path"], "approval_hmac_key_path"),
+        (paths["log_path"], "log_path"),
     ]:
         try:
             if p.resolve().is_relative_to(workspace):
@@ -573,6 +622,7 @@ def main_doctor() -> None:
         (paths["policy_path"], "policy_path"),
         (paths["approval_db_path"], "approval_db_path"),
         (paths["approval_hmac_key_path"], "approval_hmac_key_path"),
+        (paths["log_path"], "log_path"),
     ]:
         try:
             if p.resolve().is_relative_to(project_root):
@@ -582,12 +632,18 @@ def main_doctor() -> None:
 
     # UI build check
     ui_dist = _resolve_ui_dist_path()
+    print(f"[airg] ui_dist_path={ui_dist}")
     if (ui_dist / "index.html").exists():
         print(f"[ok] UI build detected at {ui_dist}")
     else:
         warnings.append(
             "UI build not found. Build with `cd ui_v3 && npm install && npm run build`, "
             "or set AIRG_UI_DIST_PATH to a directory containing index.html."
+        )
+    legacy_ui_path = _project_root() / "src" / "ui" / "static" / "index.html"
+    if legacy_ui_path.exists() and not (ui_dist / "index.html").exists():
+        warnings.append(
+            "Legacy UI assets are present but v3 dist is missing. AIRG UI now expects v3 build artifacts."
         )
 
     # Flask port check
@@ -623,6 +679,11 @@ def main() -> None:
     parser.add_argument("--agent", default="generic", help="Wizard mode: claude_desktop, cursor, generic.")
     parser.add_argument("--enable-ui", default="yes", choices=["yes", "no"], help="Wizard mode: UI workflow preference.")
     parser.add_argument("--out-dir", default="./out/mcp-configs", help="Wizard mode: output directory for generated MCP config.")
+    parser.add_argument(
+        "--with-runtime-env",
+        action="store_true",
+        help="Used with 'ui': initialize and print resolved runtime env values before launching.",
+    )
     args = parser.parse_args()
 
     if args.command == "setup" or (args.command == "init" and args.wizard):
@@ -648,7 +709,7 @@ def main() -> None:
         main_server()
         return
     if args.command == "ui":
-        main_ui()
+        main_ui(with_runtime_env=args.with_runtime_env)
         return
     if args.command == "doctor":
         main_doctor()

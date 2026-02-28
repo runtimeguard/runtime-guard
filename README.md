@@ -91,7 +91,8 @@ Example JSON snippet:
         "AIRG_WORKSPACE": "/absolute/path/to/agent-workspace",
         "AIRG_POLICY_PATH": "~/Library/Application Support/ai-runtime-guard/policy.json",
         "AIRG_APPROVAL_DB_PATH": "~/Library/Application Support/ai-runtime-guard/approvals.db",
-        "AIRG_APPROVAL_HMAC_KEY_PATH": "~/Library/Application Support/ai-runtime-guard/approvals.db.hmac.key"
+        "AIRG_APPROVAL_HMAC_KEY_PATH": "~/Library/Application Support/ai-runtime-guard/approvals.db.hmac.key",
+        "AIRG_LOG_PATH": "~/Library/Application Support/ai-runtime-guard/activity.log"
       }
     }
   }

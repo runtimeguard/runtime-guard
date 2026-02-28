@@ -188,6 +188,15 @@ def _approval_signing_key() -> bytes:
         _warn_if_world_accessible(key_path.parent)
         if key_path.exists():
             key = key_path.read_bytes().strip()
+            if not key:
+                # Self-heal empty key files left by legacy setup flows.
+                key = secrets.token_hex(32).encode()
+                key_path.write_bytes(key + b"\n")
+                _log_security_warning(
+                    "approval_hmac_key_regenerated",
+                    "Approval HMAC key file was empty and was regenerated automatically",
+                    path=str(key_path),
+                )
         else:
             key = secrets.token_hex(32).encode()
             key_path.write_bytes(key + b"\n")

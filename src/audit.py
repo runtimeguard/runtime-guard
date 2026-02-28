@@ -1,5 +1,6 @@
 import datetime
 import json
+import pathlib
 import re
 
 from config import LOG_PATH, POLICY, SESSION_ID, WORKSPACE_ROOT
@@ -46,6 +47,8 @@ def build_log_entry(tool: str, result: PolicyResult, source: str = "ai-agent", *
 
 
 def append_log_entry(entry: dict) -> None:
+    path = pathlib.Path(LOG_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_PATH, "a") as log_file:
         log_file.write(json.dumps(entry) + "\n")
 
