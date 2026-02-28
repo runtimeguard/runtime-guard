@@ -25,7 +25,7 @@ approvals.db-*
 backups/
 simtest/
 tmp_test.txt
-ui/config_changes.log
+src/ui/config_changes.log
 
 # Test caches
 .pytest_cache/
