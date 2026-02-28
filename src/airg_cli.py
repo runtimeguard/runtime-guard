@@ -14,13 +14,21 @@ import time
 from typing import Any
 
 
+def _project_root() -> pathlib.Path:
+    here = pathlib.Path(__file__).resolve().parent
+    # In editable source layout modules live under ./src.
+    if here.name == "src" and (here.parent / "pyproject.toml").exists():
+        return here.parent
+    return here
+
+
 def _is_macos() -> bool:
     return platform.system() == "Darwin"
 
 
 def _candidate_ui_dist_paths() -> list[pathlib.Path]:
     # Search both source-tree and installed-package style locations.
-    here = pathlib.Path(__file__).resolve().parent
+    here = _project_root()
     env_ui_dist = os.environ.get("AIRG_UI_DIST_PATH", "").strip()
     candidates: list[pathlib.Path] = []
     if env_ui_dist:
@@ -40,7 +48,7 @@ def _resolve_ui_dist_path() -> pathlib.Path:
         if (resolved / "index.html").exists():
             return resolved.resolve()
     # Keep first source-tree path as deterministic fallback for warnings.
-    return (pathlib.Path(__file__).resolve().parent / "ui_v3" / "dist").resolve()
+    return (_project_root() / "ui_v3" / "dist").resolve()
 
 
 def _default_base_config_dir() -> pathlib.Path:
@@ -62,7 +70,7 @@ def _default_base_state_dir() -> pathlib.Path:
 
 
 def _policy_template() -> dict[str, Any]:
-    source = pathlib.Path(__file__).with_name("policy.json")
+    source = _project_root() / "policy.json"
     if source.exists():
         return json.loads(source.read_text())
     return {
@@ -391,8 +399,8 @@ def _run_setup(
 
 
 def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
-    workspace = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(pathlib.Path(__file__).resolve().parent))).expanduser().resolve()
-    project_root = pathlib.Path(__file__).resolve().parent
+    workspace = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(_project_root()))).expanduser().resolve()
+    project_root = _project_root()
     checks = [
         ("policy_path", paths["policy_path"]),
         ("approval_db_path", paths["approval_db_path"]),
@@ -547,7 +555,7 @@ def main_doctor() -> None:
             warnings.append(f"File missing (will be created at runtime): {f}")
 
     # Workspace overlap check
-    workspace = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(pathlib.Path(__file__).resolve().parent))).expanduser().resolve()
+    workspace = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(_project_root()))).expanduser().resolve()
     for p, label in [
         (paths["policy_path"], "policy_path"),
         (paths["approval_db_path"], "approval_db_path"),
@@ -560,7 +568,7 @@ def main_doctor() -> None:
             pass
 
     # Project directory overlap check.
-    project_root = pathlib.Path(__file__).resolve().parent
+    project_root = _project_root()
     for p, label in [
         (paths["policy_path"], "policy_path"),
         (paths["approval_db_path"], "approval_db_path"),

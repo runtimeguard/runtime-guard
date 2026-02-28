@@ -23,6 +23,7 @@ airg-up = "airg_cli:main_up_entrypoint"
 airg-doctor = "airg_cli:main_doctor"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 py-modules = [
   "airg_cli",
   "server",
@@ -37,8 +38,8 @@ py-modules = [
 ]
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["tools*", "ui*"]
 
 [tool.setuptools.package-data]
 ui = ["catalog.json", "static/*"]
-ui_v3 = ["dist/**"]

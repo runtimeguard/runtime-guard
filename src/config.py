@@ -4,8 +4,17 @@ import os
 import pathlib
 import uuid
 
+
+def _module_base_dir() -> pathlib.Path:
+    here = pathlib.Path(__file__).resolve().parent
+    # In editable source layout modules live under ./src.
+    if here.name == "src" and (here.parent / "pyproject.toml").exists():
+        return here.parent
+    return here
+
+
 # Startup configuration
-BASE_DIR = pathlib.Path(__file__).parent
+BASE_DIR = _module_base_dir()
 LOG_PATH = str(BASE_DIR / "activity.log")
 BACKUP_DIR = str(BASE_DIR / "backups")
 POLICY_PATH = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", str(BASE_DIR / "policy.json"))).expanduser().resolve()

@@ -125,7 +125,7 @@ Correct pattern:
 ## Deployment model FAQ
 1. Do I need to run `source scripts/setup_runtime_env.sh`?
    - If you use packaged flow with `airg-setup`/`airg-init`, no. Setup initializes secure default paths and files.
-   - If you run directly from source (`python server.py`, `python ui/backend_flask.py`), yes, it is recommended.
+   - If you run directly from source (`PYTHONPATH=src python -m server`, `PYTHONPATH=src python -m ui.backend_flask`), yes, it is recommended.
 2. What folders are involved?
    - Install folder (`airg-install`): where the code/package lives.
    - Runtime state folder (Application Support/state dir): where `approvals.db` and HMAC key live.

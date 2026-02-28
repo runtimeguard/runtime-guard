@@ -29,6 +29,7 @@ ui/config_changes.log
 
 # Test caches
 .pytest_cache/
+tests/fixtures/simtest/
 
 # UI build/dependency artifacts
 ui_v3/node_modules/

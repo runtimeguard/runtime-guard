@@ -25,8 +25,8 @@ Use semantic versions:
 5. Validate runtime path bootstrap:
    - `source scripts/setup_runtime_env.sh`
 6. Validate packaged CLI behavior:
-   - `python3 airg_cli.py init`
-   - `python3 airg_cli.py --help`
+   - `PYTHONPATH=src python3 -m airg_cli init`
+   - `PYTHONPATH=src python3 -m airg_cli --help`
    - verify generated `policy.json` includes `audit.backup_root` under user-local runtime state path (not repo path)
 7. Review docs for release accuracy:
    - `README.md`, `MANUAL.md`, `STATUS.md`
