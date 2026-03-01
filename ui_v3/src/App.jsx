@@ -731,24 +731,30 @@ export default function App() {
     const currentPage = Math.floor(reportsOffset / reportsLimit) + 1
     const pendingApprovalsCount = pendingApprovals.length
 
+    const resetReportsFilters = () => {
+      setReportsOffset(0)
+      setReportsExpandedEventId(null)
+      setReportsFilters({
+        agent_id: '',
+        source: '',
+        tool: '',
+        policy_decision: '',
+        decision_tier: '',
+        matched_rule: '',
+        command: '',
+        path: '',
+        event: '',
+      })
+      setReportsTimeFilter('all_time')
+      setReportsCustomDay('')
+    }
+
     const openLogWithFilters = (patch = {}, options = {}) => {
       const clear = Boolean(options.clearAll)
       setReportsTab('log')
       setReportsOffset(0)
       if (clear) {
-        setReportsFilters({
-          agent_id: '',
-          source: '',
-          tool: '',
-          policy_decision: '',
-          decision_tier: '',
-          matched_rule: '',
-          command: '',
-          path: '',
-          event: '',
-        })
-        setReportsTimeFilter('all_time')
-        setReportsCustomDay('')
+        resetReportsFilters()
       }
       setReportsFilters((prev) => ({ ...(clear ? {} : prev), ...patch }))
     }
@@ -793,7 +799,15 @@ export default function App() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filters</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filters</div>
+            <button
+              onClick={resetReportsFilters}
+              className="px-2 py-1 rounded border border-slate-300 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              Reset filters
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {REPORT_FILTER_FIELDS.map((field) => (
               <input
