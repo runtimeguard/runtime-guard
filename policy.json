@@ -157,5 +157,15 @@
       "(?i)(password\\s*[=:]\\s*)([^\\s]+)",
       "(?i)(secret\\s*[=:]\\s*)([^\\s]+)"
     ]
+  },
+
+  "reports": {
+    "_comment": "Reports ingest and retention settings for reports.db generated from activity.log.",
+    "enabled": true,
+    "ingest_poll_interval_seconds": 5,
+    "reconcile_interval_seconds": 3600,
+    "retention_days": 30,
+    "max_db_size_mb": 200,
+    "prune_interval_seconds": 86400
   }
 }

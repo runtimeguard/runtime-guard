@@ -1,5 +1,34 @@
 # CHANGELOG_DEV
 
+## 2026-03-01 (reports foundation: activity log -> reports db -> reports UI)
+- Added reports runtime module (`src/reports.py`) with:
+  - SQLite schema for `events`, `ingest_state`, and `meta`
+  - incremental byte-offset ingestion from `activity.log`
+  - rotation/truncation-aware offset recovery
+  - policy-driven retention and size-prune logic.
+- Added reports policy defaults/validation:
+  - `reports.enabled`
+  - `reports.ingest_poll_interval_seconds`
+  - `reports.reconcile_interval_seconds`
+  - `reports.retention_days`
+  - `reports.max_db_size_mb`
+  - `reports.prune_interval_seconds`.
+- Added runtime env support for `AIRG_REPORTS_DB_PATH` in setup output, CLI env wiring, and doctor diagnostics.
+- Added Flask reports API endpoints:
+  - `/reports/status`
+  - `/reports/overview`
+  - `/reports/events`
+  - `/reports/top-commands`
+  - `/reports/top-paths`
+  - `/reports/blocked-by-rule`
+  - `/reports/confirmations`.
+- Implemented Reports UI (replacing placeholder):
+  - `Dashboard` tab with totals, 7-day trends, top commands/paths, blocked-by-rule
+  - `Log` tab with paginated events and filters
+  - auto-refresh and freshness indicator.
+- Added tests for reports store sync/query/truncation handling (`tests/test_reports_store.py`).
+- Updated docs (`docs/INSTALL.md`, `docs/MANUAL.md`, `docs/ARCHITECTURE.md`) for reports database/runtime behavior.
+
 ## 2026-03-01 (guided setup flow + GUI user service)
 - Added GUI service management for local deployments:
   - macOS: user `launchd` agent (`com.ai-runtime-guard.ui`)

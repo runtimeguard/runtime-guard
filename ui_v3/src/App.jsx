@@ -32,6 +32,7 @@ const RUNTIME_PATH_LABELS = {
   AIRG_POLICY_PATH: 'Policy File',
   AIRG_APPROVAL_DB_PATH: 'Approval Database',
   AIRG_APPROVAL_HMAC_KEY_PATH: 'Approval Signing Key',
+  AIRG_REPORTS_DB_PATH: 'Reports Database',
   AIRG_UI_DIST_PATH: 'UI Build Path',
 }
 
@@ -151,6 +152,24 @@ export default function App() {
   const [budgetBytesUnit, setBudgetBytesUnit] = useState('MB')
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
+  const [reportsTab, setReportsTab] = useState('dashboard')
+  const [reportsStatus, setReportsStatus] = useState(null)
+  const [reportsOverview, setReportsOverview] = useState(null)
+  const [reportsEvents, setReportsEvents] = useState([])
+  const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportsOffset, setReportsOffset] = useState(0)
+  const [reportsLimit, setReportsLimit] = useState(50)
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportsError, setReportsError] = useState('')
+  const [reportsFilters, setReportsFilters] = useState({
+    agent_id: '',
+    source: '',
+    tool: '',
+    decision_tier: '',
+    matched_rule: '',
+    from: '',
+    to: ''
+  })
   const [showAdvanced, setShowAdvanced] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem(ADVANCED_TOGGLE_KEY) === '1'
@@ -204,6 +223,45 @@ export default function App() {
     setPendingApprovals(payload.pending || [])
   }
 
+  function buildReportQuery(extra = {}) {
+    const params = new URLSearchParams()
+    const merged = { ...reportsFilters, ...extra }
+    for (const [k, v] of Object.entries(merged)) {
+      const val = String(v || '').trim()
+      if (val) params.set(k, val)
+    }
+    return params.toString()
+  }
+
+  async function fetchReports() {
+    setReportsLoading(true)
+    setReportsError('')
+    try {
+      const q = buildReportQuery({ limit: reportsLimit, offset: reportsOffset })
+      const [statusRes, overviewRes, eventsRes] = await Promise.all([
+        fetch(`${API_BASE}/reports/status?${q}`),
+        fetch(`${API_BASE}/reports/overview?${q}`),
+        fetch(`${API_BASE}/reports/events?${q}`)
+      ])
+      if (!statusRes.ok || !overviewRes.ok || !eventsRes.ok) {
+        throw new Error('Reports backend request failed')
+      }
+      const [statusPayload, overviewPayload, eventsPayload] = await Promise.all([
+        statusRes.json(),
+        overviewRes.json(),
+        eventsRes.json()
+      ])
+      setReportsStatus(statusPayload)
+      setReportsOverview(overviewPayload)
+      setReportsEvents(eventsPayload.events || [])
+      setReportsTotal(eventsPayload.total || 0)
+    } catch (err) {
+      setReportsError(String(err.message || err))
+    } finally {
+      setReportsLoading(false)
+    }
+  }
+
   useEffect(() => {
     // Poll pending approvals every 3 seconds so operator actions/agent requests
     // from other processes appear without manual refresh.
@@ -212,6 +270,13 @@ export default function App() {
     pollRef.current = setInterval(fetchApprovals, 3000)
     return () => clearInterval(pollRef.current)
   }, [])
+
+  useEffect(() => {
+    if (activeRail !== 'reports') return
+    fetchReports()
+    const id = setInterval(fetchReports, 5000)
+    return () => clearInterval(id)
+  }, [activeRail, reportsOffset, reportsLimit, reportsFilters])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -600,6 +665,176 @@ export default function App() {
             </div>
           )
         })}
+      </div>
+    )
+  }
+
+  function ReportsPanel() {
+    const totals = reportsOverview?.totals || {}
+    const eventsPerDay = reportsOverview?.events_per_day_7d || []
+    const blockedPerDay = reportsOverview?.blocked_per_day_7d || []
+    const topCommands = reportsOverview?.top_commands || []
+    const topPaths = reportsOverview?.top_paths || []
+    const blockedByRule = reportsOverview?.blocked_by_rule || []
+    const pageCount = Math.max(1, Math.ceil(reportsTotal / reportsLimit))
+    const currentPage = Math.floor(reportsOffset / reportsLimit) + 1
+
+    return (
+      <div className="space-y-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-slate-700">
+              Last indexed: <span className="font-mono text-xs">{reportsStatus?.last_ingested_at || 'n/a'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setReportsTab('dashboard')}
+                className={`px-3 py-1.5 rounded-lg text-sm ${reportsTab === 'dashboard' ? 'bg-brand text-white' : 'border border-slate-300 text-slate-700'}`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setReportsTab('log')}
+                className={`px-3 py-1.5 rounded-lg text-sm ${reportsTab === 'log' ? 'bg-brand text-white' : 'border border-slate-300 text-slate-700'}`}
+              >
+                Log
+              </button>
+              <button onClick={fetchReports} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm">Refresh</button>
+            </div>
+          </div>
+          {reportsError && <div className="mt-2 text-sm text-red-600">{reportsError}</div>}
+          {reportsLoading && <div className="mt-2 text-xs text-slate-500">Refreshing reports...</div>}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filters</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {['agent_id', 'source', 'tool', 'decision_tier', 'matched_rule', 'from', 'to'].map((key) => (
+              <input
+                key={key}
+                value={reportsFilters[key] || ''}
+                onChange={(e) => {
+                  setReportsOffset(0)
+                  setReportsFilters((prev) => ({ ...prev, [key]: e.target.value }))
+                }}
+                className="border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                placeholder={key}
+              />
+            ))}
+          </div>
+        </div>
+
+        {reportsTab === 'dashboard' && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-xs text-slate-500">Total events</div>
+                <div className="text-2xl font-semibold">{totals.total_events || 0}</div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-xs text-slate-500">Blocked events</div>
+                <div className="text-2xl font-semibold text-red-700">{totals.blocked_events || 0}</div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-xs text-slate-500">Backups created</div>
+                <div className="text-2xl font-semibold text-blue-700">{totals.backup_events || 0}</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Events per day (7d)</div>
+                <div className="space-y-1 text-xs font-mono">
+                  {eventsPerDay.length === 0 && <div className="text-slate-500">No data</div>}
+                  {eventsPerDay.map((row) => <div key={row.day} className="flex justify-between"><span>{row.day}</span><span>{row.count}</span></div>)}
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Blocked per day (7d)</div>
+                <div className="space-y-1 text-xs font-mono">
+                  {blockedPerDay.length === 0 && <div className="text-slate-500">No data</div>}
+                  {blockedPerDay.map((row) => <div key={row.day} className="flex justify-between"><span>{row.day}</span><span>{row.count}</span></div>)}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Top commands</div>
+                <div className="space-y-1 text-xs font-mono">
+                  {topCommands.length === 0 && <div className="text-slate-500">No data</div>}
+                  {topCommands.map((row) => <div key={row.command} className="flex justify-between"><span>{row.command}</span><span>{row.count}</span></div>)}
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Top paths</div>
+                <div className="space-y-1 text-xs font-mono">
+                  {topPaths.length === 0 && <div className="text-slate-500">No data</div>}
+                  {topPaths.map((row) => <div key={row.path} className="flex justify-between"><span className="truncate pr-2">{row.path}</span><span>{row.count}</span></div>)}
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                <div className="text-sm font-semibold text-slate-700 mb-2">Blocked by rule</div>
+                <div className="space-y-1 text-xs font-mono">
+                  {blockedByRule.length === 0 && <div className="text-slate-500">No data</div>}
+                  {blockedByRule.map((row) => <div key={row.matched_rule} className="flex justify-between"><span>{row.matched_rule}</span><span>{row.count}</span></div>)}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {reportsTab === 'log' && (
+          <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <div className="text-slate-700">Log events ({reportsTotal})</div>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={currentPage <= 1}
+                  onClick={() => setReportsOffset(Math.max(0, reportsOffset - reportsLimit))}
+                  className="px-2 py-1 border border-slate-300 rounded text-xs disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-slate-500">Page {currentPage}/{pageCount}</span>
+                <button
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setReportsOffset(reportsOffset + reportsLimit)}
+                  className="px-2 py-1 border border-slate-300 rounded text-xs disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto border border-slate-200 rounded-lg">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="text-left px-2 py-1">Time</th>
+                    <th className="text-left px-2 py-1">Agent</th>
+                    <th className="text-left px-2 py-1">Source</th>
+                    <th className="text-left px-2 py-1">Tool</th>
+                    <th className="text-left px-2 py-1">Decision</th>
+                    <th className="text-left px-2 py-1">Command / Path</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportsEvents.length === 0 && (
+                    <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-500">No events</td></tr>
+                  )}
+                  {reportsEvents.map((e) => (
+                    <tr key={e.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1 font-mono">{e.timestamp}</td>
+                      <td className="px-2 py-1">{e.agent_id || 'Unknown'}</td>
+                      <td className="px-2 py-1">{e.source || '-'}</td>
+                      <td className="px-2 py-1">{e.tool || '-'}</td>
+                      <td className="px-2 py-1">{e.policy_decision || '-'}</td>
+                      <td className="px-2 py-1 font-mono">{e.command || e.path || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1758,7 +1993,8 @@ export default function App() {
           {!loaded && <div className="text-slate-500">Loading...</div>}
           {loaded && activeRail === 'approvals' && ApprovalsPanel()}
           {loaded && activeRail === 'policy' && PolicyPanel()}
-          {loaded && (activeRail === 'reports' || activeRail === 'settings') && (
+          {loaded && activeRail === 'reports' && ReportsPanel()}
+          {loaded && activeRail === 'settings' && (
             <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm text-slate-500">Coming soon</div>
           )}
         </main>

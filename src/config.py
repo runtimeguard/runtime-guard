@@ -43,6 +43,14 @@ def _default_base_config_dir() -> pathlib.Path:
 # Startup configuration
 BASE_DIR = _module_base_dir()
 LOG_PATH = str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", str(_default_base_state_dir() / "activity.log"))).expanduser().resolve())
+REPORTS_DB_PATH = str(
+    pathlib.Path(
+        os.environ.get(
+            "AIRG_REPORTS_DB_PATH",
+            str(pathlib.Path(os.environ.get("AIRG_APPROVAL_DB_PATH", str(_default_base_state_dir() / "approvals.db"))).expanduser().resolve().with_name("reports.db")),
+        )
+    ).expanduser().resolve()
+)
 BACKUP_DIR = str(BASE_DIR / "backups")
 POLICY_PATH = pathlib.Path(
     os.environ.get("AIRG_POLICY_PATH", str(_default_base_config_dir() / "policy.json"))
@@ -228,6 +236,26 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if int(audit["max_versions_per_file"]) < 1:
         raise ValueError("audit.max_versions_per_file must be >= 1")
     _ensure_list(audit, "redact_patterns")
+
+    reports = _ensure_dict("reports")
+    reports.setdefault("enabled", True)
+    reports.setdefault("ingest_poll_interval_seconds", 5)
+    reports.setdefault("reconcile_interval_seconds", 3600)
+    reports.setdefault("retention_days", 30)
+    reports.setdefault("max_db_size_mb", 200)
+    reports.setdefault("prune_interval_seconds", 86400)
+    if not isinstance(reports["enabled"], bool):
+        raise ValueError("reports.enabled must be boolean")
+    if int(reports["ingest_poll_interval_seconds"]) < 1:
+        raise ValueError("reports.ingest_poll_interval_seconds must be >= 1")
+    if int(reports["reconcile_interval_seconds"]) < 60:
+        raise ValueError("reports.reconcile_interval_seconds must be >= 60")
+    if int(reports["retention_days"]) < 1:
+        raise ValueError("reports.retention_days must be >= 1")
+    if int(reports["max_db_size_mb"]) < 10:
+        raise ValueError("reports.max_db_size_mb must be >= 10")
+    if int(reports["prune_interval_seconds"]) < 300:
+        raise ValueError("reports.prune_interval_seconds must be >= 300")
 
     return policy
 

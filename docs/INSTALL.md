@@ -13,7 +13,8 @@ This guide separates setup into:
 1. Install folder: where repo/package code lives.
 2. Workspace (`AIRG_WORKSPACE`): where agent actions are intended to run.
 3. Runtime state files: `policy.json`, `approvals.db`, HMAC key, backups.
-4. Runtime log file: `activity.log`.
+4. Reports database: `reports.db` (derived from `activity.log`).
+5. Runtime log file: `activity.log`.
 
 Do not use the install folder as the workspace.
 
@@ -58,7 +59,8 @@ mkdir -p ~/airg-workspace
         "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
         "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
         "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
-        "AIRG_LOG_PATH": "/absolute/path/to/activity.log"
+        "AIRG_LOG_PATH": "/absolute/path/to/activity.log",
+        "AIRG_REPORTS_DB_PATH": "/absolute/path/to/reports.db"
       }
     }
   }
@@ -83,7 +85,8 @@ Use this when you want:
 1. Easier policy edits (instead of editing `policy.json` manually).
 2. Human approval workflow when `requires_confirmation` is enabled.
 3. Policy pages for commands, paths, extensions, network controls, and global advanced simulation/budget settings.
-4. Prebuilt GUI assets are shipped in the repository and package. For normal installs, you can start `airg-ui` directly without rebuilding frontend assets.
+4. Reports dashboard/log pages sourced from `reports.db`.
+5. Prebuilt GUI assets are shipped in the repository and package. For normal installs, you can start `airg-ui` directly without rebuilding frontend assets.
 
 ### Serve mode (recommended)
 1. Start backend:

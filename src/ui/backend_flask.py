@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import approvals
 import config
+import reports
 from audit import append_log_entry, build_operator_log_entry
 from ui import service
 
@@ -15,6 +16,12 @@ from ui import service
 BASE_DIR = pathlib.Path(config.BASE_DIR)
 POLICY_PATH = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", str(BASE_DIR / "policy.json")))
 APPROVAL_DB_PATH = pathlib.Path(os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db")))
+REPORTS_DB_PATH = pathlib.Path(
+    os.environ.get(
+        "AIRG_REPORTS_DB_PATH",
+        str(APPROVAL_DB_PATH.with_name("reports.db")),
+    )
+).expanduser().resolve()
 CATALOG_PATH = pathlib.Path(os.environ.get("AIRG_CATALOG_PATH", str(pathlib.Path(__file__).resolve().parent / "catalog.json")))
 WORKSPACE_PATH = pathlib.Path(os.environ.get("AIRG_WORKSPACE", str(BASE_DIR)))
 
@@ -47,6 +54,7 @@ service.POLICY_PATH = POLICY_PATH
 service.CATALOG_PATH = CATALOG_PATH
 approvals.APPROVAL_DB_PATH = APPROVAL_DB_PATH
 approvals.init_approval_store()
+reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
 
@@ -102,8 +110,107 @@ def get_policy():
                     pathlib.Path(os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key"))
                 ),
                 "AIRG_LOG_PATH": str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH))),
+                "AIRG_REPORTS_DB_PATH": str(REPORTS_DB_PATH),
                 "AIRG_UI_DIST_PATH": str(UI_DIST_PATH),
             },
+        }
+    )
+
+
+def _reports_sync() -> dict:
+    policy = service.load_policy()
+    return reports.sync_from_log(
+        db_path=REPORTS_DB_PATH,
+        log_path=pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        policy_reports=policy.get("reports", {}),
+    )
+
+
+def _report_filters() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in ["agent_id", "source", "tool", "decision_tier", "matched_rule", "from", "to"]:
+        val = request.args.get(key, "").strip()
+        if val:
+            out[key] = val
+    return out
+
+
+@app.route("/reports/status", methods=["GET", "OPTIONS"])
+def reports_status():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    sync = _reports_sync()
+    status = reports.get_status(REPORTS_DB_PATH)
+    status["sync"] = sync
+    status["enabled"] = bool(service.load_policy().get("reports", {}).get("enabled", True))
+    return jsonify(status)
+
+
+@app.route("/reports/overview", methods=["GET", "OPTIONS"])
+def reports_overview():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    data = reports.get_overview(REPORTS_DB_PATH, filters=_report_filters())
+    return jsonify(data)
+
+
+@app.route("/reports/events", methods=["GET", "OPTIONS"])
+def reports_events():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    limit = int(request.args.get("limit", "100"))
+    offset = int(request.args.get("offset", "0"))
+    data = reports.list_events(
+        REPORTS_DB_PATH,
+        filters=_report_filters(),
+        limit=limit,
+        offset=offset,
+    )
+    return jsonify(data)
+
+
+@app.route("/reports/top-commands", methods=["GET", "OPTIONS"])
+def reports_top_commands():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    data = reports.get_overview(REPORTS_DB_PATH, filters=_report_filters())
+    return jsonify({"top_commands": data.get("top_commands", [])})
+
+
+@app.route("/reports/top-paths", methods=["GET", "OPTIONS"])
+def reports_top_paths():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    data = reports.get_overview(REPORTS_DB_PATH, filters=_report_filters())
+    return jsonify({"top_paths": data.get("top_paths", [])})
+
+
+@app.route("/reports/blocked-by-rule", methods=["GET", "OPTIONS"])
+def reports_blocked_by_rule():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    data = reports.get_overview(REPORTS_DB_PATH, filters=_report_filters())
+    return jsonify({"blocked_by_rule": data.get("blocked_by_rule", [])})
+
+
+@app.route("/reports/confirmations", methods=["GET", "OPTIONS"])
+def reports_confirmations():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    _reports_sync()
+    data = reports.get_overview(REPORTS_DB_PATH, filters=_report_filters())
+    totals = data.get("totals", {})
+    return jsonify(
+        {
+            "confirmations": {
+                "approved": totals.get("approvals_approved", 0),
+                "denied": totals.get("approvals_denied", 0),
+            }
         }
     )
 

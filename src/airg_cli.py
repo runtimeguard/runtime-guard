@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import importlib.util
 import os
@@ -112,6 +113,14 @@ def _policy_template() -> dict[str, Any]:
         "backup_access": {"block_agent_tools": True, "allowed_tools": ["restore_backup"]},
         "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
         "audit": {"backup_enabled": True, "backup_on_content_change_only": True, "max_versions_per_file": 5, "backup_retention_days": 30, "log_level": "verbose", "redact_patterns": []},
+        "reports": {
+            "enabled": True,
+            "ingest_poll_interval_seconds": 5,
+            "reconcile_interval_seconds": 3600,
+            "retention_days": 30,
+            "max_db_size_mb": 200,
+            "prune_interval_seconds": 86400,
+        },
     }
 
 
@@ -129,6 +138,7 @@ def _resolve_paths_with_overrides(
     db_override = os.environ.get("AIRG_APPROVAL_DB_PATH", "")
     key_override = os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", "")
     log_override = os.environ.get("AIRG_LOG_PATH", "")
+    reports_override = os.environ.get("AIRG_REPORTS_DB_PATH", "")
     policy_selected = policy_path or policy_override
     db_selected = approval_db_path or db_override
     key_selected = approval_hmac_key_path or key_override
@@ -143,6 +153,7 @@ def _resolve_paths_with_overrides(
         "approval_db_path": pathlib.Path(db_selected if db_selected else str(state_dir / "approvals.db")).expanduser().resolve(),
         "approval_hmac_key_path": pathlib.Path(key_selected if key_selected else str(state_dir / "approvals.db.hmac.key")).expanduser().resolve(),
         "log_path": log_path,
+        "reports_db_path": pathlib.Path(reports_override).expanduser().resolve() if reports_override else (state_dir / "reports.db").resolve(),
     }
 
 
@@ -152,11 +163,13 @@ def _apply_runtime_env(paths: dict[str, pathlib.Path], *, force: bool = False) -
         os.environ["AIRG_APPROVAL_DB_PATH"] = str(paths["approval_db_path"])
         os.environ["AIRG_APPROVAL_HMAC_KEY_PATH"] = str(paths["approval_hmac_key_path"])
         os.environ["AIRG_LOG_PATH"] = str(paths["log_path"])
+        os.environ["AIRG_REPORTS_DB_PATH"] = str(paths["reports_db_path"])
         return
     os.environ.setdefault("AIRG_POLICY_PATH", str(paths["policy_path"]))
     os.environ.setdefault("AIRG_APPROVAL_DB_PATH", str(paths["approval_db_path"]))
     os.environ.setdefault("AIRG_APPROVAL_HMAC_KEY_PATH", str(paths["approval_hmac_key_path"]))
     os.environ.setdefault("AIRG_LOG_PATH", str(paths["log_path"]))
+    os.environ.setdefault("AIRG_REPORTS_DB_PATH", str(paths["reports_db_path"]))
 
 
 def _ensure_hmac_key_file(path: pathlib.Path) -> None:
@@ -170,12 +183,14 @@ def _ensure_hmac_key_file(path: pathlib.Path) -> None:
 
 
 def _secure_permissions(paths: dict[str, pathlib.Path]) -> None:
+    reports_db_path = paths.get("reports_db_path", paths["approval_db_path"].with_name("reports.db"))
     for directory in [
         paths["config_dir"],
         paths["state_dir"],
         paths["approval_db_path"].parent,
         paths["approval_hmac_key_path"].parent,
         paths["log_path"].parent,
+        reports_db_path.parent,
     ]:
         directory.mkdir(parents=True, exist_ok=True)
         try:
@@ -187,7 +202,9 @@ def _secure_permissions(paths: dict[str, pathlib.Path]) -> None:
     _ensure_hmac_key_file(paths["approval_hmac_key_path"])
     if not paths["log_path"].exists():
         paths["log_path"].touch()
-    for file_path in [paths["approval_db_path"], paths["log_path"]]:
+    if not reports_db_path.exists():
+        reports_db_path.touch()
+    for file_path in [paths["approval_db_path"], paths["log_path"], reports_db_path]:
         try:
             os.chmod(file_path, 0o600)
         except OSError:
@@ -238,6 +255,7 @@ def _init_runtime(
     print(f"[airg] AIRG_APPROVAL_DB_PATH={paths['approval_db_path']}")
     print(f"[airg] AIRG_APPROVAL_HMAC_KEY_PATH={paths['approval_hmac_key_path']}")
     print(f"[airg] AIRG_LOG_PATH={paths['log_path']}")
+    print(f"[airg] AIRG_REPORTS_DB_PATH={paths['reports_db_path']}")
     print("[airg] Suggested MCP env block (copy into your client config):")
     print(
         json.dumps(
@@ -251,6 +269,7 @@ def _init_runtime(
                     "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
                     "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
                     "AIRG_LOG_PATH": str(paths["log_path"]),
+                    "AIRG_REPORTS_DB_PATH": str(paths["reports_db_path"]),
                 },
             },
             indent=2,
@@ -329,6 +348,7 @@ def _apply_backup_override(policy: dict[str, Any], backup_root: str) -> dict[str
 
 
 def _agent_config_payload(agent: str, workspace: str, paths: dict[str, pathlib.Path], agent_id: str) -> dict[str, Any]:
+    reports_db_path = paths.get("reports_db_path", paths["approval_db_path"].with_name("reports.db"))
     env_block = {
         "AIRG_AGENT_ID": agent_id.strip() or "Unknown",
         "AIRG_WORKSPACE": workspace,
@@ -336,6 +356,7 @@ def _agent_config_payload(agent: str, workspace: str, paths: dict[str, pathlib.P
         "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
         "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
         "AIRG_LOG_PATH": str(paths["log_path"]),
+        "AIRG_REPORTS_DB_PATH": str(reports_db_path),
     }
     if agent in {"claude_desktop", "cursor", "generic"}:
         return {
@@ -397,6 +418,7 @@ def _runtime_env_for_process(
         "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
         "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
         "AIRG_LOG_PATH": str(paths["log_path"]),
+        "AIRG_REPORTS_DB_PATH": str(paths["reports_db_path"]),
         "AIRG_UI_DIST_PATH": str(_resolve_ui_dist_path()),
     }
 
@@ -635,6 +657,7 @@ def _run_setup(
     print(f"[airg] approval_db={path_overrides['approval_db_path']}")
     print(f"[airg] approval_hmac_key={path_overrides['approval_hmac_key_path']}")
     print(f"[airg] log_path={path_overrides['log_path']}")
+    print(f"[airg] reports_db={path_overrides['reports_db_path']}")
     print(f"[airg] agent config written: {output_path}")
     print("[airg] MCP config snippet:")
     print(json.dumps(payload, indent=2))
@@ -662,6 +685,7 @@ def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
         ("approval_db_path", paths["approval_db_path"]),
         ("approval_hmac_key_path", paths["approval_hmac_key_path"]),
         ("log_path", paths["log_path"]),
+        ("reports_db_path", paths["reports_db_path"]),
     ]
     for label, target in checks:
         try:
@@ -805,6 +829,7 @@ def main_doctor() -> None:
     print(f"[airg] approval_db_path={paths['approval_db_path']}")
     print(f"[airg] approval_hmac_key_path={paths['approval_hmac_key_path']}")
     print(f"[airg] log_path={paths['log_path']}")
+    print(f"[airg] reports_db_path={paths['reports_db_path']}")
     print(f"[airg] workspace={pathlib.Path(os.environ.get('AIRG_WORKSPACE', str(_project_root()))).expanduser().resolve()}")
     print(f"[airg] agent_id={os.environ.get('AIRG_AGENT_ID', 'Unknown')}")
 
@@ -824,7 +849,7 @@ def main_doctor() -> None:
             mode = stat.S_IMODE(d.stat().st_mode)
             if mode & 0o077:
                 warnings.append(f"Directory too open: {d} mode={oct(mode)} (recommended 0o700)")
-    for f in [paths["approval_db_path"], paths["approval_hmac_key_path"], paths["log_path"]]:
+    for f in [paths["approval_db_path"], paths["approval_hmac_key_path"], paths["log_path"], paths["reports_db_path"]]:
         if f.exists():
             mode = stat.S_IMODE(f.stat().st_mode)
             if mode != 0o600:
@@ -843,6 +868,7 @@ def main_doctor() -> None:
         (paths["approval_db_path"], "approval_db_path"),
         (paths["approval_hmac_key_path"], "approval_hmac_key_path"),
         (paths["log_path"], "log_path"),
+        (paths["reports_db_path"], "reports_db_path"),
     ]:
         try:
             if p.resolve().is_relative_to(workspace):
@@ -857,6 +883,7 @@ def main_doctor() -> None:
         (paths["approval_db_path"], "approval_db_path"),
         (paths["approval_hmac_key_path"], "approval_hmac_key_path"),
         (paths["log_path"], "log_path"),
+        (paths["reports_db_path"], "reports_db_path"),
     ]:
         try:
             if p.resolve().is_relative_to(project_root):
@@ -887,6 +914,34 @@ def main_doctor() -> None:
         print(f"[ok] UI/backend is listening on http://{host}:{port}")
     else:
         print(f"[info] UI/backend is not currently listening on http://{host}:{port}")
+
+    # Reports DB check
+    try:
+        import reports as reports_store
+
+        reports_store.init_reports_store(paths["reports_db_path"])
+        status = reports_store.get_status(paths["reports_db_path"])
+        print(f"[ok] reports db is ready at {paths['reports_db_path']}")
+        lag_warn_seconds = 30
+        try:
+            policy_for_lag = json.loads(paths["policy_path"].read_text())
+            lag_warn_seconds = max(30, int(policy_for_lag.get("reports", {}).get("ingest_poll_interval_seconds", 5)) * 4)
+        except Exception:
+            pass
+        last_ingested = status.get("last_ingested_at")
+        if last_ingested:
+            try:
+                last_ts = datetime.datetime.fromisoformat(str(last_ingested).replace("Z", "+00:00"))
+                lag = (datetime.datetime.now(datetime.UTC) - last_ts).total_seconds()
+                if lag > lag_warn_seconds:
+                    warnings.append(
+                        f"Reports ingest lag is {int(lag)}s (threshold {lag_warn_seconds}s). "
+                        "Start UI backend or trigger reports sync."
+                    )
+            except Exception:
+                warnings.append("Reports db last_ingested_at is present but unreadable.")
+    except Exception as exc:
+        warnings.append(f"Reports DB check failed: {exc}")
 
     for w in warnings:
         print(f"[warn] {w}")

@@ -12,6 +12,7 @@ Python:
 - Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
 - Applies policy from `policy.json` before side effects.
 - Logs all actions to `activity.log`.
+- Builds report views from `activity.log` into `reports.db` for dashboard and log analytics.
 - Creates backups for destructive operations in `backups/`.
 
 ### Product scope (intentional)
@@ -55,8 +56,8 @@ Note:
 1. In packaged flow, `airg-setup` already performs secure runtime path setup.
 2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
 3. `airg-setup`/`airg-init` seed `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
-4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, and `AIRG_LOG_PATH`.
-5. `airg-setup` asks guided questions (workspace, runtime paths, optional additional workspaces, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
+4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
+5. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
 6. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
 7. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
 
@@ -286,6 +287,10 @@ Behavior:
   - this is a best-effort path guard for shell command arguments and redirection targets
   - `monitor` logs violations but allows execution; `enforce` blocks
 - Status badges reflect applied policy only (post-`Apply`).
+- Reports rail now includes:
+  - `Dashboard` tab with totals, 7-day event/blocked trends, top commands/paths, blocked-by-rule.
+  - `Log` tab with paginated events and filters (`agent_id`, `source`, `tool`, `decision_tier`, `matched_rule`, time range).
+  - automatic ingestion from `activity.log` into `reports.db`, with freshness metadata (`Last indexed`).
 - Shared policy actions are available across all policy tabs: `Reload`, `Validate`, `Apply`, `Revert Last Apply`, `Reset to Defaults`.
 - `Apply`/`Revert`/`Reset` perform validation + atomic write and append `ui/config_changes.log`.
 - Global header no longer shows tier legend badges; it retains policy hash and unsaved-changes state.

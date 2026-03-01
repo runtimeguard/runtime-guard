@@ -36,6 +36,7 @@ py-modules = [
   "executor",
   "models",
   "policy_engine",
+  "reports",
 ]
 
 [tool.setuptools.packages.find]
