@@ -69,6 +69,19 @@ def _default_base_state_dir() -> pathlib.Path:
     return pathlib.Path.home() / ".local" / "state" / "ai-runtime-guard"
 
 
+def _default_workspace_path() -> pathlib.Path:
+    env_ws = os.environ.get("AIRG_WORKSPACE", "").strip()
+    if env_ws:
+        return pathlib.Path(env_ws).expanduser().resolve()
+
+    cwd = pathlib.Path.cwd().resolve()
+    # If user runs setup from a cloned repo root, place workspace beside repo.
+    if (cwd / "pyproject.toml").exists() and (cwd / "src").exists():
+        return (cwd.parent / "airg-workspace").resolve()
+
+    return (pathlib.Path.home() / "airg-workspace").resolve()
+
+
 def _policy_template() -> dict[str, Any]:
     source = _project_root() / "policy.json"
     if source.exists():
@@ -536,8 +549,7 @@ def _run_setup(
     selected_key_path = approval_hmac_key_path.strip()
     selected_backup_root = backup_root.strip()
     selected_agent_id = agent_id.strip() or "Unknown"
-    install_root = _project_root().resolve()
-    default_workspace = (install_root.parent / "airg-workspace").resolve()
+    default_workspace = _default_workspace_path()
     selected_use_gui = use_gui
 
     if not yes:
@@ -945,7 +957,7 @@ def main_up_entrypoint() -> None:
 def main_service() -> None:
     parser = argparse.ArgumentParser(description="Manage ai-runtime-guard GUI user service")
     parser.add_argument("action", choices=["install", "start", "stop", "restart", "status", "uninstall"])
-    parser.add_argument("--workspace", default=os.environ.get("AIRG_WORKSPACE", str((_project_root().parent / "airg-workspace").resolve())), help="Workspace path used by GUI service.")
+    parser.add_argument("--workspace", default=str(_default_workspace_path()), help="Workspace path used by GUI service.")
     parser.add_argument("--agent-id", default=os.environ.get("AIRG_AGENT_ID", "Unknown"), help="Agent identifier used by GUI service.")
     parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH for service env.")
     parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH for service env.")
