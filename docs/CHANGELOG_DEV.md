@@ -1,5 +1,7 @@
 # CHANGELOG_DEV
 
+Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
+
 ## 2026-03-01 (reports foundation: activity log -> reports db -> reports UI)
 - Added reports runtime module (`src/reports.py`) with:
   - SQLite schema for `events`, `ingest_state`, and `meta`
@@ -96,9 +98,7 @@
   - added `AIRG_LOG_PATH` to config examples
   - documented shell env scope pitfalls and UI startup troubleshooting
   - documented new UI startup mode (`--with-runtime-env`).
-- Added validation and execution planning docs:
-  - `docs/LINUX_VALIDATION_V2.md`
-  - `docs/LINUX_FIX_CHECKLIST.md`
+- Added validation and execution planning docs (later archived into internal historical notes).
 - Added regression tests:
   - setup permissions test verifies non-empty HMAC key creation
   - approval store test verifies empty HMAC key regeneration behavior.
@@ -182,7 +182,7 @@
 - Added root `Dockerfile` for direct containerized MCP runtime (`airg-server`) and documented container usage in `docs/DOCKER.md`.
 - Extended `.gitignore` for runtime sidecar artifacts (`*.db-wal`, `*.db-shm`, `*.db-journal`, `approvals.db-*`), rotated logs (`activity.log.*`), and setup output (`out/`).
 - Completed docs reorganization by keeping only `README.md`, `CHANGELOG.md`, and `STATUS.md` at repo root and moving operational docs under `docs/`.
-- Added/updated Linux validation report (`docs/LINUX_VALIDATION.md`) and reflected validation completion in status tracking.
+- Added/updated Linux validation documentation and reflected validation completion in status tracking.
 - Improved Linux/source-install UI discovery in runtime code:
   - `airg-ui` now sets `AIRG_UI_DIST_PATH` automatically from discovered valid UI paths.
   - `airg-doctor` now checks multiple candidate UI build paths before warning.
@@ -238,7 +238,7 @@
   - approvals must come from a separate trusted channel
   - runtime must enforce caller identity/role for approval
   - regression coverage must prove no self-approval path exists
-- Added explicit approval-separation checkpoint requirements to `README.md` and `tests.md`.
+- Added explicit approval-separation checkpoint requirements to `README.md` and test-plan docs.
 - Added a Phase-1 local control-plane UI skeleton (`ui/`) for policy management (catalog tabs, tier toggles, validation, atomic apply, and change log), intended as the base for a future out-of-band approval interface.
 - Added UI v2 improvements:
   - named tier columns and legend/status semantics

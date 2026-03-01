@@ -42,6 +42,9 @@ policy.json.last-applied
 
 # Setup/generated output artifacts
 out/
+build/
+documentation_review.md
+internal_archive/
 containerization.md
 todo_dev.md
 docs/packaging_todo.md

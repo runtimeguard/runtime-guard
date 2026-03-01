@@ -55,8 +55,9 @@ Packaged CLI alternative:
 Note:
 1. In packaged flow, `airg-setup` already performs secure runtime path setup.
 2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
-3. `airg-setup`/`airg-init` seed `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
-4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
+3. `airg-setup` seeds `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
+4. `airg-setup` prints a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
+5. `airg-init` is available as a low-level/manual bootstrap fallback.
 5. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
 6. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
 7. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
@@ -289,8 +290,9 @@ Behavior:
 - Status badges reflect applied policy only (post-`Apply`).
 - Reports rail now includes:
   - `Dashboard` tab with totals, 7-day event/blocked trends, top commands/paths, blocked-by-rule.
-  - `Log` tab with paginated events and filters (`agent_id`, `source`, `tool`, `decision_tier`, `matched_rule`, time range).
+  - `Log` tab with paginated events and filters (`agent_id`, `source`, `tool`, `policy_decision`, `decision_tier`, `matched_rule`, `command`, `path`, `event`, time range).
   - automatic ingestion from `activity.log` into `reports.db`, with freshness metadata (`Last indexed`).
+  - ingest sync runs on manual refresh and scheduled refresh, while filter changes query existing indexed data.
 - Shared policy actions are available across all policy tabs: `Reload`, `Validate`, `Apply`, `Revert Last Apply`, `Reset to Defaults`.
 - `Apply`/`Revert`/`Reset` perform validation + atomic write and append `ui/config_changes.log`.
 - Global header no longer shows tier legend badges; it retains policy hash and unsaved-changes state.
@@ -318,11 +320,11 @@ Manual:
 ## 14. Merge and release gates (current)
 Before merge to `main`:
 1. Unit tests must pass (`python3 -m unittest discover -s tests -p 'test_*.py'`).
-2. Manual MCP gate from `tests.md` must pass.
+2. Manual MCP gate from `TEST_PLAN.md` must pass.
 3. Approval separation gate must pass (agent cannot approve via MCP tool surface).
 
 Linux validation note:
-- Linux validation has been completed and documented (`docs/LINUX_VALIDATION.md`).
+- Linux validation summary is documented in `docs/LINUX_VALIDATION_SUMMARY.md`.
 
 ## 15. Known high-priority limitations
 - Operator endpoint authentication/authorization remains local-trust oriented and should be hardened before broad deployment.

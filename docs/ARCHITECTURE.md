@@ -24,7 +24,7 @@ Primary runtime artifacts:
 - `activity.log`: JSONL audit trail (one object per event).
 - `reports.db`: SQLite analytics store derived from `activity.log` for UI reporting.
 - `backups/`: timestamped snapshots with per-backup `manifest.json`.
-- `ui/`: local control-plane UI for policy editing (`ui/server.py`, `ui/service.py`, static frontend assets).
+- `ui/`: control-plane backend service modules (`ui/service.py`, `ui/backend_flask.py`).
 - `ui/backend_flask.py`: REST backend for policy + approvals endpoints used by control-plane UI v3.
 - `ui_v3/`: Vite React + Tailwind control-plane frontend.
 
@@ -193,4 +193,4 @@ The UI can store per-command editor metadata in:
 
 Current behavior:
 - metadata is persisted by UI apply flow and included in audit diffs
-- runtime enforcement is unchanged in current v1.1 baseline; these fields are planning/config scaffolding for later per-command enforcement work
+- runtime enforcement is unchanged in current stable baseline; these fields are planning/config scaffolding for later per-command enforcement work

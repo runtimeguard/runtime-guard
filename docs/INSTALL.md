@@ -74,7 +74,7 @@ airg-doctor
 Notes:
 1. You do not manually start MCP server in normal use. The AI client starts `airg-server` when MCP is configured.
 2. Web GUI is not required for default/basic setup.
-3. `airg-setup` is the recommended setup entrypoint; `airg-init` remains available as a low-level initializer.
+3. `airg-setup` is the recommended setup entrypoint; `airg-init` is a low-level/manual fallback.
 4. `--defaults` uses default paths/non-interactive choices.
 5. `--gui` enables GUI service setup (`launchd` on macOS, `systemd --user` on Linux).
 6. `--no-gui` explicitly skips GUI service setup.
@@ -203,8 +203,9 @@ Branch note:
    - Use absolute command path for server in client config.
    - Verify with `airg-doctor`.
 2. UI loads legacy/minimal page:
-   - Build v3 frontend (`cd ui_v3 && npm install && npm run build`).
-   - Ensure `AIRG_UI_DIST_PATH` points to `ui_v3/dist`.
+   - Ensure prebuilt UI assets are present (normal package/repo flow includes them).
+   - Rebuild only if you changed frontend source: `cd ui_v3 && npm install && npm run build`.
+   - Ensure `AIRG_UI_DIST_PATH` points to `ui_v3/dist` only when custom path override is needed.
 3. Approvals loop with new token on every retry:
    - Check HMAC key file is non-empty (`wc -c <approval_hmac_key_path>`).
    - Restart UI and MCP client after fixing paths/secrets.

@@ -1,97 +1,74 @@
 # Roadmap
 
-This roadmap defines the next packaging and architecture milestones after v1.1.1.
+This roadmap tracks next milestones after `v1.1.1`, aligned to current implementation status.
+
+## Current reality snapshot
+1. Reporting foundation is implemented (`reports.db`, ingest pipeline, reports API, dashboard/log UI).
+2. Agent identity is partially implemented (`AIRG_AGENT_ID` in config and logs).
+3. Remaining architecture work is connection-scoped identity/session and per-agent policy isolation.
 
 ## Guiding principles
 1. Keep one core enforcement engine across all deployment channels.
-2. Preserve behavior parity for policy decisions, approvals, backup, and audit.
-3. Stage architectural refactors before distribution expansion to avoid duplicate migration work.
+2. Preserve behavior parity for policy decisions, approvals, backup, audit, and reports.
+3. Complete identity/session refactor before SSE and multi-client transport expansion.
 
----
-
-## v1.2 - Agent Identity and Multi-Agent Policy Model
-
-Goal: refactor runtime identity/session model to support per-agent attribution and policy isolation.
+## v1.2.x - Identity model completion
+Goal: complete connection-scoped identity/session model and remove process-global assumptions.
 
 ### Scope
-1. Introduce explicit agent identity fields:
-- `agent_id` (configured identity)
-- `agent_session_id` (connection/session scoped)
-- transport metadata where applicable
-2. Refactor from process-global session assumptions to connection-scoped session context.
-3. Support per-agent reporting views in Reports UI and API.
-4. Design and implement per-agent policy configuration model:
-- per-agent workspace binding
-- per-agent policy context or policy overlay model
-5. Add migration path for existing single-policy installs.
-
-### Critical architecture requirement
-1. Session/identity model must be connection-scoped before enabling multi-client transports (for example SSE), to prevent approval/budget/report cross-talk.
+1. Add connection-scoped identity fields:
+   - `agent_id` (configured identity)
+   - `agent_session_id` (connection/session-scoped id)
+2. Refactor approval/budget/session state to avoid cross-connection leakage.
+3. Ensure reports dimensions support reliable per-agent slicing.
+4. Add migration path for single-policy installs.
 
 ### Acceptance gates
-1. Two concurrent agent clients can be distinguished in logs and reports.
-2. Per-agent policy/workspace boundaries are enforceable and test-covered.
-3. Approval and budget checks are isolated per agent session as designed.
-4. Backward-compatibility path for single-agent installs is documented and validated.
+1. Two concurrent clients are distinguishable in logs/reports.
+2. Approval and budget state are isolated per connection/session by design.
+3. Backward-compatible defaults remain valid for single-agent setups.
 
----
-
-## v1.3 - Reporting Foundation
-
-Goal: add operator-visible reporting on top of agent-aware event identity.
+## v1.3 - Per-agent policy and reporting segmentation
+Goal: support agent-specific policy context while preserving simple default operation.
 
 ### Scope
-1. Add `reports.db` in runtime state path, sourced from incremental ingest of `activity.log`.
-2. Build Reports GUI section:
-- Dashboard tab (cards + rolling 7-day summaries)
-- Log tab (auto-refresh feed with filters)
-3. Add retention controls for reports storage:
-- age-based retention
-- size-based cap
-- daily prune
-4. Add doctor checks for reports DB health and ingest lag.
-5. Ensure report dimensions include `agent_id` and session-scoped identity fields from v1.2.
-
-### Non-goals
-1. No major-issue anomaly detection yet (mass-delete alarms deferred).
+1. Add per-agent policy context model:
+   - workspace binding per agent
+   - optional per-agent policy overlay
+2. Update reports UI/API for first-class per-agent filtering and views.
+3. Add operator guidance for multi-agent deployments.
 
 ### Acceptance gates
-1. Reports ingest is stable under log append/rotation/truncation.
-2. Dashboard and log views are consistent with source `activity.log`.
-3. Agent-level reporting is accurate for concurrent clients.
-4. Unit/API/UI smoke tests pass.
-5. `airg-doctor` validates reports DB creation and lag warnings.
+1. Per-agent policy boundaries are enforceable and test-covered.
+2. Reports correctly separate activity for concurrent agents.
+3. Single-agent mode remains low-friction and backward compatible.
 
----
+## v1.4 - Packaging hardening (PyPI)
+Goal: make PyPI distribution the primary host installation channel.
 
-## v1.4 and later - Distribution Expansion (PyPI + Container)
-
-Goal: expand delivery channels after identity/session architecture stabilizes.
-
-### v1.4 (recommended focus)
-1. PyPI publishing hardening:
-- packaging metadata finalization
-- TestPyPI and clean-install validation
-- release publish workflow
-2. CLI onboarding polish:
-- guided setup reliability
-- non-interactive setup path for automation
-
-### v1.5+ (recommended focus)
-1. Container channel hardening:
-- container path model (`/workspace`, `/config`, `/state`)
-- deterministic entrypoint init and runtime checks
-- stdio container deployment as first target
-2. Optional transport expansion (SSE/HTTP) only after v1.3 session model is proven.
+### Scope
+1. Finalize package metadata and release process.
+2. Validate clean-install workflows from TestPyPI and PyPI.
+3. Stabilize onboarding docs and release automation for package consumers.
 
 ### Acceptance gates
-1. Host/PyPI/Container channels preserve core policy behavior parity.
-2. Release checklist includes per-channel smoke tests.
-3. Docs provide client-specific MCP setup for each supported channel.
+1. Build/install smoke checks pass in clean environments.
+2. Release checklist includes PyPI validation and rollback notes.
 
----
+## v1.5 - Container channel and transport prep
+Goal: deliver reliable container deployment while keeping behavior parity.
+
+### Scope
+1. Finalize container runtime path model (`/workspace`, `/config`, `/state`).
+2. Add deterministic container startup and persistence checks.
+3. Prepare for optional SSE/HTTP transport only after identity/session refactor is proven.
+
+### Acceptance gates
+1. Containerized behavior matches host behavior for same policy and inputs.
+2. No runtime writes occur outside mounted state/config/workspace paths.
+3. Connection isolation guarantees remain intact in multi-client scenarios.
 
 ## Deferred topics
 1. Network payload-size enforcement.
 2. Runtime activation of metadata-only budget override fields.
-3. Advanced anomaly detection (mass-delete or high-risk pattern alerting).
+3. Advanced anomaly detection (mass-delete and high-risk pattern alerting).

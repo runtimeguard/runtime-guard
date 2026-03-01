@@ -37,7 +37,8 @@ Minimal MCP server block:
 ```
 
 Tip:
-1. Run `airg-setup` (or `airg-init`) and copy the printed env block.
+1. Run `airg-setup` and copy the printed env block.
+2. Use `airg-init` only as a low-level/manual bootstrap fallback.
 
 ## Codex
 ### GUI setup
