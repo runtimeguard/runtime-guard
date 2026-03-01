@@ -7,6 +7,7 @@
 ## Operator guide
 1. [Manual](./MANUAL.md)
 2. [Agent MCP Configurations](./AGENT_MCP_CONFIGS.md)
+3. [Claude MCP-Only Sample Skill](./mcp-only.md)
 
 ## Release guide
 1. [Release Guide](./RELEASE.md)

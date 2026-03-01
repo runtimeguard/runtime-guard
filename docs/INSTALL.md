@@ -179,6 +179,8 @@ Branch note:
 4. Approval is out-of-band via GUI/API; agent cannot self-approve through MCP tool surface.
 5. Blast-radius simulation, when configured, evaluates candidate targets relative to the current workspace context. Directory-depth/path checks are anchored from `AIRG_WORKSPACE`.
 6. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
+   - A sample MCP-only skill file is provided at `docs/mcp-only.md`.
+   - Save it as `<workspace>/.claude/skills/mcp-only.md` to enforce MCP-only behavior in that workspace.
 7. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
 8. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, gate mass/wildcard operations, back up destructive/overwrite targets automatically, and keep full audit logs.
 9. Budget reset behavior is event-driven: counters are checked/reset when budgeted operations run (no background reset timer). With idle reset enabled, slow-drip patterns beyond `idle_reset_seconds` can avoid cumulative growth; budget controls are optimized for accidental burst-risk reduction during normal sessions.
@@ -190,6 +192,7 @@ Branch note:
 4. This is a deployment prerequisite: disable native shell/file tools using official client controls.
 5. For Claude Code, disable native tools in `.claude/settings.local.json` (or your official Claude config scope in use).
 6. Apply the equivalent official controls for other agents/clients.
+7. Optional: use the sample skill `docs/mcp-only.md` copied to `<workspace>/.claude/skills/mcp-only.md`.
 
 ## Post-install smoke test
 1. Confirm blocked command is denied (`rm -rf ...` test target in workspace).

@@ -28,6 +28,7 @@ Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or 
 2. Native client tools outside MCP (for example Claude Code `Glob`, `Read`, `Write`, `Edit`, `Bash`) are outside AIRG enforcement and can bypass workspace/path restrictions.
 3. For AIRG policy boundaries to be effective, operators must disable native shell/file tools in the client using official configuration methods.
 4. Treat this as a deployment requirement, not optional hardening.
+5. For Claude Code, an MCP-only sample skill is provided at `docs/mcp-only.md` and can be saved to `<workspace>/.claude/skills/mcp-only.md`.
 
 ## Design scope
 1. AIRG is designed to reduce accidental damage from AI agent mistakes or hallucinations.
