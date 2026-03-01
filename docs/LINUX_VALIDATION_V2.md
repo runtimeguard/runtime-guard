@@ -49,7 +49,7 @@ pip install .
 ```
 4. Initialize runtime:
 ```bash
-airg-setup --quickstart --yes
+airg-setup --defaults --yes
 ```
 5. Confirm runtime files:
 ```bash
@@ -195,7 +195,7 @@ export AIRG_APPROVAL_HMAC_SECRET='airg-test-shared-secret-20260228'
 
 ## Retest Checklist (after fixes)
 1. Fresh Linux user, no state.
-2. `airg-setup --quickstart --yes`.
+2. `airg-setup --defaults --yes`.
 3. `airg-doctor` shows runtime paths and v3-ready status.
 4. `airg-ui` loads v3 without manual `AIRG_UI_DIST_PATH` override.
 5. Approval flow works without manual `AIRG_APPROVAL_HMAC_SECRET`.

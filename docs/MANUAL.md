@@ -44,7 +44,7 @@ The script also enforces restrictive permissions (`700` for directories, `600` f
 
 Packaged CLI alternative:
 1. `airg-setup` (recommended)
-2. Guided setup alias: `airg init --wizard`
+2. `airg-service` (GUI service management for macOS/Linux user sessions)
 3. `airg-server` (MCP server) and/or `airg-ui` (Flask backend for control plane)
 4. `airg-up` starts Flask backend as a sidecar and then starts MCP server (stdio) in one command.
 5. `airg-doctor` runs environment, path, permission, and UI-build diagnostics.
@@ -57,7 +57,8 @@ Note:
 3. `airg-setup`/`airg-init` seed `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
 4. `airg-setup`/`airg-init` print a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, and `AIRG_LOG_PATH`.
 5. `airg-setup` asks guided questions (workspace, runtime paths, optional additional workspaces, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
-6. `airg-setup --gui` performs the same setup and additionally builds Web GUI assets (`npm install` and `npm run build` in `ui_v3`).
+6. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
+7. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
 
 ### AIRG_WORKSPACE model
 `AIRG_WORKSPACE` defines the operational sandbox root for AI agent actions.

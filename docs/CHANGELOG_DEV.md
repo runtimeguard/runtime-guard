@@ -1,5 +1,23 @@
 # CHANGELOG_DEV
 
+## 2026-03-01 (guided setup flow + GUI user service)
+- Added GUI service management for local deployments:
+  - macOS: user `launchd` agent (`com.ai-runtime-guard.ui`)
+  - Linux/Ubuntu: user `systemd` unit (`airg-ui.service`)
+  - new CLI entrypoint: `airg-service` with `install|start|stop|restart|status|uninstall`.
+- Refactored setup UX to match guided install flow:
+  - install confirmation prompt
+  - workspace-first questions (existing vs create default sibling workspace)
+  - runtime path defaults vs custom override prompts
+  - optional GUI service enable prompt
+  - final `airg-doctor` run.
+- Added unattended setup flags aligned to the new flow:
+  - `--defaults`
+  - `--yes`
+  - `--gui` / `--no-gui`.
+- Removed setup flags that no longer match the agreed flow (`--quickstart`, wizard alias behavior, `--enable-ui`, additional-workspaces prompt path).
+- Updated docs to reflect the new setup/service model (`README`, `docs/INSTALL.md`, `docs/MANUAL.md`).
+
 ## 2026-03-01 (ship prebuilt GUI assets in repo/package)
 - Removed `ui_v3/dist` from `.gitignore` so release/source users receive prebuilt frontend assets by default.
 - Added package-data inclusion for `ui_v3/dist` in `pyproject.toml` so installed packages can serve UI without local frontend rebuild.

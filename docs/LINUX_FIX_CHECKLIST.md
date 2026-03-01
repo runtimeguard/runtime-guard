@@ -61,7 +61,7 @@ This checklist converts the findings from Linux Validation v2 into implementatio
 ## Retest Gate (Linux)
 1. Fresh user with no prior AIRG artifacts.
 2. Install from `dev`.
-3. `airg-setup --quickstart --yes`.
+3. `airg-setup --defaults --yes`.
 4. `airg-doctor` shows expected paths and UI readiness.
 5. `airg-ui` launches v3 without accidental legacy fallback.
 6. Approval loop test passes without manual HMAC secret.

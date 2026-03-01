@@ -21,6 +21,7 @@ airg-server = "airg_cli:main_server"
 airg-ui = "airg_cli:main_ui"
 airg-up = "airg_cli:main_up_entrypoint"
 airg-doctor = "airg_cli:main_doctor"
+airg-service = "airg_cli:main_service"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

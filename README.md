@@ -56,7 +56,7 @@ See `docs/INSTALL.md` for full setup.
 Quick start:
 1. `python3 -m venv venv && source venv/bin/activate`
 2. `pip install --upgrade pip && pip install .`
-3. `airg-setup` (or `airg init --wizard`)
+3. `airg-setup` (guided installer)
 4. `airg-doctor`
 
 Release branch note:

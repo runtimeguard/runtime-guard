@@ -351,7 +351,7 @@ def _build_ui_assets() -> None:
     if not ui_dir.exists():
         raise SystemExit(f"[airg][error] UI source directory not found: {ui_dir}")
     if shutil.which("npm") is None:
-        raise SystemExit("[airg][error] npm is required for --gui build, but was not found in PATH.")
+        raise SystemExit("[airg][error] npm is required to build GUI assets, but was not found in PATH.")
 
     print(f"[airg] Building GUI assets in {ui_dir} ...")
     try:
@@ -362,21 +362,159 @@ def _build_ui_assets() -> None:
     print("[airg] GUI build complete.")
 
 
+def _runtime_env_for_process(
+    *,
+    paths: dict[str, pathlib.Path],
+    workspace: pathlib.Path,
+    agent_id: str,
+) -> dict[str, str]:
+    return {
+        "AIRG_AGENT_ID": agent_id.strip() or "Unknown",
+        "AIRG_WORKSPACE": str(workspace.resolve()),
+        "AIRG_POLICY_PATH": str(paths["policy_path"]),
+        "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
+        "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
+        "AIRG_LOG_PATH": str(paths["log_path"]),
+        "AIRG_UI_DIST_PATH": str(_resolve_ui_dist_path()),
+    }
+
+
+def _write_runtime_env_file(path: pathlib.Path, env: dict[str, str]) -> pathlib.Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f'{k}="{v}"' for k, v in sorted(env.items())]
+    path.write_text("\n".join(lines) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+def _launchd_plist_path() -> pathlib.Path:
+    return pathlib.Path.home() / "Library" / "LaunchAgents" / "com.ai-runtime-guard.ui.plist"
+
+
+def _systemd_unit_path() -> pathlib.Path:
+    return pathlib.Path.home() / ".config" / "systemd" / "user" / "airg-ui.service"
+
+
+def _service_env_file(paths: dict[str, pathlib.Path]) -> pathlib.Path:
+    return paths["config_dir"] / "runtime.env"
+
+
+def _service_install(paths: dict[str, pathlib.Path], workspace: pathlib.Path, agent_id: str) -> None:
+    env = _runtime_env_for_process(paths=paths, workspace=workspace, agent_id=agent_id)
+    env_file = _write_runtime_env_file(_service_env_file(paths), env)
+    python_exec = pathlib.Path(sys.executable).resolve()
+    label = "com.ai-runtime-guard.ui"
+
+    if _is_macos():
+        plist_path = _launchd_plist_path()
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        plist = {
+            "Label": label,
+            "ProgramArguments": [str(python_exec), "-m", "airg_cli", "ui", "--with-runtime-env"],
+            "RunAtLoad": True,
+            "KeepAlive": True,
+            "WorkingDirectory": str(_project_root()),
+            "StandardOutPath": str(paths["state_dir"] / "airg-ui.service.out.log"),
+            "StandardErrorPath": str(paths["state_dir"] / "airg-ui.service.err.log"),
+            "EnvironmentVariables": env,
+        }
+        import plistlib
+        with open(plist_path, "wb") as f:
+            plistlib.dump(plist, f)
+        print(f"[airg] launchd service file written: {plist_path}")
+        return
+
+    unit_path = _systemd_unit_path()
+    unit_path.parent.mkdir(parents=True, exist_ok=True)
+    unit = f"""[Unit]
+Description=ai-runtime-guard UI service
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile={env_file}
+WorkingDirectory={_project_root()}
+ExecStart={python_exec} -m airg_cli ui --with-runtime-env
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+"""
+    unit_path.write_text(unit)
+    print(f"[airg] systemd user unit written: {unit_path}")
+
+
+def _service_start() -> None:
+    if _is_macos():
+        plist_path = _launchd_plist_path()
+        uid = os.getuid()
+        label = "com.ai-runtime-guard.ui"
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{label}"], check=False)
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)], check=True)
+        subprocess.run(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], check=True)
+        print("[airg] launchd service started.")
+        return
+
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "airg-ui.service"], check=True)
+    print("[airg] systemd user service enabled and started.")
+
+
+def _service_stop() -> None:
+    if _is_macos():
+        uid = os.getuid()
+        label = "com.ai-runtime-guard.ui"
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{label}"], check=False)
+        print("[airg] launchd service stopped.")
+        return
+
+    subprocess.run(["systemctl", "--user", "disable", "--now", "airg-ui.service"], check=False)
+    print("[airg] systemd user service stopped.")
+
+
+def _service_status() -> None:
+    if _is_macos():
+        uid = os.getuid()
+        label = "com.ai-runtime-guard.ui"
+        subprocess.run(["launchctl", "print", f"gui/{uid}/{label}"], check=False)
+        return
+
+    subprocess.run(["systemctl", "--user", "status", "--no-pager", "airg-ui.service"], check=False)
+
+
+def _service_uninstall() -> None:
+    _service_stop()
+    if _is_macos():
+        path = _launchd_plist_path()
+        if path.exists():
+            path.unlink()
+        print("[airg] launchd service uninstalled.")
+        return
+
+    unit_path = _systemd_unit_path()
+    if unit_path.exists():
+        unit_path.unlink()
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+    print("[airg] systemd user service uninstalled.")
+
+
 def _run_setup(
     *,
-    quickstart: bool,
+    defaults: bool,
     yes: bool,
     workspace: str,
     policy_path: str,
     approval_db_path: str,
     approval_hmac_key_path: str,
     backup_root: str,
-    additional_workspaces: str,
     agent: str,
     agent_id: str,
     force_policy: bool,
-    enable_ui: str,
-    gui_build: bool,
+    use_gui: bool | None,
     out_dir: str,
 ) -> None:
     issues, warnings = _preflight_checks()
@@ -397,31 +535,39 @@ def _run_setup(
     selected_db_path = approval_db_path.strip()
     selected_key_path = approval_hmac_key_path.strip()
     selected_backup_root = backup_root.strip()
-    selected_additional = [p.strip() for p in additional_workspaces.split(",") if p.strip()]
     selected_agent_id = agent_id.strip() or "Unknown"
-    selected_gui_build = bool(gui_build)
+    install_root = _project_root().resolve()
+    default_workspace = (install_root.parent / "airg-workspace").resolve()
+    selected_use_gui = use_gui
 
-    if not yes and not quickstart:
-        selected_workspace = _prompt_text("Primary workspace path", selected_workspace or str(pathlib.Path.home() / "airg-workspace"))
-        selected_policy_path = _prompt_text("Custom policy path (blank=default)", selected_policy_path)
-        selected_db_path = _prompt_text("Custom approval DB path (blank=default)", selected_db_path)
-        selected_key_path = _prompt_text("Custom approval HMAC key path (blank=default)", selected_key_path)
-        selected_backup_root = _prompt_text("Custom backup root path (blank=default)", selected_backup_root)
-        selected_enable_ui = _prompt_yes_no("Do you want to use the Policy GUI?", default=True)
-        enable_ui = "yes" if selected_enable_ui else "no"
-        if selected_enable_ui:
-            selected_gui_build = _prompt_yes_no("Build GUI assets now (npm install + npm run build)?", default=True)
-        if _prompt_yes_no("Add additional workspace paths to whitelist?", default=False):
-            raw_extra = _prompt_text("Comma-separated absolute paths", ",".join(selected_additional))
-            selected_additional = [p.strip() for p in raw_extra.split(",") if p.strip()]
-        selected_agent = _prompt_text("Agent type (claude_desktop/cursor/generic)", selected_agent)
-        if selected_agent not in {"claude_desktop", "cursor", "generic"}:
-            selected_agent = "generic"
-        selected_agent_id = _prompt_text("Agent identifier for logs (AIRG_AGENT_ID)", selected_agent_id)
+    if not yes:
+        proceed = _prompt_yes_no("This will install ai-runtime-guard on your system. Continue?", default=True)
+        if not proceed:
+            raise SystemExit("[airg] Setup cancelled.")
 
-    if not selected_workspace:
-        selected_workspace = str(pathlib.Path.home() / "airg-workspace")
+    # Q1: workspace selection
+    if defaults:
+        selected_workspace = selected_workspace or str(default_workspace)
+    else:
+        existing = _prompt_yes_no("Do you already have a project workspace?", default=bool(selected_workspace))
+        if existing:
+            selected_workspace = _prompt_text("Workspace path", selected_workspace or str(default_workspace))
+        else:
+            create_default = _prompt_yes_no(
+                f"Create default workspace at {default_workspace}?",
+                default=True,
+            )
+            if create_default:
+                selected_workspace = str(default_workspace)
+            else:
+                selected_workspace = _prompt_text("Workspace path to create", selected_workspace or str(pathlib.Path.home() / "airg-workspace"))
+
     workspace_path = pathlib.Path(selected_workspace).expanduser().resolve()
+    if workspace_path.exists() and workspace_path.is_file():
+        raise SystemExit(f"[airg][error] Workspace path is a file: {workspace_path}")
+    if workspace_path.exists() and not defaults and not _prompt_yes_no(f"Reuse existing workspace at {workspace_path}?", default=True):
+        alt = _prompt_text("Alternative workspace path", str(pathlib.Path.home() / "airg-workspace"))
+        workspace_path = pathlib.Path(alt).expanduser().resolve()
     workspace_path.mkdir(parents=True, exist_ok=True)
 
     path_overrides = _init_runtime(
@@ -433,15 +579,31 @@ def _run_setup(
     )
     os.environ["AIRG_WORKSPACE"] = str(workspace_path)
 
+    # Q2: runtime path defaults vs custom
+    if not defaults:
+        use_default_runtime_paths = _prompt_yes_no("Use default paths for policy, approval DB/key, log, and backup?", default=not any([selected_policy_path, selected_db_path, selected_key_path, selected_backup_root]))
+        if not use_default_runtime_paths:
+            selected_policy_path = _prompt_text("Policy file path", str(path_overrides["policy_path"]))
+            selected_db_path = _prompt_text("Approval DB path", str(path_overrides["approval_db_path"]))
+            selected_key_path = _prompt_text("Approval HMAC key path", str(path_overrides["approval_hmac_key_path"]))
+            selected_backup_root = _prompt_text("Backup root path", str(path_overrides["state_dir"] / "backups"))
+            path_overrides = _init_runtime(
+                force_policy=force_policy,
+                policy_path=selected_policy_path,
+                approval_db_path=selected_db_path,
+                approval_hmac_key_path=selected_key_path,
+                force_env=True,
+            )
+            os.environ["AIRG_WORKSPACE"] = str(workspace_path)
+
     current_policy = _load_policy_from_path(path_overrides["policy_path"])
-    current_policy = _merge_additional_workspaces(current_policy, [str(pathlib.Path(p).expanduser().resolve()) for p in selected_additional if pathlib.Path(p).expanduser().is_absolute()])
     if selected_backup_root:
         backup_override = pathlib.Path(selected_backup_root).expanduser().resolve()
         current_policy = _apply_backup_override(current_policy, str(backup_override))
     _save_policy_to_path(path_overrides["policy_path"], current_policy)
-
-    if selected_gui_build:
-        _build_ui_assets()
+    # Q3: GUI usage (optional)
+    if selected_use_gui is None:
+        selected_use_gui = _prompt_yes_no("Do you want to use the GUI for approvals, policy config, and reports?", default=False)
 
     payload = _agent_config_payload(selected_agent, str(workspace_path), path_overrides, selected_agent_id)
     output_root = pathlib.Path(out_dir).expanduser().resolve()
@@ -455,11 +617,20 @@ def _run_setup(
     print(f"[airg] agent config written: {output_path}")
     print("[airg] MCP config snippet:")
     print(json.dumps(payload, indent=2))
+    if selected_use_gui:
+        ui_dist = _resolve_ui_dist_path()
+        if not (ui_dist / "index.html").exists():
+            _build_ui_assets()
+        _service_install(path_overrides, workspace_path, selected_agent_id)
+        _service_start()
+        print("[airg] GUI service installed and started.")
     print("[airg] Running doctor checks...")
     main_doctor()
     print("[airg] Setup complete.")
-    if enable_ui.lower() in {"yes", "true", "1"}:
-        print("[airg] Next: run `airg-ui` for policy management UI.")
+    if selected_use_gui:
+        print("[airg] Web UI: http://127.0.0.1:5001")
+    else:
+        print("[airg] GUI not enabled. You can run `airg-ui` manually anytime.")
 
 
 def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
@@ -495,35 +666,35 @@ def main_init() -> None:
 
 def main_setup_entrypoint() -> None:
     parser = argparse.ArgumentParser(description="Guided setup for ai-runtime-guard")
-    parser.add_argument("--quickstart", action="store_true", help="Use defaults with minimal prompts.")
-    parser.add_argument("--yes", action="store_true", help="Non-interactive mode (accept defaults).")
+    parser.add_argument("--defaults", action="store_true", help="Use defaults and skip interactive path questions.")
+    parser.add_argument("--yes", action="store_true", help="Skip install confirmation prompt.")
     parser.add_argument("--workspace", default="", help="Primary workspace path.")
     parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH.")
     parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH.")
     parser.add_argument("--backup-root", default="", help="Override audit.backup_root.")
-    parser.add_argument("--additional-workspaces", default="", help="Comma-separated absolute workspace paths to whitelist.")
     parser.add_argument("--agent", default="generic", help="Agent target: claude_desktop, cursor, generic.")
     parser.add_argument("--agent-id", default="Unknown", help="Agent identifier to include in runtime logs.")
     parser.add_argument("--force-policy", action="store_true", help="Regenerate policy file from template before applying wizard updates.")
-    parser.add_argument("--enable-ui", default="yes", choices=["yes", "no"], help="Whether to keep UI management workflow enabled.")
-    parser.add_argument("--gui", action="store_true", help="Build GUI assets during setup (npm install && npm run build).")
+    parser.add_argument("--gui", action="store_true", help="Enable GUI service setup (install/start user service).")
+    parser.add_argument("--no-gui", action="store_true", help="Disable GUI service setup.")
     parser.add_argument("--out-dir", default="./out/mcp-configs", help="Output directory for generated MCP config snippets.")
     args = parser.parse_args()
+    if args.gui and args.no_gui:
+        raise SystemExit("[airg][error] --gui and --no-gui are mutually exclusive.")
+    use_gui = True if args.gui else (False if args.no_gui else None)
     _run_setup(
-        quickstart=args.quickstart,
+        defaults=args.defaults,
         yes=args.yes,
         workspace=args.workspace,
         policy_path=args.policy_path,
         approval_db_path=args.approval_db_path,
         approval_hmac_key_path=args.approval_hmac_key_path,
         backup_root=args.backup_root,
-        additional_workspaces=args.additional_workspaces,
         agent=args.agent,
         agent_id=args.agent_id,
         force_policy=args.force_policy,
-        enable_ui=args.enable_ui,
-        gui_build=args.gui,
+        use_gui=use_gui,
         out_dir=args.out_dir,
     )
 
@@ -706,23 +877,26 @@ def main_doctor() -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "service":
+        sys.argv = [sys.argv[0], *sys.argv[2:]]
+        main_service()
+        return
+
     parser = argparse.ArgumentParser(description="ai-runtime-guard CLI")
     parser.add_argument("command", choices=["init", "setup", "server", "ui", "up", "doctor"], help="Command to run")
     parser.add_argument("--force-policy", action="store_true", help="Used with 'init': overwrite existing policy template")
-    parser.add_argument("--wizard", action="store_true", help="Used with 'init': run guided setup wizard.")
-    parser.add_argument("--quickstart", action="store_true", help="Wizard mode: use defaults with minimal prompts.")
-    parser.add_argument("--yes", action="store_true", help="Wizard mode: non-interactive defaults.")
-    parser.add_argument("--workspace", default="", help="Wizard mode: primary workspace path.")
-    parser.add_argument("--policy-path", default="", help="Wizard mode: override AIRG_POLICY_PATH.")
-    parser.add_argument("--approval-db-path", default="", help="Wizard mode: override AIRG_APPROVAL_DB_PATH.")
-    parser.add_argument("--approval-hmac-key-path", default="", help="Wizard mode: override AIRG_APPROVAL_HMAC_KEY_PATH.")
-    parser.add_argument("--backup-root", default="", help="Wizard mode: override audit.backup_root.")
-    parser.add_argument("--additional-workspaces", default="", help="Wizard mode: comma-separated absolute workspace paths.")
-    parser.add_argument("--agent", default="generic", help="Wizard mode: claude_desktop, cursor, generic.")
-    parser.add_argument("--agent-id", default="Unknown", help="Wizard mode: agent identifier for logs.")
-    parser.add_argument("--enable-ui", default="yes", choices=["yes", "no"], help="Wizard mode: UI workflow preference.")
-    parser.add_argument("--gui", action="store_true", help="Wizard mode: build GUI assets during setup.")
-    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Wizard mode: output directory for generated MCP config.")
+    parser.add_argument("--defaults", action="store_true", help="Setup mode: use defaults and skip interactive path questions.")
+    parser.add_argument("--yes", action="store_true", help="Setup mode: skip install confirmation prompt.")
+    parser.add_argument("--workspace", default="", help="Setup mode: primary workspace path.")
+    parser.add_argument("--policy-path", default="", help="Setup mode: override AIRG_POLICY_PATH.")
+    parser.add_argument("--approval-db-path", default="", help="Setup mode: override AIRG_APPROVAL_DB_PATH.")
+    parser.add_argument("--approval-hmac-key-path", default="", help="Setup mode: override AIRG_APPROVAL_HMAC_KEY_PATH.")
+    parser.add_argument("--backup-root", default="", help="Setup mode: override audit.backup_root.")
+    parser.add_argument("--agent", default="generic", help="Setup mode: claude_desktop, cursor, generic.")
+    parser.add_argument("--agent-id", default="Unknown", help="Setup mode: agent identifier for logs.")
+    parser.add_argument("--gui", action="store_true", help="Setup mode: enable GUI service setup.")
+    parser.add_argument("--no-gui", action="store_true", help="Setup mode: disable GUI service setup.")
+    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Setup mode: output directory for generated MCP config.")
     parser.add_argument(
         "--with-runtime-env",
         action="store_true",
@@ -730,21 +904,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.command == "setup" or (args.command == "init" and args.wizard):
+    if args.command == "setup":
+        if args.gui and args.no_gui:
+            raise SystemExit("[airg][error] --gui and --no-gui are mutually exclusive.")
+        use_gui = True if args.gui else (False if args.no_gui else None)
         _run_setup(
-            quickstart=args.quickstart,
+            defaults=args.defaults,
             yes=args.yes,
             workspace=args.workspace,
             policy_path=args.policy_path,
             approval_db_path=args.approval_db_path,
             approval_hmac_key_path=args.approval_hmac_key_path,
             backup_root=args.backup_root,
-            additional_workspaces=args.additional_workspaces,
             agent=args.agent,
             agent_id=args.agent_id,
             force_policy=args.force_policy,
-            enable_ui=args.enable_ui,
-            gui_build=args.gui,
+            use_gui=use_gui,
             out_dir=args.out_dir,
         )
         return
@@ -765,6 +940,46 @@ def main() -> None:
 
 def main_up_entrypoint() -> None:
     main_up()
+
+
+def main_service() -> None:
+    parser = argparse.ArgumentParser(description="Manage ai-runtime-guard GUI user service")
+    parser.add_argument("action", choices=["install", "start", "stop", "restart", "status", "uninstall"])
+    parser.add_argument("--workspace", default=os.environ.get("AIRG_WORKSPACE", str((_project_root().parent / "airg-workspace").resolve())), help="Workspace path used by GUI service.")
+    parser.add_argument("--agent-id", default=os.environ.get("AIRG_AGENT_ID", "Unknown"), help="Agent identifier used by GUI service.")
+    parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH for service env.")
+    parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH for service env.")
+    parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH for service env.")
+    args = parser.parse_args()
+
+    paths = _resolve_paths_with_overrides(
+        policy_path=args.policy_path,
+        approval_db_path=args.approval_db_path,
+        approval_hmac_key_path=args.approval_hmac_key_path,
+    )
+    _apply_runtime_env(paths, force=True)
+    _secure_permissions(paths)
+    _ensure_policy_file(paths, force=False)
+    workspace = pathlib.Path(args.workspace).expanduser().resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    if args.action == "install":
+        _service_install(paths, workspace, args.agent_id)
+        return
+    if args.action == "start":
+        _service_start()
+        return
+    if args.action == "stop":
+        _service_stop()
+        return
+    if args.action == "restart":
+        _service_stop()
+        _service_start()
+        return
+    if args.action == "status":
+        _service_status()
+        return
+    _service_uninstall()
 
 
 if __name__ == "__main__":

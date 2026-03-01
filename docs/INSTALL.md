@@ -35,11 +35,11 @@ pip install .
 ```
 2. Initialize runtime files:
 ```bash
-airg-setup --quickstart --yes
+airg-setup
 ```
-Optional one-command setup with GUI build:
+Optional one-command non-interactive setup with GUI service:
 ```bash
-airg-setup --quickstart --yes --gui
+airg-setup --defaults --yes --gui
 ```
 3. Create a dedicated workspace:
 ```bash
@@ -73,7 +73,9 @@ Notes:
 1. You do not manually start MCP server in normal use. The AI client starts `airg-server` when MCP is configured.
 2. Web GUI is not required for default/basic setup.
 3. `airg-setup` is the recommended setup entrypoint; `airg-init` remains available as a low-level initializer.
-4. `--gui` builds frontend assets during setup (`npm install` + `npm run build` in `ui_v3`).
+4. `--defaults` uses default paths/non-interactive choices.
+5. `--gui` enables GUI service setup (`launchd` on macOS, `systemd --user` on Linux).
+6. `--no-gui` explicitly skips GUI service setup.
 
 ## Advanced setup (MCP + Web GUI)
 Use this when you want:
@@ -132,13 +134,26 @@ Wizard:
 ```bash
 airg-setup
 ```
-Alias:
+Defaults-only (non-interactive path choices):
 ```bash
-airg init --wizard
+airg-setup --defaults --yes
 ```
-Quick non-interactive defaults:
+Defaults with GUI service enabled:
 ```bash
-airg-setup --quickstart --yes
+airg-setup --defaults --yes --gui
+```
+Defaults with GUI service disabled:
+```bash
+airg-setup --defaults --yes --no-gui
+```
+
+Service management:
+```bash
+airg-service install --workspace /absolute/path/to/airg-workspace
+airg-service start
+airg-service status
+airg-service stop
+airg-service uninstall
 ```
 
 Branch note:
