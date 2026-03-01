@@ -328,7 +328,7 @@ def _query_rows(
 def _events_where(filters: dict[str, str]) -> tuple[str, list[Any]]:
     clauses: list[str] = []
     params: list[Any] = []
-    for key in ["agent_id", "source", "tool", "decision_tier", "matched_rule"]:
+    for key in ["agent_id", "source", "tool", "policy_decision", "decision_tier", "matched_rule", "command", "path", "event"]:
         val = str(filters.get(key, "")).strip()
         if val:
             clauses.append(f"LOWER({key}) LIKE ?")
@@ -403,7 +403,11 @@ def get_overview(db_path: pathlib.Path, filters: dict[str, str] | None = None) -
         ).fetchone()
         top_commands = conn.execute(
             f"""
-            SELECT command, COUNT(*) AS count
+            SELECT
+              command,
+              COUNT(*) AS count,
+              SUM(CASE WHEN policy_decision='allowed' THEN 1 ELSE 0 END) AS allowed_count,
+              SUM(CASE WHEN policy_decision='blocked' THEN 1 ELSE 0 END) AS blocked_count
             FROM events
             {where} {"AND" if where else "WHERE"} command != ''
             GROUP BY command

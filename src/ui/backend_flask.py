@@ -128,7 +128,7 @@ def _reports_sync() -> dict:
 
 def _report_filters() -> dict[str, str]:
     out: dict[str, str] = {}
-    for key in ["agent_id", "source", "tool", "decision_tier", "matched_rule", "from", "to"]:
+    for key in ["agent_id", "source", "tool", "policy_decision", "decision_tier", "matched_rule", "command", "path", "event", "from", "to"]:
         val = request.args.get(key, "").strip()
         if val:
             out[key] = val

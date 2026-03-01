@@ -46,6 +46,8 @@ const REPORT_FILTER_FIELDS = [
   { key: 'tool', label: 'Tool' },
   { key: 'decision_tier', label: 'Decision Tier' },
   { key: 'matched_rule', label: 'Matched Rule' },
+  { key: 'command', label: 'Command' },
+  { key: 'path', label: 'Path' },
 ]
 
 const STATUS_STYLE = {
@@ -169,16 +171,22 @@ export default function App() {
   const [reportsOverview, setReportsOverview] = useState(null)
   const [reportsEvents, setReportsEvents] = useState([])
   const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportsConfirmations, setReportsConfirmations] = useState({ approved: 0, denied: 0 })
   const [reportsOffset, setReportsOffset] = useState(0)
   const [reportsLimit, setReportsLimit] = useState(50)
+  const [reportsExpandedEventId, setReportsExpandedEventId] = useState(null)
   const [reportsLoading, setReportsLoading] = useState(false)
   const [reportsError, setReportsError] = useState('')
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
     source: '',
     tool: '',
+    policy_decision: '',
     decision_tier: '',
     matched_rule: '',
+    command: '',
+    path: '',
+    event: '',
   })
   const [reportsTimeFilter, setReportsTimeFilter] = useState('today')
   const [reportsCustomDay, setReportsCustomDay] = useState('')
@@ -273,23 +281,26 @@ export default function App() {
     setReportsError('')
     try {
       const q = buildReportQuery({ limit: reportsLimit, offset: reportsOffset, sync: sync ? '1' : '' })
-      const [statusRes, overviewRes, eventsRes] = await Promise.all([
+      const [statusRes, overviewRes, eventsRes, confirmationsRes] = await Promise.all([
         fetch(`${API_BASE}/reports/status?${q}`),
         fetch(`${API_BASE}/reports/overview?${q}`),
-        fetch(`${API_BASE}/reports/events?${q}`)
+        fetch(`${API_BASE}/reports/events?${q}`),
+        fetch(`${API_BASE}/reports/confirmations?${q}`)
       ])
-      if (!statusRes.ok || !overviewRes.ok || !eventsRes.ok) {
+      if (!statusRes.ok || !overviewRes.ok || !eventsRes.ok || !confirmationsRes.ok) {
         throw new Error('Reports backend request failed')
       }
-      const [statusPayload, overviewPayload, eventsPayload] = await Promise.all([
+      const [statusPayload, overviewPayload, eventsPayload, confirmationsPayload] = await Promise.all([
         statusRes.json(),
         overviewRes.json(),
-        eventsRes.json()
+        eventsRes.json(),
+        confirmationsRes.json(),
       ])
       setReportsStatus(statusPayload)
       setReportsOverview(overviewPayload)
       setReportsEvents(eventsPayload.events || [])
       setReportsTotal(eventsPayload.total || 0)
+      setReportsConfirmations(confirmationsPayload.confirmations || { approved: 0, denied: 0 })
     } catch (err) {
       setReportsError(String(err.message || err))
     } finally {
@@ -718,6 +729,52 @@ export default function App() {
     const blockedByRule = reportsOverview?.blocked_by_rule || []
     const pageCount = Math.max(1, Math.ceil(reportsTotal / reportsLimit))
     const currentPage = Math.floor(reportsOffset / reportsLimit) + 1
+    const pendingApprovalsCount = pendingApprovals.length
+
+    const openLogWithFilters = (patch = {}, options = {}) => {
+      const clear = Boolean(options.clearAll)
+      setReportsTab('log')
+      setReportsOffset(0)
+      if (clear) {
+        setReportsFilters({
+          agent_id: '',
+          source: '',
+          tool: '',
+          policy_decision: '',
+          decision_tier: '',
+          matched_rule: '',
+          command: '',
+          path: '',
+          event: '',
+        })
+        setReportsTimeFilter('all_time')
+        setReportsCustomDay('')
+      }
+      setReportsFilters((prev) => ({ ...(clear ? {} : prev), ...patch }))
+    }
+
+    const TrendBars = ({ data, tone = 'blue' }) => {
+      if (!data.length) return <div className="text-slate-500 text-xs">No data</div>
+      const maxCount = Math.max(...data.map((x) => Number(x.count || 0)), 1)
+      const barClass = tone === 'red' ? 'bg-red-400' : 'bg-blue-400'
+      return (
+        <div className="space-y-1">
+          {data.slice(0, 7).map((row) => {
+            const count = Number(row.count || 0)
+            const width = Math.max(2, Math.round((count / maxCount) * 100))
+            return (
+              <div key={row.day} className="grid grid-cols-[92px_1fr_44px] items-center gap-2 text-xs font-mono">
+                <div className="text-slate-600">{row.day}</div>
+                <div className="h-2 bg-slate-100 rounded">
+                  <div className={`h-2 rounded ${barClass}`} style={{ width: `${width}%` }} />
+                </div>
+                <div className="text-right text-slate-700">{count}</div>
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
 
     return (
       <div className="space-y-3">
@@ -781,34 +838,49 @@ export default function App() {
 
         {reportsTab === 'dashboard' && (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <button
+                onClick={() => openLogWithFilters({}, { clearAll: true })}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+              >
                 <div className="text-xs text-slate-500">Total events</div>
                 <div className="text-2xl font-semibold">{totals.total_events || 0}</div>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              </button>
+              <button
+                onClick={() => openLogWithFilters({ policy_decision: 'blocked' }, { clearAll: true })}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+              >
                 <div className="text-xs text-slate-500">Blocked events</div>
                 <div className="text-2xl font-semibold text-red-700">{totals.blocked_events || 0}</div>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                {(totals.blocked_events || 0) === 0 && <div className="text-[11px] text-slate-500 mt-1">No policy blocks recorded</div>}
+              </button>
+              <button
+                onClick={() => openLogWithFilters({ event: 'backup_created' }, { clearAll: true })}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+              >
                 <div className="text-xs text-slate-500">Backups created</div>
                 <div className="text-2xl font-semibold text-blue-700">{totals.backup_events || 0}</div>
-              </div>
+                {(totals.backup_events || 0) === 0 && <div className="text-[11px] text-slate-500 mt-1">No destructive operations recorded</div>}
+              </button>
+              <button
+                onClick={() => setActiveRail('approvals')}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+              >
+                <div className="text-xs text-slate-500">Confirmations</div>
+                <div className="text-sm font-mono mt-1 text-slate-700">Pending: {pendingApprovalsCount}</div>
+                <div className="text-sm font-mono text-green-700">Approved: {reportsConfirmations.approved || 0}</div>
+                <div className="text-sm font-mono text-red-700">Denied: {reportsConfirmations.denied || 0}</div>
+                {pendingApprovalsCount === 0 && <div className="text-[11px] text-slate-500 mt-1">No pending approvals</div>}
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Events per day (7d)</div>
-                <div className="space-y-1 text-xs font-mono">
-                  {eventsPerDay.length === 0 && <div className="text-slate-500">No data</div>}
-                  {eventsPerDay.map((row) => <div key={row.day} className="flex justify-between"><span>{row.day}</span><span>{row.count}</span></div>)}
-                </div>
+                <TrendBars data={eventsPerDay} tone="blue" />
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Blocked per day (7d)</div>
-                <div className="space-y-1 text-xs font-mono">
-                  {blockedPerDay.length === 0 && <div className="text-slate-500">No data</div>}
-                  {blockedPerDay.map((row) => <div key={row.day} className="flex justify-between"><span>{row.day}</span><span>{row.count}</span></div>)}
-                </div>
+                <TrendBars data={blockedPerDay} tone="red" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -816,21 +888,61 @@ export default function App() {
                 <div className="text-sm font-semibold text-slate-700 mb-2">Top commands</div>
                 <div className="space-y-1 text-xs font-mono">
                   {topCommands.length === 0 && <div className="text-slate-500">No data</div>}
-                  {topCommands.map((row) => <div key={row.command} className="flex justify-between"><span>{row.command}</span><span>{row.count}</span></div>)}
+                  {topCommands.map((row) => {
+                    const total = Number(row.count || 0)
+                    const allowed = Number(row.allowed_count || 0)
+                    const blocked = Number(row.blocked_count || 0)
+                    const allowedPct = total > 0 ? Math.round((allowed / total) * 100) : 0
+                    const blockedPct = total > 0 ? Math.round((blocked / total) * 100) : 0
+                    return (
+                      <button
+                        key={row.command}
+                        onClick={() => openLogWithFilters({ command: row.command }, { clearAll: true })}
+                        className="w-full text-left border border-transparent hover:border-slate-300 rounded px-1 py-1 cursor-pointer"
+                      >
+                        <div className="flex justify-between mb-1">
+                          <span>{row.command}</span>
+                          <span>{total}</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded overflow-hidden flex">
+                          <div className="bg-green-400" style={{ width: `${allowedPct}%` }} />
+                          <div className="bg-red-400" style={{ width: `${blockedPct}%` }} />
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Top paths</div>
                 <div className="space-y-1 text-xs font-mono">
                   {topPaths.length === 0 && <div className="text-slate-500">No data</div>}
-                  {topPaths.map((row) => <div key={row.path} className="flex justify-between"><span className="truncate pr-2">{row.path}</span><span>{row.count}</span></div>)}
+                  {topPaths.map((row) => (
+                    <button
+                      key={row.path}
+                      onClick={() => openLogWithFilters({ path: row.path }, { clearAll: true })}
+                      className="w-full text-left flex justify-between border border-transparent hover:border-slate-300 rounded px-1 py-1 cursor-pointer"
+                    >
+                      <span className="truncate pr-2">{row.path}</span>
+                      <span>{row.count}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Blocked by rule</div>
                 <div className="space-y-1 text-xs font-mono">
                   {blockedByRule.length === 0 && <div className="text-slate-500">No data</div>}
-                  {blockedByRule.map((row) => <div key={row.matched_rule} className="flex justify-between"><span>{row.matched_rule}</span><span>{row.count}</span></div>)}
+                  {blockedByRule.map((row) => (
+                    <button
+                      key={row.matched_rule}
+                      onClick={() => openLogWithFilters({ matched_rule: row.matched_rule }, { clearAll: true })}
+                      className="w-full text-left flex justify-between border border-transparent hover:border-slate-300 rounded px-1 py-1 cursor-pointer"
+                    >
+                      <span>{row.matched_rule}</span>
+                      <span>{row.count}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -863,6 +975,7 @@ export default function App() {
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
+                    <th className="text-left px-2 py-1"> </th>
                     <th className="text-left px-2 py-1">Time</th>
                     <th className="text-left px-2 py-1">Agent</th>
                     <th className="text-left px-2 py-1">Source</th>
@@ -874,19 +987,46 @@ export default function App() {
                 </thead>
                 <tbody>
                   {reportsEvents.length === 0 && (
-                    <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-500">No events</td></tr>
+                    <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-500">No events</td></tr>
                   )}
-                  {reportsEvents.map((e) => (
-                    <tr key={e.id} className="border-t border-slate-100">
-                      <td className="px-2 py-1 font-mono">{e.timestamp}</td>
-                      <td className="px-2 py-1">{e.agent_id || 'Unknown'}</td>
-                      <td className="px-2 py-1">{e.source || '-'}</td>
-                      <td className="px-2 py-1">{e.tool || '-'}</td>
-                      <td className="px-2 py-1">{e.policy_decision || '-'}</td>
-                      <td className="px-2 py-1 font-mono">{e.matched_rule || '-'}</td>
-                      <td className="px-2 py-1 font-mono">{e.command || e.path || '-'}</td>
-                    </tr>
-                  ))}
+                  {reportsEvents.map((e) => {
+                    const expanded = reportsExpandedEventId === e.id
+                    let prettyJson = ''
+                    try {
+                      prettyJson = JSON.stringify(JSON.parse(e.raw_json || '{}'), null, 2)
+                    } catch {
+                      prettyJson = e.raw_json || '{}'
+                    }
+                    return (
+                      <React.Fragment key={e.id}>
+                        <tr className="border-t border-slate-100">
+                          <td className="px-2 py-1">
+                            <button
+                              onClick={() => setReportsExpandedEventId(expanded ? null : e.id)}
+                              className="text-slate-500 hover:text-slate-700"
+                              title="Expand event"
+                            >
+                              {expanded ? '▾' : '▸'}
+                            </button>
+                          </td>
+                          <td className="px-2 py-1 font-mono">{e.timestamp}</td>
+                          <td className="px-2 py-1">{e.agent_id || 'Unknown'}</td>
+                          <td className="px-2 py-1">{e.source || '-'}</td>
+                          <td className="px-2 py-1">{e.tool || '-'}</td>
+                          <td className="px-2 py-1">{e.policy_decision || '-'}</td>
+                          <td className="px-2 py-1 font-mono">{e.matched_rule || '-'}</td>
+                          <td className="px-2 py-1 font-mono">{e.command || e.path || '-'}</td>
+                        </tr>
+                        {expanded && (
+                          <tr className="bg-slate-50 border-t border-slate-100">
+                            <td colSpan={8} className="px-2 py-2">
+                              <pre className="text-xs font-mono whitespace-pre-wrap break-all">{prettyJson}</pre>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
