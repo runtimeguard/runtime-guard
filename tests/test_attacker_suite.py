@@ -56,6 +56,29 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertEqual(result.decision_tier, "requires_simulation")
         self.assertIn("could not be safely simulated", result.reason)
 
+    def test_destructive_find_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["find -delete"]
+        blocked = execute_command("find . -type f -delete")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("find -delete", blocked.lower())
+
+    def test_non_destructive_find_allowed(self):
+        self._write("a.log")
+        output = execute_command("find . -name '*.log'")
+        self.assertIn("a.log", output)
+
+    def test_xargs_rm_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["xargs rm"]
+        blocked = execute_command("printf 'a.tmp\\n' | xargs rm")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("xargs rm", blocked.lower())
+
+    def test_looped_rm_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["do rm"]
+        blocked = execute_command("for f in *.tmp; do rm \"$f\"; done")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("do rm", blocked.lower())
+
     def test_confirmation_response_includes_simulation_context_for_threshold(self):
         self._write("c1.tmp")
         self._write("c2.tmp")

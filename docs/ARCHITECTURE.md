@@ -103,6 +103,7 @@ Model details:
 - evaluates only operations listed in `requires_simulation.commands`
 - expands wildcard args (`*`, `?`, `[...]`) using `glob.glob`
 - normalizes paths to absolute and filters by `is_within_workspace(...)`
+- does not hardcode command-specific destructive wrappers (for example `find -delete`) into simulation logic; those are expected to be expressed in policy command patterns for transparent operator control
 - returns:
   - `affected`: sorted unique resolved paths
   - `saw_wildcard`: whether wildcard syntax was present

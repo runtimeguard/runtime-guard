@@ -134,6 +134,14 @@ Default profile:
 Examples:
 - `rm -rf /tmp/x` matches blocked `rm -rf`.
 - `rm *.txt` does not match `rm -rf`; it can still be caught by `requires_confirmation`/`requires_simulation` if `rm` is configured there.
+- `find docs -delete` can be matched directly by blocked pattern `find -delete`.
+- `find docs -exec rm {} +` can be matched by blocked pattern `find -exec rm`.
+- `printf 'a.tmp\n' | xargs rm` can be matched by blocked pattern `xargs rm`.
+- `for f in *.tmp; do rm "$f"; done` can be matched by blocked pattern `do rm`.
+
+Notes:
+- Command-level decisions are policy-driven for transparency (blocked/simulation/approval/allowed).
+- Runtime still enforces non-command safety invariants in code (workspace boundary, protected runtime paths, control-char sanitization, optional shell containment).
 
 ## 5. Confirmation handshake behavior
 Current flow:

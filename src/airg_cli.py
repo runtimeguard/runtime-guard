@@ -96,7 +96,23 @@ def _policy_template() -> dict[str, Any]:
         if source.exists():
             return json.loads(source.read_text())
     return {
-        "blocked": {"commands": ["rm -rf", "mkfs", "shutdown", "reboot", "format", "dd"], "paths": [".env", ".ssh", "/etc/passwd"], "extensions": [".pem", ".key"]},
+        "blocked": {
+            "commands": [
+                "rm -rf",
+                "mkfs",
+                "shutdown",
+                "reboot",
+                "format",
+                "dd",
+                "find -delete",
+                "find -exec rm",
+                "xargs rm",
+                "xargs -0 rm",
+                "do rm",
+            ],
+            "paths": [".env", ".ssh", "/etc/passwd"],
+            "extensions": [".pem", ".key"],
+        },
         "requires_confirmation": {"commands": [], "paths": [], "session_whitelist_enabled": True, "approval_security": {"max_failed_attempts_per_token": 5, "failed_attempt_window_seconds": 600, "token_ttl_seconds": 600}},
         "requires_simulation": {"commands": [], "bulk_file_threshold": 10, "max_retries": 3, "cumulative_budget": {"enabled": False}},
         "allowed": {"paths_whitelist": [], "max_files_per_operation": 10, "max_file_size_mb": 10, "max_directory_depth": 100},
