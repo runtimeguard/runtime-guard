@@ -179,6 +179,7 @@ Observed current gaps/risk areas:
 - command execution uses `shell=True`; mitigations exist but parser/shell complexity remains a core risk surface.
 - optional shell containment (`execution.shell_workspace_containment`) provides best-effort path-boundary checks for shell command arguments/redirection, but cannot guarantee full shell semantic coverage.
 - backup path extraction for command execution relies on token regex + existence checks and can miss some shell-expanded path forms.
+- `execute_command` telemetry can undercount `affected_paths_count` for some shell-expanded/wrapper command forms; policy enforcement still applies, but path-impact metrics in logs/budget metadata can be lower than true impact until counting normalization is completed.
 
 ## Policy profile baseline
 Current shipping policy baseline is basic protection:

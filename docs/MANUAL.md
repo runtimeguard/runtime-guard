@@ -169,6 +169,9 @@ Current security status:
 - Wildcard operations can be blocked if unresolved or above threshold.
 - When confirmation wins tier precedence, simulation context is still included in confirmation response and audit fields.
 
+Known limitation:
+- `execute_command` telemetry can undercount `affected_paths_count` for some shell-expanded forms (for example certain wildcard/wrapper move/delete commands). Policy enforcement still applies, but count metrics in logs/budget metadata can be lower than real path impact until counting normalization is completed.
+
 ## 7. Retry behavior
 - Retries are server-side, not client-authoritative.
 - Retry key is scoped to `(normalized_command + decision_tier + matched_rule)`.

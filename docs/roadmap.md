@@ -72,3 +72,4 @@ Goal: deliver reliable container deployment while keeping behavior parity.
 1. Network payload-size enforcement.
 2. Runtime activation of metadata-only budget override fields.
 3. Advanced anomaly detection (mass-delete and high-risk pattern alerting).
+4. Improve `execute_command` affected-path counting coverage for shell-expanded/wrapper command forms so `affected_paths_count` and budget telemetry reflect real path impact more accurately.
