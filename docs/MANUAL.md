@@ -32,10 +32,8 @@ Before starting MCP server and UI backend, source:
 - `source scripts/setup_runtime_env.sh`
 
 This exports:
-- `AIRG_AGENT_ID`
 - `AIRG_APPROVAL_DB_PATH`
 - `AIRG_APPROVAL_HMAC_KEY_PATH`
-- `AIRG_LOG_PATH`
 
 Default locations created by the script:
 - macOS: `~/Library/Application Support/ai-runtime-guard/`
@@ -57,11 +55,11 @@ Note:
 2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
 3. `airg-setup` seeds `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
 4. Runtime fallback for backup root also defaults to user-local runtime state (`<state_dir>/backups`) when policy does not define `audit.backup_root`.
-4. `airg-setup` prints a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
-5. `airg-init` is available as a low-level/manual bootstrap fallback.
-5. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
-6. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
-7. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
+5. `airg-setup` prints a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
+6. `airg-init` is available as a low-level/manual bootstrap fallback.
+7. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
+8. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
+9. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
 
 Backup-root diagnostics:
 1. `airg-doctor` prints resolved `backup_root`.

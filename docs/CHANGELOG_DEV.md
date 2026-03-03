@@ -2,6 +2,15 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-03 (v1.3 release prep and docs reconciliation)
+- Bumped package version in `pyproject.toml` from `1.2-dev` to `1.3.0`.
+- Added stable changelog entry for `v1.3.0` in root `CHANGELOG.md`.
+- Reconciled public docs with latest runtime behavior and release state:
+  - removed stale `1.2-dev` train references in release/status docs
+  - aligned roadmap snapshot wording with current post-`v1.2` state
+  - tracked known `affected_paths_count` undercount limitation in operator-facing docs.
+- Updated agent MCP config documentation to include explicit `AIRG_REPORTS_DB_PATH` in recommended env blocks.
+
 ## 2026-03-03 (v1.3 approval UX + destructive command coverage)
 - Improved approval workflow context in the UI:
   - pending approval records now store and return `agent_id`

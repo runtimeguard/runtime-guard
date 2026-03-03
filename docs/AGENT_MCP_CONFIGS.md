@@ -12,6 +12,7 @@ Always set these explicitly in agent MCP config:
 4. `AIRG_APPROVAL_DB_PATH`
 5. `AIRG_APPROVAL_HMAC_KEY_PATH`
 6. `AIRG_LOG_PATH`
+7. `AIRG_REPORTS_DB_PATH`
 
 Server command:
 1. `airg-server`
@@ -29,7 +30,8 @@ Minimal MCP server block:
         "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
         "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
         "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
-        "AIRG_LOG_PATH": "/absolute/path/to/activity.log"
+        "AIRG_LOG_PATH": "/absolute/path/to/activity.log",
+        "AIRG_REPORTS_DB_PATH": "/absolute/path/to/reports.db"
       }
     }
   }
@@ -66,6 +68,7 @@ codex mcp add ai-runtime-guard \
   --env AIRG_APPROVAL_DB_PATH=/absolute/path/to/approvals.db \
   --env AIRG_APPROVAL_HMAC_KEY_PATH=/absolute/path/to/approvals.db.hmac.key \
   --env AIRG_LOG_PATH=/absolute/path/to/activity.log \
+  --env AIRG_REPORTS_DB_PATH=/absolute/path/to/reports.db \
   -- airg-server
 ```
 
@@ -88,6 +91,7 @@ AIRG_POLICY_PATH = "/absolute/path/to/policy.json"
 AIRG_APPROVAL_DB_PATH = "/absolute/path/to/approvals.db"
 AIRG_APPROVAL_HMAC_KEY_PATH = "/absolute/path/to/approvals.db.hmac.key"
 AIRG_LOG_PATH = "/absolute/path/to/activity.log"
+AIRG_REPORTS_DB_PATH = "/absolute/path/to/reports.db"
 ```
 
 ### AIRG notes
@@ -115,7 +119,8 @@ Sample JSON (AIRG-focused, sanitized):
         "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
         "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
         "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
-        "AIRG_LOG_PATH": "/absolute/path/to/activity.log"
+        "AIRG_LOG_PATH": "/absolute/path/to/activity.log",
+        "AIRG_REPORTS_DB_PATH": "/absolute/path/to/reports.db"
       }
     }
   }
@@ -140,6 +145,7 @@ claude mcp add ai-runtime-guard \
   -e AIRG_APPROVAL_DB_PATH=/home/$USER/.local/state/ai-runtime-guard/approvals.db \
   -e AIRG_APPROVAL_HMAC_KEY_PATH=/home/$USER/.local/state/ai-runtime-guard/approvals.db.hmac.key \
   -e AIRG_LOG_PATH=/home/$USER/.local/state/ai-runtime-guard/activity.log \
+  -e AIRG_REPORTS_DB_PATH=/home/$USER/.local/state/ai-runtime-guard/reports.db \
   -- airg-server
 ```
 
@@ -197,7 +203,8 @@ Use a JSON MCP block similar to Claude-style MCP config (no `preferences` sectio
         "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
         "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
         "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
-        "AIRG_LOG_PATH": "/absolute/path/to/activity.log"
+        "AIRG_LOG_PATH": "/absolute/path/to/activity.log",
+        "AIRG_REPORTS_DB_PATH": "/absolute/path/to/reports.db"
       }
     }
   }

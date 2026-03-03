@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-03-01
+Last updated: 2026-03-03
 
 ## Current branch
 1. Active integration branch: `dev`
@@ -8,7 +8,7 @@ Last updated: 2026-03-01
 
 ## Current release state
 1. Latest stable release is published from `main`.
-2. Ongoing development is on the `1.2-dev` train.
+2. `dev` currently carries release-prep and integration work ahead of the next stable tag.
 3. Stable release notes are in `CHANGELOG.md`.
 4. In-progress development notes are in `docs/CHANGELOG_DEV.md`.
 
@@ -28,9 +28,9 @@ Last updated: 2026-03-01
    - no in-band MCP self-approval tool is exposed.
 
 ## Active workstreams
-1. Agent identity and connection-scoped session model completion.
-2. Per-agent policy/report segmentation refinement.
-3. Packaging channel hardening (PyPI and container).
+1. Per-agent policy/report segmentation refinement.
+2. Packaging channel hardening (PyPI and container).
+3. SSE/transport expansion planning after policy isolation is complete.
 4. Documentation simplification and public-release hygiene.
 
 ## Known boundary
