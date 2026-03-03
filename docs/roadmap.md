@@ -5,7 +5,7 @@ This roadmap tracks next milestones after `v1.2.0`, aligned to current implement
 ## Current reality snapshot
 1. Reporting foundation is implemented (`reports.db`, ingest pipeline, reports API, dashboard/log UI).
 2. Connection-scoped identity/session fields are implemented in runtime logs/reports (`agent_id`, `agent_session_id`).
-3. Remaining architecture work is per-agent policy isolation and deployment-channel expansion.
+3. Remaining architecture work is per-agent policy isolation, packaging hardening, and container/transport expansion.
 
 ## Guiding principles
 1. Keep one core enforcement engine across all deployment channels.
@@ -35,8 +35,9 @@ Goal: support agent-specific policy context while preserving simple default oper
 1. Add per-agent policy context model:
    - workspace binding per agent
    - optional per-agent policy overlay
-2. Update reports UI/API for first-class per-agent filtering and views.
-3. Add operator guidance for multi-agent deployments.
+2. Resolve effective policy by `AIRG_AGENT_ID` in runtime decision flow.
+3. Update reports UI/API for first-class per-agent filtering and views.
+4. Add operator guidance for multi-agent deployments.
 
 ### Acceptance gates
 1. Per-agent policy boundaries are enforceable and test-covered.
@@ -48,12 +49,14 @@ Goal: make PyPI distribution the primary host installation channel.
 
 ### Scope
 1. Finalize package metadata and release process.
-2. Validate clean-install workflows from TestPyPI and PyPI.
+2. Validate clean-install workflows from package artifacts across macOS and Linux.
 3. Stabilize onboarding docs and release automation for package consumers.
+4. Verify parity of `airg-setup`, `airg-service`, `airg-doctor`, and runtime path defaults in package installs.
 
 ### Acceptance gates
 1. Build/install smoke checks pass in clean environments.
-2. Release checklist includes PyPI validation and rollback notes.
+2. Release checklist includes package validation and rollback notes.
+3. Runtime paths for policy/state/log/reports/backups are deterministic in package installs.
 
 ## v1.6 - Container channel and transport prep
 Goal: deliver reliable container deployment while keeping behavior parity.
@@ -62,6 +65,7 @@ Goal: deliver reliable container deployment while keeping behavior parity.
 1. Finalize container runtime path model (`/workspace`, `/config`, `/state`).
 2. Add deterministic container startup and persistence checks.
 3. Prepare for optional SSE/HTTP transport only after per-agent policy isolation is proven.
+4. Validate stdio/SSE transport parity for identity/session guarantees and policy decisions.
 
 ### Acceptance gates
 1. Containerized behavior matches host behavior for same policy and inputs.
