@@ -22,7 +22,12 @@
       "git reset --hard",
       "git clean -fd",
       "chmod -r",
-      "chown -r"
+      "chown -r",
+      "find -delete",
+      "find -exec rm",
+      "xargs rm",
+      "xargs -0 rm",
+      "do rm"
     ],
     "paths":    [".env", ".ssh", "/etc/passwd", "activity.log", "approvals.db", "approvals.db.hmac.key"],
     "extensions": [".pem", ".key"]

@@ -1,18 +1,18 @@
 # Roadmap
 
-This roadmap tracks next milestones after `v1.1.1`, aligned to current implementation status.
+This roadmap tracks next milestones after `v1.2.0`, aligned to current implementation status.
 
 ## Current reality snapshot
 1. Reporting foundation is implemented (`reports.db`, ingest pipeline, reports API, dashboard/log UI).
-2. Agent identity is partially implemented (`AIRG_AGENT_ID` in config and logs).
-3. Remaining architecture work is connection-scoped identity/session and per-agent policy isolation.
+2. Connection-scoped identity/session fields are implemented in runtime logs/reports (`agent_id`, `agent_session_id`).
+3. Remaining architecture work is per-agent policy isolation and deployment-channel expansion.
 
 ## Guiding principles
 1. Keep one core enforcement engine across all deployment channels.
 2. Preserve behavior parity for policy decisions, approvals, backup, audit, and reports.
-3. Complete identity/session refactor before SSE and multi-client transport expansion.
+3. Complete per-agent policy isolation before SSE and multi-client transport expansion.
 
-## v1.2.x - Identity model completion
+## v1.3 baseline - Identity/session completion (implemented)
 Goal: complete connection-scoped identity/session model and remove process-global assumptions.
 
 ### Scope
@@ -28,7 +28,7 @@ Goal: complete connection-scoped identity/session model and remove process-globa
 2. Approval and budget state are isolated per connection/session by design.
 3. Backward-compatible defaults remain valid for single-agent setups.
 
-## v1.3 - Per-agent policy and reporting segmentation
+## v1.4 - Per-agent policy and reporting segmentation
 Goal: support agent-specific policy context while preserving simple default operation.
 
 ### Scope
@@ -43,7 +43,7 @@ Goal: support agent-specific policy context while preserving simple default oper
 2. Reports correctly separate activity for concurrent agents.
 3. Single-agent mode remains low-friction and backward compatible.
 
-## v1.4 - Packaging hardening (PyPI)
+## v1.5 - Packaging hardening (PyPI)
 Goal: make PyPI distribution the primary host installation channel.
 
 ### Scope
@@ -55,13 +55,13 @@ Goal: make PyPI distribution the primary host installation channel.
 1. Build/install smoke checks pass in clean environments.
 2. Release checklist includes PyPI validation and rollback notes.
 
-## v1.5 - Container channel and transport prep
+## v1.6 - Container channel and transport prep
 Goal: deliver reliable container deployment while keeping behavior parity.
 
 ### Scope
 1. Finalize container runtime path model (`/workspace`, `/config`, `/state`).
 2. Add deterministic container startup and persistence checks.
-3. Prepare for optional SSE/HTTP transport only after identity/session refactor is proven.
+3. Prepare for optional SSE/HTTP transport only after per-agent policy isolation is proven.
 
 ### Acceptance gates
 1. Containerized behavior matches host behavior for same policy and inputs.
@@ -72,3 +72,4 @@ Goal: deliver reliable container deployment while keeping behavior parity.
 1. Network payload-size enforcement.
 2. Runtime activation of metadata-only budget override fields.
 3. Advanced anomaly detection (mass-delete and high-risk pattern alerting).
+4. Improve `execute_command` affected-path counting coverage for shell-expanded/wrapper command forms so `affected_paths_count` and budget telemetry reflect real path impact more accurately.

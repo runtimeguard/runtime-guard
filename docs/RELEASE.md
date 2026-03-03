@@ -4,7 +4,7 @@ This document defines the release workflow for `ai-runtime-guard`.
 
 ## Current state
 1. Stable releases are published from `main`.
-2. Ongoing integration work happens on `dev` (`1.2-dev` train).
+2. Ongoing integration work happens on `dev` (next release train after latest stable tag).
 3. Stable release notes are in `CHANGELOG.md`.
 4. In-progress development notes are in `docs/CHANGELOG_DEV.md`.
 

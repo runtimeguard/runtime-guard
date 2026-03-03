@@ -2,6 +2,58 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-03 (v1.3 release prep and docs reconciliation)
+- Bumped package version in `pyproject.toml` from `1.2-dev` to `1.3.0`.
+- Added stable changelog entry for `v1.3.0` in root `CHANGELOG.md`.
+- Reconciled public docs with latest runtime behavior and release state:
+  - removed stale `1.2-dev` train references in release/status docs
+  - aligned roadmap snapshot wording with current post-`v1.2` state
+  - tracked known `affected_paths_count` undercount limitation in operator-facing docs.
+- Updated agent MCP config documentation to include explicit `AIRG_REPORTS_DB_PATH` in recommended env blocks.
+
+## 2026-03-03 (v1.3 approval UX + destructive command coverage)
+- Improved approval workflow context in the UI:
+  - pending approval records now store and return `agent_id`
+  - Approvals panel now shows: `Agent <agent_id> needs approval for the following command: <truncated command>`
+  - full command remains available in expandable details, with affected paths unchanged.
+- Normalized destructive `find` / wrapper handling to policy-command rules:
+  - removed hardcoded `find -delete` simulation branch from runtime logic
+  - added explicit default blocked patterns for destructive wrappers: `find -delete`, `find -exec rm`, `xargs rm`, `xargs -0 rm`, `do rm`
+  - kept non-destructive `find` allowed by default.
+- Updated command catalog visibility for policy transparency:
+  - added `find`, `find -delete`, `find -exec rm`, `xargs`, `xargs rm`, `xargs -0 rm`, `do rm` to Linux/macOS tabs.
+- Added regression tests for policy-driven destructive wrapper blocking and non-destructive `find` allow behavior.
+- Fixed backup-root defaults for installed/runtime mode:
+  - default backup root now resolves to user runtime state (`<state_dir>/backups`) instead of module/package directory
+  - removed unsafe fallback behavior that could place backups under `site-packages`.
+- Aligned backup gating behavior:
+  - `write_file` and `delete_file` now honor `audit.backup_enabled` consistently with `execute_command`.
+- Expanded diagnostics:
+  - `airg-doctor` now prints resolved `backup_root`
+  - warns when `backup_root` is inside project directory or `site-packages`.
+- Added regression tests for backup root defaults and backup-enabled gating behavior.
+- Validation:
+  - Python unit tests pass with `PYTHONPATH=src` (`41` tests).
+
+## 2026-03-03 (v1.3 identity/session isolation - phase 1)
+- Added runtime request/session context module (`src/runtime_context.py`) using context-local state to carry active MCP call identity.
+- Tool execution paths now bind session identity per MCP call and reset automatically:
+  - `execute_command`
+  - `read_file` / `write_file` / `delete_file` / `list_directory`
+  - `restore_backup`
+- Approval, policy confirmation checks, retry/budget scope, and audit log entries now use active session context instead of only process-global startup UUID.
+- Audit entries now include `agent_session_id` (with `session_id` kept as compatibility alias).
+- Reports pipeline upgraded for session-aware analytics:
+  - new `events.agent_session_id` column
+  - migration/backfill for existing `reports.db` rows
+  - filter support in backend/API and UI.
+- Reports UI updates:
+  - new `Agent Session` filter
+  - Log table now shows session column for per-session attribution.
+- Validation:
+  - Python unit tests pass with `PYTHONPATH=src` (`32` tests).
+  - `ui_v3` production build passes.
+
 ## 2026-03-01 (reports foundation: activity log -> reports db -> reports UI)
 - Added reports runtime module (`src/reports.py`) with:
   - SQLite schema for `events`, `ingest_state`, and `meta`

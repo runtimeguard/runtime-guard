@@ -18,9 +18,9 @@ from config import (
     BASE_DIR,
     POLICY,
     RESTORE_CONFIRMATION_TTL_SECONDS,
-    SESSION_ID,
     WORKSPACE_ROOT,
 )
+from runtime_context import current_agent_session_id
 
 APPROVAL_FAILURES: dict[str, list[datetime.datetime]] = {}
 PENDING_RESTORE_CONFIRMATIONS: dict[str, dict] = {}
@@ -77,7 +77,8 @@ def _log_security_warning(event: str, reason: str, **kwargs) -> None:
             "timestamp": _to_z(_now_utc()),
             "source": "mcp-server",
             "agent_id": AGENT_ID,
-            "session_id": SESSION_ID,
+            "session_id": current_agent_session_id(),
+            "agent_session_id": current_agent_session_id(),
             "tool": "approval_store",
             "event": event,
             "workspace": WORKSPACE_ROOT,
@@ -270,6 +271,7 @@ def init_approval_store() -> None:
             """
             CREATE TABLE IF NOT EXISTS pending_approvals (
                 token TEXT PRIMARY KEY,
+                agent_id TEXT,
                 command_hash TEXT NOT NULL,
                 normalized_command TEXT NOT NULL,
                 session_id TEXT,
@@ -282,6 +284,12 @@ def init_approval_store() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_pending_approvals_expires_at ON pending_approvals(expires_at)"
         )
+        pending_cols = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(pending_approvals)").fetchall()
+        }
+        if "agent_id" not in pending_cols:
+            conn.execute("ALTER TABLE pending_approvals ADD COLUMN agent_id TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS approved_commands (
@@ -381,11 +389,12 @@ def issue_or_reuse_approval_token(
         conn.execute(
             """
             INSERT INTO pending_approvals
-              (token, command_hash, normalized_command, session_id, requested_at, expires_at, affected_paths)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+              (token, agent_id, command_hash, normalized_command, session_id, requested_at, expires_at, affected_paths)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 token,
+                AGENT_ID,
                 cmd_hash,
                 _normalize_for_audit(command),
                 session_id,
@@ -541,7 +550,7 @@ def list_pending_approvals() -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
             """
-            SELECT token, normalized_command, session_id, requested_at, expires_at, affected_paths
+            SELECT token, agent_id, normalized_command, session_id, requested_at, expires_at, affected_paths
             FROM pending_approvals
             ORDER BY requested_at ASC
             """
@@ -568,6 +577,7 @@ def list_pending_approvals() -> list[dict]:
         out.append(
             {
                 "token": str(row["token"]),
+                "agent_id": str(row["agent_id"] or "Unknown"),
                 "command": str(row["normalized_command"]),
                 "session_id": str(row["session_id"] or ""),
                 "requested_at": str(row["requested_at"]),

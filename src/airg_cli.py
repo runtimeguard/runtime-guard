@@ -96,7 +96,23 @@ def _policy_template() -> dict[str, Any]:
         if source.exists():
             return json.loads(source.read_text())
     return {
-        "blocked": {"commands": ["rm -rf", "mkfs", "shutdown", "reboot", "format", "dd"], "paths": [".env", ".ssh", "/etc/passwd"], "extensions": [".pem", ".key"]},
+        "blocked": {
+            "commands": [
+                "rm -rf",
+                "mkfs",
+                "shutdown",
+                "reboot",
+                "format",
+                "dd",
+                "find -delete",
+                "find -exec rm",
+                "xargs rm",
+                "xargs -0 rm",
+                "do rm",
+            ],
+            "paths": [".env", ".ssh", "/etc/passwd"],
+            "extensions": [".pem", ".key"],
+        },
         "requires_confirmation": {"commands": [], "paths": [], "session_whitelist_enabled": True, "approval_security": {"max_failed_attempts_per_token": 5, "failed_attempt_window_seconds": 600, "token_ttl_seconds": 600}},
         "requires_simulation": {"commands": [], "bulk_file_threshold": 10, "max_retries": 3, "cumulative_budget": {"enabled": False}},
         "allowed": {"paths_whitelist": [], "max_files_per_operation": 10, "max_file_size_mb": 10, "max_directory_depth": 100},
@@ -829,6 +845,16 @@ def main_doctor() -> None:
     _apply_runtime_env(paths)
     issues: list[str] = []
     warnings: list[str] = []
+    backup_root = (paths["state_dir"] / "backups").resolve()
+    if paths["policy_path"].exists():
+        try:
+            policy_doc = json.loads(paths["policy_path"].read_text())
+            audit_doc = policy_doc.get("audit", {}) if isinstance(policy_doc, dict) else {}
+            configured_backup = str(audit_doc.get("backup_root", "")).strip()
+            if configured_backup:
+                backup_root = pathlib.Path(configured_backup).expanduser().resolve()
+        except Exception as exc:
+            warnings.append(f"Could not read backup_root from policy: {exc}")
 
     print("[airg] Doctor checks")
     print(f"[airg] policy_path={paths['policy_path']}")
@@ -836,6 +862,7 @@ def main_doctor() -> None:
     print(f"[airg] approval_hmac_key_path={paths['approval_hmac_key_path']}")
     print(f"[airg] log_path={paths['log_path']}")
     print(f"[airg] reports_db_path={paths['reports_db_path']}")
+    print(f"[airg] backup_root={backup_root}")
     print(f"[airg] workspace={pathlib.Path(os.environ.get('AIRG_WORKSPACE', str(_project_root()))).expanduser().resolve()}")
     print(f"[airg] agent_id={os.environ.get('AIRG_AGENT_ID', 'Unknown')}")
 
@@ -896,6 +923,16 @@ def main_doctor() -> None:
                 warnings.append(f"{label} is inside project directory ({project_root}); move to user-local runtime paths.")
         except Exception:
             pass
+    try:
+        if backup_root.is_relative_to(project_root):
+            warnings.append(f"backup_root is inside project directory ({project_root}); move to user-local runtime paths.")
+    except Exception:
+        pass
+    if "site-packages" in backup_root.parts:
+        warnings.append(
+            f"backup_root points inside site-packages ({backup_root}); this is unsafe for installed mode. "
+            "Set audit.backup_root to a user-local runtime path."
+        )
 
     # UI build check
     ui_dist = _resolve_ui_dist_path()

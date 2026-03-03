@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.0] - 2026-03-03
+### Added
+- Connection-scoped identity/session context in runtime and logs:
+  - `agent_id` and `agent_session_id` are now carried through tool execution and audit events.
+  - reports filtering now includes session-level attribution.
+- Approval UX context improvements:
+  - approvals now display agent-aware request context in the GUI while keeping full command details expandable.
+- Destructive wrapper policy coverage made explicit and transparent:
+  - added default blocked command patterns for destructive wrapper forms (`find -delete`, `find -exec rm`, `xargs rm`, `xargs -0 rm`, `do rm`).
+  - non-destructive `find` flows remain allowed by default.
+
+### Changed
+- Command safety behavior is now more policy-driven for destructive wrapper forms, with less hidden command-specific branching in runtime logic.
+- Default backup root behavior now resolves to user runtime state paths (`<state_dir>/backups`) for installed/runtime mode.
+- `airg-doctor` diagnostics now include resolved `backup_root` and warnings for unsafe backup-root placement (`site-packages` or project directory).
+
+### Fixed
+- Backup creation path fallback that could resolve under package directories in some installed-mode cases.
+- Backup gating consistency:
+  - `write_file` and `delete_file` now honor `audit.backup_enabled` consistently with `execute_command`.
+- Documentation now tracks a known telemetry limitation where `execute_command` may undercount `affected_paths_count` for some shell-expanded/wrapper forms.
+
 ## [1.2.0] - 2026-03-01
 ### Added
 - Reports subsystem with SQLite-backed indexing from `activity.log`:

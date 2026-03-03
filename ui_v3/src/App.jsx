@@ -42,6 +42,7 @@ const RUNTIME_PATH_LABELS = {
 }
 const REPORT_FILTER_FIELDS = [
   { key: 'agent_id', label: 'Agent' },
+  { key: 'agent_session_id', label: 'Agent Session' },
   { key: 'source', label: 'Source' },
   { key: 'tool', label: 'Tool' },
   { key: 'decision_tier', label: 'Decision Tier' },
@@ -179,6 +180,7 @@ export default function App() {
   const [reportsError, setReportsError] = useState('')
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
+    agent_session_id: '',
     source: '',
     tool: '',
     policy_decision: '',
@@ -680,6 +682,12 @@ export default function App() {
   }
 
   function ApprovalsPanel() {
+    const truncateCommand = (command, max = 110) => {
+      if (!command) return ''
+      if (command.length <= max) return command
+      return `${command.slice(0, max - 1)}…`
+    }
+
     if (!pendingApprovals.length) {
       return (
         <div className="bg-white rounded-xl border border-slate-200 p-8 text-center shadow-sm">
@@ -698,9 +706,16 @@ export default function App() {
               key={item.token}
               className={`bg-white border-l-4 ${urgency ? 'border-red-400' : 'border-amber-400'} rounded-xl border border-slate-200 p-4 shadow-sm transition-all duration-200 ${removing[item.token] ? 'opacity-0 -translate-y-1' : 'opacity-100 translate-y-0'}`}
             >
-              <div className="font-mono text-base font-semibold text-slate-800">{item.command}</div>
+              <div className="text-sm font-semibold text-slate-800">
+                Agent <span className="font-mono">{item.agent_id || 'Unknown'}</span> needs approval for the following command:
+              </div>
+              <div className="font-mono text-sm text-slate-700 mt-1 break-all">{truncateCommand(item.command)}</div>
               <div className="text-xs text-slate-500 mt-1">Requested {relativeTime(item.requested_at)} • session <span className="font-mono">{item.session_id || 'n/a'}</span></div>
               <div className={`text-xs mt-1 ${urgency ? 'text-red-600 font-semibold' : 'text-slate-500'}`}>Expires in {item.seconds_remaining}s</div>
+              <details className="mt-2 text-sm">
+                <summary className="cursor-pointer text-slate-600">Full command details</summary>
+                <pre className="mt-2 text-xs font-mono bg-slate-50 rounded p-2 border border-slate-200 overflow-auto whitespace-pre-wrap break-all">{item.command}</pre>
+              </details>
               {item.affected_paths?.length > 0 && (
                 <details className="mt-2 text-sm">
                   <summary className="cursor-pointer text-slate-600">Affected paths ({item.affected_paths.length})</summary>
@@ -736,6 +751,7 @@ export default function App() {
       setReportsExpandedEventId(null)
       setReportsFilters({
         agent_id: '',
+        agent_session_id: '',
         source: '',
         tool: '',
         policy_decision: '',
@@ -992,6 +1008,7 @@ export default function App() {
                     <th className="text-left px-2 py-1"> </th>
                     <th className="text-left px-2 py-1">Time</th>
                     <th className="text-left px-2 py-1">Agent</th>
+                    <th className="text-left px-2 py-1">Session</th>
                     <th className="text-left px-2 py-1">Source</th>
                     <th className="text-left px-2 py-1">Tool</th>
                     <th className="text-left px-2 py-1">Decision</th>
@@ -1001,7 +1018,7 @@ export default function App() {
                 </thead>
                 <tbody>
                   {reportsEvents.length === 0 && (
-                    <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-500">No events</td></tr>
+                    <tr><td colSpan={9} className="px-2 py-4 text-center text-slate-500">No events</td></tr>
                   )}
                   {reportsEvents.map((e) => {
                     const expanded = reportsExpandedEventId === e.id
@@ -1025,6 +1042,7 @@ export default function App() {
                           </td>
                           <td className="px-2 py-1 font-mono">{e.timestamp}</td>
                           <td className="px-2 py-1">{e.agent_id || 'Unknown'}</td>
+                          <td className="px-2 py-1 font-mono">{e.agent_session_id || e.session_id || '-'}</td>
                           <td className="px-2 py-1">{e.source || '-'}</td>
                           <td className="px-2 py-1">{e.tool || '-'}</td>
                           <td className="px-2 py-1">{e.policy_decision || '-'}</td>
@@ -1033,7 +1051,7 @@ export default function App() {
                         </tr>
                         {expanded && (
                           <tr className="bg-slate-50 border-t border-slate-100">
-                            <td colSpan={8} className="px-2 py-2">
+                            <td colSpan={9} className="px-2 py-2">
                               <pre className="text-xs font-mono whitespace-pre-wrap break-all">{prettyJson}</pre>
                             </td>
                           </tr>

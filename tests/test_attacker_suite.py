@@ -56,6 +56,29 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertEqual(result.decision_tier, "requires_simulation")
         self.assertIn("could not be safely simulated", result.reason)
 
+    def test_destructive_find_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["find -delete"]
+        blocked = execute_command("find . -type f -delete")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("find -delete", blocked.lower())
+
+    def test_non_destructive_find_allowed(self):
+        self._write("a.log")
+        output = execute_command("find . -name '*.log'")
+        self.assertIn("a.log", output)
+
+    def test_xargs_rm_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["xargs rm"]
+        blocked = execute_command("printf 'a.tmp\\n' | xargs rm")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("xargs rm", blocked.lower())
+
+    def test_looped_rm_blocked_via_policy_command_pattern(self):
+        policy_engine.POLICY["blocked"]["commands"] = ["do rm"]
+        blocked = execute_command("for f in *.tmp; do rm \"$f\"; done")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("do rm", blocked.lower())
+
     def test_confirmation_response_includes_simulation_context_for_threshold(self):
         self._write("c1.tmp")
         self._write("c2.tmp")
@@ -197,6 +220,28 @@ class AttackerTestSuite(unittest.TestCase):
         read_log = read_file("activity.log")
         self.assertIn("[POLICY BLOCK]", read_log)
         self.assertIn("runtime state", read_log)
+
+    def test_write_file_skips_backup_when_backup_disabled(self):
+        self._write("demo.txt", "old")
+        policy_engine.POLICY["audit"]["backup_enabled"] = False
+        result = write_file("demo.txt", "new")
+        self.assertIn("no content-change backup needed", result)
+
+        log_path = self.workspace / "activity.log"
+        lines = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        backup_events = [entry for entry in lines if entry.get("event") == "backup_created" and entry.get("tool") == "write_file"]
+        self.assertEqual(backup_events, [])
+
+    def test_delete_file_skips_backup_when_backup_disabled(self):
+        self._write("gone.txt", "x")
+        policy_engine.POLICY["audit"]["backup_enabled"] = False
+        result = delete_file("gone.txt")
+        self.assertIn("No content-change backup was needed", result)
+
+        log_path = self.workspace / "activity.log"
+        lines = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        backup_events = [entry for entry in lines if entry.get("event") == "backup_created" and entry.get("tool") == "delete_file"]
+        self.assertEqual(backup_events, [])
 
 
 if __name__ == "__main__":

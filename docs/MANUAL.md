@@ -32,10 +32,8 @@ Before starting MCP server and UI backend, source:
 - `source scripts/setup_runtime_env.sh`
 
 This exports:
-- `AIRG_AGENT_ID`
 - `AIRG_APPROVAL_DB_PATH`
 - `AIRG_APPROVAL_HMAC_KEY_PATH`
-- `AIRG_LOG_PATH`
 
 Default locations created by the script:
 - macOS: `~/Library/Application Support/ai-runtime-guard/`
@@ -56,11 +54,16 @@ Note:
 1. In packaged flow, `airg-setup` already performs secure runtime path setup.
 2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
 3. `airg-setup` seeds `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
-4. `airg-setup` prints a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
-5. `airg-init` is available as a low-level/manual bootstrap fallback.
-5. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
-6. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
-7. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
+4. Runtime fallback for backup root also defaults to user-local runtime state (`<state_dir>/backups`) when policy does not define `audit.backup_root`.
+5. `airg-setup` prints a ready-to-copy MCP config env block with resolved `AIRG_AGENT_ID`, `AIRG_POLICY_PATH`, `AIRG_APPROVAL_DB_PATH`, `AIRG_APPROVAL_HMAC_KEY_PATH`, `AIRG_LOG_PATH`, and `AIRG_REPORTS_DB_PATH`.
+6. `airg-init` is available as a low-level/manual bootstrap fallback.
+7. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
+8. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
+9. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
+
+Backup-root diagnostics:
+1. `airg-doctor` prints resolved `backup_root`.
+2. If `backup_root` points to `site-packages` or project directory, treat it as misconfiguration and move it to user-local runtime state paths.
 
 ### AIRG_WORKSPACE model
 `AIRG_WORKSPACE` defines the operational sandbox root for AI agent actions.
@@ -134,6 +137,14 @@ Default profile:
 Examples:
 - `rm -rf /tmp/x` matches blocked `rm -rf`.
 - `rm *.txt` does not match `rm -rf`; it can still be caught by `requires_confirmation`/`requires_simulation` if `rm` is configured there.
+- `find docs -delete` can be matched directly by blocked pattern `find -delete`.
+- `find docs -exec rm {} +` can be matched by blocked pattern `find -exec rm`.
+- `printf 'a.tmp\n' | xargs rm` can be matched by blocked pattern `xargs rm`.
+- `for f in *.tmp; do rm "$f"; done` can be matched by blocked pattern `do rm`.
+
+Notes:
+- Command-level decisions are policy-driven for transparency (blocked/simulation/approval/allowed).
+- Runtime still enforces non-command safety invariants in code (workspace boundary, protected runtime paths, control-char sanitization, optional shell containment).
 
 ## 5. Confirmation handshake behavior
 Current flow:
@@ -155,6 +166,9 @@ Current security status:
 - Simulation is used for wildcard blast-radius checks (`requires_simulation.commands`).
 - Wildcard operations can be blocked if unresolved or above threshold.
 - When confirmation wins tier precedence, simulation context is still included in confirmation response and audit fields.
+
+Known limitation:
+- `execute_command` telemetry can undercount `affected_paths_count` for some shell-expanded forms (for example certain wildcard/wrapper move/delete commands). Policy enforcement still applies, but count metrics in logs/budget metadata can be lower than real path impact until counting normalization is completed.
 
 ## 7. Retry behavior
 - Retries are server-side, not client-authoritative.
@@ -290,7 +304,7 @@ Behavior:
 - Status badges reflect applied policy only (post-`Apply`).
 - Reports rail now includes:
   - `Dashboard` tab with totals, 7-day event/blocked trends, top commands/paths, blocked-by-rule.
-  - `Log` tab with paginated events and filters (`agent_id`, `source`, `tool`, `policy_decision`, `decision_tier`, `matched_rule`, `command`, `path`, `event`, time range).
+  - `Log` tab with paginated events and filters (`agent_id`, `agent_session_id`, `source`, `tool`, `policy_decision`, `decision_tier`, `matched_rule`, `command`, `path`, `event`, time range).
   - automatic ingestion from `activity.log` into `reports.db`, with freshness metadata (`Last indexed`).
   - ingest sync runs on manual refresh and scheduled refresh, while filter changes query existing indexed data.
 - Shared policy actions are available across all policy tabs: `Reload`, `Validate`, `Apply`, `Revert Last Apply`, `Reset to Defaults`.

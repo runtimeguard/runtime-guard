@@ -15,10 +15,10 @@ from config import (
     LOG_PATH,
     MAX_RETRIES,
     POLICY,
-    SESSION_ID,
     WORKSPACE_ROOT,
 )
 from models import PolicyResult
+from runtime_context import current_agent_session_id
 
 SERVER_RETRY_COUNTS: dict[str, int] = {}
 
@@ -338,7 +338,18 @@ def build_command_matcher(pattern: str):
             return True
         tokens, _ = tokenize_command(cmd)
         rebuilt = " ".join(tokens)
-        return lower_pattern in rebuilt
+        if lower_pattern in rebuilt:
+            return True
+        pattern_tokens = lower_pattern.split()
+        if not pattern_tokens:
+            return False
+        i = 0
+        for tok in tokens:
+            if tok == pattern_tokens[i]:
+                i += 1
+                if i == len(pattern_tokens):
+                    return True
+        return False
 
     return _matches
 
@@ -374,18 +385,19 @@ def check_blocked_tier(command: str) -> tuple[str, str] | None:
 def check_confirmation_tier(command: str) -> tuple[str, str] | None:
     conf = POLICY.get("requires_confirmation", {})
     lower = command.lower()
+    agent_session_id = current_agent_session_id()
 
     for pattern in conf.get("commands", []):
         if build_command_matcher(pattern)(command):
             whitelist_enabled = conf.get("session_whitelist_enabled", True)
-            if whitelist_enabled and consume_approved_command(SESSION_ID, command):
+            if whitelist_enabled and consume_approved_command(agent_session_id, command):
                 return None
             return (f"Command '{pattern}' requires explicit confirmation before execution", pattern)
 
     for path in conf.get("paths", []):
         if path.lower() in lower:
             whitelist_enabled = conf.get("session_whitelist_enabled", True)
-            if whitelist_enabled and consume_approved_command(SESSION_ID, command):
+            if whitelist_enabled and consume_approved_command(agent_session_id, command):
                 return None
             return (f"Access to path '{path}' requires explicit confirmation", path)
 
@@ -477,8 +489,6 @@ def log_policy_conflict(command: str, normalized: str, matching_tiers: list) -> 
         normalized_command=normalized,
         matching_tiers=tier_names,
         resolved_to=winning_tier,
-        session_id=SESSION_ID,
-        workspace=WORKSPACE_ROOT,
     )
     append_log_entry(warning)
 
