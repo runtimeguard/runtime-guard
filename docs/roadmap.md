@@ -29,7 +29,7 @@ Goal: complete connection-scoped identity/session model and remove process-globa
 3. Backward-compatible defaults remain valid for single-agent setups.
 
 ## v1.4 - Per-agent policy and reporting segmentation
-Goal: support agent-specific policy context while preserving simple default operation.
+Goal: support agent-specific policy context while preserving simple default operation and setting the foundation for orchestrator workflows.
 
 ### Scope
 1. Add per-agent policy context model:
@@ -38,42 +38,50 @@ Goal: support agent-specific policy context while preserving simple default oper
 2. Resolve effective policy by `AIRG_AGENT_ID` in runtime decision flow.
 3. Update reports UI/API for first-class per-agent filtering and views.
 4. Add operator guidance for multi-agent deployments.
+5. Keep single-policy behavior as default path for backward compatibility.
 
 ### Acceptance gates
 1. Per-agent policy boundaries are enforceable and test-covered.
 2. Reports correctly separate activity for concurrent agents.
 3. Single-agent mode remains low-friction and backward compatible.
+4. Runtime model is ready for future agent-adapter/orchestrator commands without policy-engine redesign.
 
 ## v1.5 - Packaging hardening (PyPI)
-Goal: make PyPI distribution the primary host installation channel.
+Goal: make PyPI distribution the primary host installation channel and prepare one-command operator workflows.
 
 ### Scope
 1. Finalize package metadata and release process.
 2. Validate clean-install workflows from package artifacts across macOS and Linux.
 3. Stabilize onboarding docs and release automation for package consumers.
 4. Verify parity of `airg-setup`, `airg-service`, `airg-doctor`, and runtime path defaults in package installs.
+5. Introduce CLI scaffolding for future orchestrator commands (for example `airg add <agent>`, `airg verify`) without enabling agent-specific adapters yet.
 
 ### Acceptance gates
 1. Build/install smoke checks pass in clean environments.
 2. Release checklist includes package validation and rollback notes.
 3. Runtime paths for policy/state/log/reports/backups are deterministic in package installs.
+4. CLI command model is stable for v2 agent-adapter expansion.
 
 ## v1.6 - Container channel and transport prep
-Goal: deliver reliable container deployment while keeping behavior parity.
+Goal: deliver reliable container deployment and transport parity while preserving enforcement behavior.
 
 ### Scope
 1. Finalize container runtime path model (`/workspace`, `/config`, `/state`).
 2. Add deterministic container startup and persistence checks.
 3. Prepare for optional SSE/HTTP transport only after per-agent policy isolation is proven.
 4. Validate stdio/SSE transport parity for identity/session guarantees and policy decisions.
+5. Do not introduce client-specific orchestration logic in this phase; keep runtime core transport-agnostic.
 
 ### Acceptance gates
 1. Containerized behavior matches host behavior for same policy and inputs.
 2. No runtime writes occur outside mounted state/config/workspace paths.
 3. Connection isolation guarantees remain intact in multi-client scenarios.
+4. Container and transport readiness does not change policy semantics between stdio and SSE.
 
 ## Deferred topics
 1. Network payload-size enforcement.
 2. Runtime activation of metadata-only budget override fields.
 3. Advanced anomaly detection (mass-delete and high-risk pattern alerting).
 4. Improve `execute_command` affected-path counting coverage for shell-expanded/wrapper command forms so `affected_paths_count` and budget telemetry reflect real path impact more accurately.
+5. Agent-specific configuration adapters and hooks orchestration (`v2.0+`).
+6. Agent process isolation (`airg run <agent> --user <restricted_user>`, `v2.1+`).
