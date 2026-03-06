@@ -38,6 +38,7 @@ py-modules = [
   "policy_engine",
   "reports",
   "runtime_context",
+  "agent_configs",
 ]
 
 [tool.setuptools.packages.find]

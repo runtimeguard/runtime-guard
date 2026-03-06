@@ -7,6 +7,7 @@ from datetime import datetime, UTC
 from flask import Flask, jsonify, request, send_from_directory
 
 import approvals
+import agent_configs
 import config
 import reports
 from audit import append_log_entry, build_operator_log_entry
@@ -364,6 +365,115 @@ def deny_pending():
         )
     )
     return jsonify({"denied": True, "message": message})
+
+
+@app.route("/settings/agents", methods=["GET", "OPTIONS"])
+def settings_agents():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    payload = agent_configs.list_profiles(paths)
+    return jsonify(payload)
+
+
+@app.route("/settings/agents/upsert", methods=["POST", "OPTIONS"])
+def settings_agents_upsert():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile = payload.get("profile")
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Expected JSON payload with 'profile' object"]}), 400
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    result = agent_configs.upsert_profile(paths, profile)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/settings/agents/delete", methods=["POST", "OPTIONS"])
+def settings_agents_delete():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    result = agent_configs.delete_profile(paths, profile_id)
+    if not result.get("ok"):
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@app.route("/settings/agents/generate", methods=["POST", "OPTIONS"])
+def settings_agents_generate():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    save_to_file = bool(payload.get("save_to_file", False))
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    result = agent_configs.generate_config(paths, profile_id, save_to_file=save_to_file)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/settings/agents/open-file", methods=["GET", "OPTIONS"])
+def settings_agents_open_file():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    profile_id = str(request.args.get("profile_id", "")).strip()
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    result = agent_configs.open_saved_file(paths, profile_id)
+    if not result.get("ok"):
+        return jsonify(result), 404
+    return jsonify(result)
 
 
 def _ui_dist_ready() -> bool:

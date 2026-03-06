@@ -2,6 +2,31 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-06 (settings agents UI + generated MCP config workflow)
+- Added agent-config generation module (`src/agent_configs.py`) to centralize:
+  - agent profile validation (`agent_id`, workspace, type)
+  - runtime-state registry storage
+  - per-agent config generation and saved output metadata.
+- Added new Settings API endpoints in Flask backend:
+  - `GET /settings/agents`
+  - `POST /settings/agents/upsert`
+  - `POST /settings/agents/delete`
+  - `POST /settings/agents/generate`
+  - `GET /settings/agents/open-file`
+- Added Settings UI rail tabs (`Agents`, `Advanced`) in `ui_v3`:
+  - create/select/edit/delete agent profiles
+  - generate config output
+  - copy generated command to clipboard
+  - save JSON + instruction file into runtime state `mcp-configs` folder
+  - open/view saved configuration content
+  - show `Last generated` timestamp and saved file paths.
+- Current generation behavior:
+  - Claude Code produces real `claude mcp add-json ...` command text plus JSON payload.
+  - Other agent types currently produce placeholder command guidance with saved JSON blocks for manual insertion.
+- Package metadata updated to include new top-level module:
+  - `agent_configs` added to `pyproject.toml` `py-modules`.
+- Rebuilt `ui_v3/dist` for the updated Settings/Agents UI flow.
+
 ## 2026-03-03 (v1.3 release prep and docs reconciliation)
 - Bumped package version in `pyproject.toml` from `1.2-dev` to `1.3.0`.
 - Added stable changelog entry for `v1.3.0` in root `CHANGELOG.md`.
