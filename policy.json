@@ -172,5 +172,17 @@
     "retention_days": 30,
     "max_db_size_mb": 200,
     "prune_interval_seconds": 86400
+  },
+
+  "agent_overrides": {
+    "_comment": "Optional per-agent policy/workspace overlay keyed by AIRG_AGENT_ID.",
+    "example-agent-id": {
+      "workspace": "/absolute/path/for/that-agent",
+      "policy": {
+        "requires_confirmation": {
+          "commands": ["rm", "mv"]
+        }
+      }
+    }
   }
 }

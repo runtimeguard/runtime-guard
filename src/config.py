@@ -1,4 +1,5 @@
 import datetime
+import copy
 import json
 import os
 import pathlib
@@ -42,6 +43,7 @@ def _default_base_config_dir() -> pathlib.Path:
 
 # Startup configuration
 BASE_DIR = _module_base_dir()
+AGENT_ID: str = (os.environ.get("AIRG_AGENT_ID", "").strip() or "Unknown")
 LOG_PATH = str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", str(_default_base_state_dir() / "activity.log"))).expanduser().resolve())
 REPORTS_DB_PATH = str(
     pathlib.Path(
@@ -264,10 +266,62 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if int(reports["prune_interval_seconds"]) < 300:
         raise ValueError("reports.prune_interval_seconds must be >= 300")
 
+    agent_overrides = policy.get("agent_overrides", {})
+    if agent_overrides is None:
+        agent_overrides = {}
+    if not isinstance(agent_overrides, dict):
+        raise ValueError("policy.agent_overrides must be an object")
+    normalized_overrides: dict[str, dict] = {}
+    for agent_key, override in agent_overrides.items():
+        if isinstance(agent_key, str) and agent_key.startswith("_"):
+            continue
+        if not isinstance(agent_key, str) or not agent_key.strip():
+            raise ValueError("policy.agent_overrides keys must be non-empty strings")
+        if not isinstance(override, dict):
+            raise ValueError(f"policy.agent_overrides['{agent_key}'] must be an object")
+        workspace = str(override.get("workspace", "") or "").strip()
+        overlay = override.get("policy", {})
+        if overlay is None:
+            overlay = {}
+        if not isinstance(overlay, dict):
+            raise ValueError(f"policy.agent_overrides['{agent_key}'].policy must be an object")
+        normalized_overrides[agent_key.strip()] = {
+            "workspace": workspace,
+            "policy": overlay,
+        }
+    policy["agent_overrides"] = normalized_overrides
+
     return policy
 
 
-POLICY: dict = _validate_and_normalize_policy(_load_policy())
+def _deep_merge_dict(base: dict, overlay: dict) -> dict:
+    out = copy.deepcopy(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
+def _resolve_effective_policy(base_policy: dict, agent_id: str) -> tuple[dict, str]:
+    overrides = base_policy.get("agent_overrides", {})
+    if not isinstance(overrides, dict):
+        return base_policy, ""
+    selected = overrides.get(agent_id, {})
+    if not isinstance(selected, dict):
+        return base_policy, ""
+    workspace = str(selected.get("workspace", "") or "").strip()
+    overlay = selected.get("policy", {})
+    if not isinstance(overlay, dict) or not overlay:
+        return base_policy, workspace
+    merged = _deep_merge_dict(base_policy, overlay)
+    return merged, workspace
+
+
+_BASE_POLICY: dict = _validate_and_normalize_policy(_load_policy())
+_EFFECTIVE_POLICY_DOC, _WORKSPACE_OVERRIDE = _resolve_effective_policy(_BASE_POLICY, AGENT_ID)
+POLICY: dict = _validate_and_normalize_policy(_EFFECTIVE_POLICY_DOC)
 BACKUP_DIR = str(
     pathlib.Path(POLICY.get("audit", {}).get("backup_root", str(_default_backup_root())))
     .expanduser()
@@ -276,8 +330,9 @@ BACKUP_DIR = str(
 MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
 
 SESSION_ID: str = str(uuid.uuid4())
-AGENT_ID: str = (os.environ.get("AIRG_AGENT_ID", "").strip() or "Unknown")
-WORKSPACE_ROOT: str = os.environ.get("AIRG_WORKSPACE", str(BASE_DIR))
+_workspace_from_env = str(os.environ.get("AIRG_WORKSPACE", "") or "").strip()
+_workspace_selected = _WORKSPACE_OVERRIDE or _workspace_from_env or str(BASE_DIR)
+WORKSPACE_ROOT: str = str(pathlib.Path(_workspace_selected).expanduser().resolve())
 SERVER_BUILD = "2026-02-23T22:10Z-simfix-check"
 
 APPROVAL_TTL_SECONDS: int = POLICY.get("requires_confirmation", {}).get(

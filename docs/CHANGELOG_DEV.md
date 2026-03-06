@@ -2,6 +2,27 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-06 (v1.4 per-agent policy override runtime support)
+- Added startup-time effective-policy resolution in `src/config.py`:
+  - load and normalize base policy
+  - resolve `policy.agent_overrides.<AIRG_AGENT_ID>`
+  - apply optional workspace override and deep-merge optional policy overlay
+  - re-normalize merged policy before runtime modules consume it.
+- Added policy schema validation for `policy.agent_overrides`:
+  - enforce object shape
+  - enforce non-empty string keys
+  - validate per-agent `workspace` and `policy` overlay fields.
+- Updated runtime workspace selection:
+  - effective workspace now prefers per-agent override workspace when configured
+  - falls back to `AIRG_WORKSPACE` and then module base dir as before.
+- Updated policy templates:
+  - root `policy.json` now includes documented `agent_overrides` example
+  - fallback template in `airg_cli.py` now includes empty `agent_overrides`.
+- Updated docs:
+  - `docs/MANUAL.md` documents per-agent override behavior and merge semantics
+  - `docs/ARCHITECTURE.md` documents effective-policy resolution flow
+  - `docs/roadmap.md` marks v1.4 runtime override foundation as implemented with remaining UX/test work.
+
 ## 2026-03-06 (settings agents UI + generated MCP config workflow)
 - Added agent-config generation module (`src/agent_configs.py`) to centralize:
   - agent profile validation (`agent_id`, workspace, type)

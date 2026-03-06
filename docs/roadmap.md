@@ -40,6 +40,15 @@ Goal: support agent-specific policy context while preserving simple default oper
 4. Add operator guidance for multi-agent deployments.
 5. Keep single-policy behavior as default path for backward compatibility.
 
+### Current implementation status
+1. Implemented:
+   - runtime effective-policy resolution by `AIRG_AGENT_ID`
+   - optional `policy.agent_overrides.<agent_id>.workspace` and `.policy` overlay support
+   - per-agent runtime guidance in operator docs
+2. Remaining:
+   - first-class policy-override authoring UX in GUI
+   - additional multi-agent validation and acceptance test coverage
+
 ### Acceptance gates
 1. Per-agent policy boundaries are enforceable and test-covered.
 2. Reports correctly separate activity for concurrent agents.

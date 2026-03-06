@@ -80,6 +80,19 @@ Operational guidance:
 4. Do not use the install folder as the default destructive-test workspace.
 5. If you need multiple workspaces, add explicit extra roots under `policy.allowed.paths_whitelist`.
 
+### Agent-specific policy overrides
+Runtime supports optional per-agent overlays keyed by `AIRG_AGENT_ID`:
+1. `policy.agent_overrides.<agent_id>.workspace`:
+   - if set, this workspace replaces `AIRG_WORKSPACE` for that agent at runtime.
+2. `policy.agent_overrides.<agent_id>.policy`:
+   - deep-merged overlay applied on top of the base policy for that agent only.
+   - dictionary values merge recursively, scalar/list values replace base values.
+
+Notes:
+1. If no override exists for current `AIRG_AGENT_ID`, base policy behavior remains unchanged.
+2. Effective policy is resolved at startup, so restart MCP server after editing override entries.
+3. This feature enables per-agent guardrails without maintaining separate policy files.
+
 ### Current capabilities and caveats snapshot
 Capabilities:
 1. Default basic profile blocks severe actions and allows non-severe actions.

@@ -143,6 +143,7 @@ def _policy_template() -> dict[str, Any]:
             "max_db_size_mb": 200,
             "prune_interval_seconds": 86400,
         },
+        "agent_overrides": {},
     }
 
 

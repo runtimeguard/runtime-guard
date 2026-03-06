@@ -28,6 +28,20 @@ Primary runtime artifacts:
 - `ui/backend_flask.py`: REST backend for policy + approvals endpoints used by control-plane UI v3.
 - `ui_v3/`: Vite React + Tailwind control-plane frontend.
 
+## Effective policy resolution
+Policy is resolved in two stages at startup:
+1. Load and normalize base `policy.json`.
+2. If `policy.agent_overrides.<AIRG_AGENT_ID>` exists:
+   - apply optional `workspace` override as effective runtime workspace root
+   - deep-merge optional `policy` overlay onto base policy
+   - normalize merged document as effective policy used by runtime modules
+
+Merge behavior:
+- dictionary fields merge recursively
+- scalar/list fields replace base values
+
+This keeps single-policy installs backward compatible while enabling per-agent policy isolation in shared deployments.
+
 ## Dependency guardrails
 The modular architecture assumes a one-way dependency direction:
 - `config.py`/`models.py` at the base
