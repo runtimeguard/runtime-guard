@@ -2428,13 +2428,30 @@ export default function App() {
 
     const deleteRow = async (profile) => {
       if (!window.confirm(`Delete profile "${profile.name || profile.agent_id || profile.profile_id}"?`)) return
+      const isUnsavedLocalRow =
+        !String(profile.name || '').trim() &&
+        !String(profile.agent_id || '').trim() &&
+        !String(profile.workspace || '').trim() &&
+        !String(profile.last_generated_at || '').trim() &&
+        !String(profile.last_saved_path || '').trim()
+      if (isUnsavedLocalRow) {
+        setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profile.profile_id))
+        setMessage('Unsaved profile removed')
+        return
+      }
       setSettingsLoading(true)
       setSettingsError('')
       try {
         await deleteSettingsProfile(profile.profile_id)
         setMessage('Profile deleted')
       } catch (err) {
-        setSettingsError(String(err.message || err))
+        const msg = String(err.message || err)
+        if (msg.toLowerCase().includes('profile not found')) {
+          setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profile.profile_id))
+          setMessage('Profile removed')
+        } else {
+          setSettingsError(msg)
+        }
       } finally {
         setSettingsLoading(false)
       }
@@ -2481,7 +2498,7 @@ export default function App() {
                   const configured = Boolean(profile.last_saved_path)
                   return (
                     <tr key={profile.profile_id} className={`border-b border-slate-100 ${configured ? 'bg-slate-50' : 'bg-white'}`}>
-                      <td className="py-2 pr-2">
+                      <td className="py-2 pr-2 align-top">
                         <select
                           className="w-full border border-slate-300 rounded px-2 py-1 text-xs"
                           value={profile.agent_type || 'claude_code'}
@@ -2490,7 +2507,7 @@ export default function App() {
                           {agentTypes.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                         </select>
                       </td>
-                      <td className="py-2 px-2">
+                      <td className="py-2 px-2 align-top">
                         <input
                           type="text"
                           className="w-full border border-slate-300 rounded px-2 py-1 text-xs"
@@ -2498,7 +2515,7 @@ export default function App() {
                           onChange={(e) => updateProfile(profile.profile_id, { name: e.target.value })}
                         />
                       </td>
-                      <td className="py-2 px-2">
+                      <td className="py-2 px-2 align-top">
                         <input
                           type="text"
                           className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono"
@@ -2506,7 +2523,7 @@ export default function App() {
                           onChange={(e) => updateProfile(profile.profile_id, { agent_id: e.target.value })}
                         />
                       </td>
-                      <td className="py-2 px-2">
+                      <td className="py-2 px-2 align-top">
                         <div className="flex gap-1">
                           <input
                             list={`workspace-hints-${profile.profile_id}`}
@@ -2530,32 +2547,32 @@ export default function App() {
                           <div className="text-[10px] text-slate-500 mt-1">Last generated {relativeTime(profile.last_generated_at)}</div>
                         )}
                       </td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2 px-2 text-center align-top">
                         <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => saveRow(profile)} title="Save + generate + store">
                           💾
                         </button>
                       </td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2 px-2 text-center align-top">
                         <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50" onClick={() => openConfig(profile)} disabled={!profile.last_saved_path} title="Open configuration file">
                           📂
                         </button>
                       </td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2 px-2 text-center align-top">
                         <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => copyJson(profile)} title="Copy JSON to clipboard">
                           📋
                         </button>
                       </td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2 px-2 text-center align-top">
                         <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => copyCli(profile)} title="Copy CLI command to clipboard">
                           ⌨️
                         </button>
                       </td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2 px-2 text-center align-top">
                         <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => showInfo(profile)} title="Show instructions">
                           ℹ️
                         </button>
                       </td>
-                      <td className="py-2 pl-3 text-center border-l-2 border-slate-300">
+                      <td className="py-2 pl-3 text-center border-l-2 border-slate-300 align-top">
                         <button className="px-2 py-1 border border-red-300 text-red-700 rounded bg-red-50 hover:bg-red-100" onClick={() => deleteRow(profile)} title="Delete profile">
                           🗑️
                         </button>
