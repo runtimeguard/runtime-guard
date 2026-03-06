@@ -389,3 +389,9 @@ Note: older entries in this file are preserved as historical development records
 - Added/expanded file tools (`read_file`, `write_file`, `delete_file`, `list_directory`) with policy-first checks and backup support.
 - Backed destructive operations with timestamped backups and manifests to improve recovery.
 - Added attacker-focused tests and retry clamp checks to validate high-risk control paths.
+
+## 2026-03-06 (backup collision fix for confirmation retry commands)
+- Fixed backup capture for shell commands that include workspace-root context tokens (for example `cd /workspace && rm ...`).
+- `backup.backup_paths` now ignores workspace-root directory-only tokens so backup creation targets only actual destructive paths.
+- Added dedupe for resolved backup targets within one operation to avoid duplicate path processing.
+- Added regression test `test_backup_handles_workspace_root_and_file_targets_without_collision`.

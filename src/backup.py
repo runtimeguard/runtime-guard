@@ -227,13 +227,23 @@ def backup_paths(paths: list[str]) -> str:
     os.makedirs(backup_location, mode=0o700, exist_ok=False)
     manifest: list[dict] = []
 
+    seen_paths: set[str] = set()
     for path in paths:
         resolved = pathlib.Path(path).resolve()
+        resolved_str = str(resolved)
+        if resolved_str in seen_paths:
+            continue
+        seen_paths.add(resolved_str)
         if not is_within_workspace(str(resolved)):
             continue
 
         rel = backup_relative_path(resolved)
         if rel is None:
+            continue
+        if rel == pathlib.Path(".") and resolved.is_dir():
+            # Shell commands can include a leading `cd /workspace` segment.
+            # Treat the workspace-root directory token as non-destructive
+            # context so backup capture focuses on actual target paths.
             continue
         dest = pathlib.Path(backup_location) / rel
 

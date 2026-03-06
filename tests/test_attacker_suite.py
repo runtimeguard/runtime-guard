@@ -190,6 +190,14 @@ class AttackerTestSuite(unittest.TestCase):
         backup.backup_paths([])
         self.assertFalse(old_backup.exists())
 
+    def test_backup_handles_workspace_root_and_file_targets_without_collision(self):
+        target = self._write("1.tmp", "x")
+        backup_location = pathlib.Path(
+            backup.backup_paths([str(self.workspace), str(target)])
+        )
+        self.assertTrue(backup_location.exists())
+        self.assertTrue((backup_location / "1.tmp").exists())
+
     def test_file_tools_read_write_list_delete_flow(self):
         (self.workspace / "nested").mkdir(parents=True, exist_ok=True)
         write_result = write_file("nested/demo.txt", "hello world")
