@@ -63,6 +63,15 @@ Note: older entries in this file are preserved as historical development records
   - generated config artifacts saved immediately.
 - Normalized default runtime identity to `agent_id=default` in setup/service defaults and doctor output fallback.
 
+## 2026-03-07 (settings phase 2: default runtime reconfigure + per-profile warnings)
+- Added new backend API: `POST /settings/agents/reconfigure-runtime`
+  - updates runtime env file for `default-agent` profile based on saved profile values
+  - returns restart guidance (`restart_required`) for service-backed UI runtime.
+- Settings save flow now triggers runtime reconfigure automatically for `default-agent`.
+- Added per-profile Settings indicators:
+  - `Unsaved changes for this profile`
+  - `MCP reconfiguration required for this agent after profile changes` (for previously configured profiles changed and saved).
+
 ## 2026-03-06 (agent config generation: explicit server command path)
 - Updated generated MCP configs to prefer an explicit AIRG server command path when available.
 - Resolution order: `AIRG_SERVER_COMMAND` env override, then `$VIRTUAL_ENV/bin/airg-server`, then `dirname(sys.executable)/airg-server`, fallback to `airg-server`.

@@ -261,6 +261,8 @@ export default function App() {
   const [settingsConfigsDir, setSettingsConfigsDir] = useState('')
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [settingsError, setSettingsError] = useState('')
+  const [settingsSavedProfiles, setSettingsSavedProfiles] = useState({})
+  const [settingsNeedsReconfigure, setSettingsNeedsReconfigure] = useState({})
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
     agent_session_id: '',
@@ -388,6 +390,21 @@ export default function App() {
     }
   }
 
+  function profileSnapshotMap(profiles = []) {
+    const out = {}
+    for (const p of profiles || []) {
+      const id = String(p?.profile_id || '').trim()
+      if (!id) continue
+      out[id] = {
+        name: String(p?.name || '').trim(),
+        agent_type: String(p?.agent_type || '').trim(),
+        agent_id: String(p?.agent_id || '').trim(),
+        workspace: String(p?.workspace || '').trim(),
+      }
+    }
+    return out
+  }
+
   async function fetchSettingsAgents() {
     setSettingsLoading(true)
     setSettingsError('')
@@ -396,6 +413,7 @@ export default function App() {
       if (!res.ok) throw new Error(`Settings load failed (${res.status})`)
       const payload = await res.json()
       setAgentProfiles(payload.profiles || [])
+      setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
       setAgentTypes(payload.agent_types || [])
       setSettingsConfigsDir(payload.configs_dir || '')
     } catch (err) {
@@ -418,6 +436,7 @@ export default function App() {
       throw err
     }
     setAgentProfiles(payload.profiles || [])
+    setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
     return payload
   }
 
@@ -432,6 +451,7 @@ export default function App() {
       throw new Error((payload.errors || ['Generate failed']).join('; '))
     }
     setAgentProfiles(payload.profiles || [])
+    setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
     return payload
   }
 
@@ -456,6 +476,20 @@ export default function App() {
       throw new Error((payload.errors || ['Delete failed']).join('; '))
     }
     setAgentProfiles(payload.profiles || [])
+    setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
+    return payload
+  }
+
+  async function reconfigureRuntimeProfile(profileId) {
+    const res = await fetch(`${API_BASE}/settings/agents/reconfigure-runtime`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    })
+    const payload = await res.json()
+    if (!res.ok || !payload.ok) {
+      throw new Error((payload.errors || ['Runtime reconfigure failed']).join('; '))
+    }
     return payload
   }
 
@@ -2981,6 +3015,26 @@ export default function App() {
       )
     }
 
+    const profileComparable = (profile) => ({
+      name: String(profile?.name || '').trim(),
+      agent_type: String(profile?.agent_type || '').trim(),
+      agent_id: String(profile?.agent_id || '').trim(),
+      workspace: String(profile?.workspace || '').trim(),
+    })
+
+    const isProfileDirty = (profile) => {
+      const id = String(profile?.profile_id || '').trim()
+      const saved = settingsSavedProfiles[id]
+      if (!saved) {
+        return Boolean(
+          String(profile?.name || '').trim() ||
+          String(profile?.agent_id || '').trim() ||
+          String(profile?.workspace || '').trim()
+        )
+      }
+      return JSON.stringify(profileComparable(profile)) !== JSON.stringify(saved)
+    }
+
     const addProfileRow = () => {
       setAgentProfiles((prev) => [...prev, emptyProfile()])
     }
@@ -2988,9 +3042,21 @@ export default function App() {
     const saveRow = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
+      const profileId = String(profile?.profile_id || '')
+      const dirtyBeforeSave = isProfileDirty(profile)
+      const hadSavedConfig = Boolean(profile?.last_saved_path)
       try {
         await upsertSettingsProfile(profile)
-        const payload = await generateAgentConfig(profile.profile_id, true)
+        await generateAgentConfig(profile.profile_id, true)
+        if (profileId === 'default-agent') {
+          const reconfig = await reconfigureRuntimeProfile(profileId)
+          if (reconfig.runtime_env_updated) {
+            setSettingsError('Runtime defaults updated. Restart airg-ui service and reconfigure MCP for affected agents.')
+          }
+        }
+        if (hadSavedConfig && dirtyBeforeSave) {
+          setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: true }))
+        }
         setMessage('Profile saved and config generated')
       } catch (err) {
         const payload = err?.payload
@@ -3000,6 +3066,15 @@ export default function App() {
             try {
               await upsertSettingsProfile(profile, { createWorkspace: true })
               await generateAgentConfig(profile.profile_id, true)
+              if (profileId === 'default-agent') {
+                const reconfig = await reconfigureRuntimeProfile(profileId)
+                if (reconfig.runtime_env_updated) {
+                  setSettingsError('Runtime defaults updated. Restart airg-ui service and reconfigure MCP for affected agents.')
+                }
+              }
+              if (hadSavedConfig && dirtyBeforeSave) {
+                setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: true }))
+              }
               setMessage('Profile saved, workspace created, and config generated')
               setSettingsError('')
             } catch (innerErr) {
@@ -3108,6 +3183,11 @@ export default function App() {
       setSettingsError('')
       try {
         await deleteSettingsProfile(profile.profile_id)
+        setSettingsNeedsReconfigure((prev) => {
+          const out = { ...prev }
+          delete out[profile.profile_id]
+          return out
+        })
         setMessage('Profile deleted')
       } catch (err) {
         const msg = String(err.message || err)
@@ -3161,6 +3241,8 @@ export default function App() {
               <tbody>
                 {agentProfiles.map((profile) => {
                   const configured = Boolean(profile.last_saved_path)
+                  const dirty = isProfileDirty(profile)
+                  const needsReconfigure = Boolean(settingsNeedsReconfigure[profile.profile_id])
                   return (
                     <tr key={profile.profile_id} className={`border-b border-slate-100 ${configured ? 'bg-slate-50' : 'bg-white'}`}>
                       <td className="py-2 pr-2 align-top">
@@ -3210,6 +3292,12 @@ export default function App() {
                         </div>
                         {profile.last_generated_at && (
                           <div className="text-[10px] text-slate-500 mt-1">Last generated {relativeTime(profile.last_generated_at)}</div>
+                        )}
+                        {dirty && (
+                          <div className="text-[10px] text-amber-700 mt-1">Unsaved changes for this profile.</div>
+                        )}
+                        {needsReconfigure && (
+                          <div className="text-[10px] text-blue-700 mt-1">MCP reconfiguration required for this agent after profile changes.</div>
                         )}
                       </td>
                       <td className="py-2 px-2 text-center align-top">

@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import stat
 import sys
 from datetime import datetime, UTC
 
@@ -58,6 +59,36 @@ approvals.init_approval_store()
 reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
+
+
+def _runtime_env_file_path() -> pathlib.Path:
+    return POLICY_PATH.parent / "runtime.env"
+
+
+def _write_runtime_env_for_profile(profile: dict[str, object]) -> pathlib.Path:
+    workspace = str(profile.get("workspace", "")).strip()
+    agent_id = str(profile.get("agent_id", "")).strip() or "default"
+    env = {
+        "AIRG_AGENT_ID": agent_id,
+        "AIRG_WORKSPACE": workspace,
+        "AIRG_POLICY_PATH": str(POLICY_PATH),
+        "AIRG_APPROVAL_DB_PATH": str(APPROVAL_DB_PATH),
+        "AIRG_APPROVAL_HMAC_KEY_PATH": str(
+            pathlib.Path(os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")).expanduser().resolve()
+        ),
+        "AIRG_LOG_PATH": str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve()),
+        "AIRG_REPORTS_DB_PATH": str(REPORTS_DB_PATH),
+        "AIRG_UI_DIST_PATH": str(UI_DIST_PATH),
+        "AIRG_SERVER_COMMAND": str(os.environ.get("AIRG_SERVER_COMMAND", "")).strip(),
+    }
+    out = _runtime_env_file_path()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("".join(f'{k}="{v}"\n' for k, v in sorted(env.items())))
+    try:
+        os.chmod(out, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+    return out
 
 
 def _is_local_origin(origin: str) -> bool:
@@ -475,6 +506,49 @@ def settings_agents_open_file():
     if not result.get("ok"):
         return jsonify(result), 404
     return jsonify(result)
+
+
+@app.route("/settings/agents/reconfigure-runtime", methods=["POST", "OPTIONS"])
+def settings_agents_reconfigure_runtime():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+    registry = agent_configs.load_registry(paths)
+    profiles = registry.get("profiles", [])
+    profile = next((p for p in profiles if str(p.get("profile_id", "")).strip() == profile_id), None)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    if profile_id != "default-agent":
+        return jsonify(
+            {
+                "ok": True,
+                "runtime_env_updated": False,
+                "restart_required": False,
+                "message": "Runtime reconfigure applies only to default-agent profile.",
+            }
+        )
+    runtime_env = _write_runtime_env_for_profile(profile)
+    return jsonify(
+        {
+            "ok": True,
+            "runtime_env_updated": True,
+            "runtime_env_path": str(runtime_env),
+            "restart_required": True,
+            "message": "Runtime env updated. Restart airg-ui service to apply changes.",
+        }
+    )
 
 
 def _ui_dist_ready() -> bool:
