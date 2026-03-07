@@ -397,3 +397,14 @@ Note: older entries in this file are preserved as historical development records
 - Added/expanded file tools (`read_file`, `write_file`, `delete_file`, `list_directory`) with policy-first checks and backup support.
 - Backed destructive operations with timestamped backups and manifests to improve recovery.
 - Added attacker-focused tests and retry clamp checks to validate high-risk control paths.
+
+## 2026-03-07 (first draft: Policy Agent Overrides editor)
+- Added new Policy tab `Agent Overrides` in UI v3.
+- Added agent selector and add-agent flow for override profiles sourced from `policy.agent_overrides` and known configured agents.
+- Added section-level controls for supported override sections: `blocked`, `requires_confirmation`, `requires_simulation`, `allowed`, `network`, `execution`.
+- Added per-section mode controls: `Inherit` (remove section override) and `Override` (seed from current baseline section).
+- Added per-section JSON editor with explicit `Apply Section JSON` action and validation feedback.
+- Added reset actions: reset all sections to inherited for selected agent, and delete selected agent override profile.
+- Added override status badges (Inherited vs Overridden) and enabled-section counter.
+- Added guardrail copy that workspace remains MCP/env managed (`AIRG_WORKSPACE`) and is not policy-overridable.
+- Rebuilt `ui_v3/dist`.

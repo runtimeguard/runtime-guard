@@ -12,6 +12,7 @@ const POLICY_TABS = [
   { id: 'paths', label: 'Paths' },
   { id: 'extensions', label: 'Extensions' },
   { id: 'network', label: 'Network' },
+  { id: 'agent_overrides', label: 'Agent Overrides' },
   { id: 'advanced', label: 'Advanced Policy' },
 ]
 const REPORT_TABS = [
@@ -68,6 +69,15 @@ const STATUS_LABEL = {
   requires_confirmation: 'Requires Approval',
   blocked: 'Blocked'
 }
+
+const AGENT_OVERRIDE_SECTIONS = [
+  'blocked',
+  'requires_confirmation',
+  'requires_simulation',
+  'allowed',
+  'network',
+  'execution',
+]
 
 function deepClone(v) {
   return JSON.parse(JSON.stringify(v))
@@ -211,11 +221,54 @@ export default function App() {
     return window.localStorage.getItem(PATHS_ADVANCED_TOGGLE_KEY) === '1'
   })
   const pollRef = useRef(null)
+  const [overrideAgentId, setOverrideAgentId] = useState('')
+  const [newOverrideAgentId, setNewOverrideAgentId] = useState('')
+  const [overrideSectionText, setOverrideSectionText] = useState({})
+  const [overrideSectionError, setOverrideSectionError] = useState({})
 
   const unsaved = useMemo(() => {
     if (!appliedPolicy || !draftPolicy) return false
     return JSON.stringify(appliedPolicy) !== JSON.stringify(draftPolicy)
   }, [appliedPolicy, draftPolicy])
+
+  const knownAgentIds = useMemo(() => {
+    const ids = new Set()
+    const fromPolicy = Object.keys((draftPolicy?.agent_overrides || {}))
+      .filter((x) => x && x !== '_comment')
+      .map((x) => String(x).trim())
+      .filter(Boolean)
+    fromPolicy.forEach((id) => ids.add(id))
+    ;(agentProfiles || []).forEach((p) => {
+      const id = String(p?.agent_id || '').trim()
+      if (id) ids.add(id)
+    })
+    return Array.from(ids).sort()
+  }, [draftPolicy, agentProfiles])
+
+  useEffect(() => {
+    if (!overrideAgentId && knownAgentIds.length) {
+      setOverrideAgentId(knownAgentIds[0])
+    } else if (overrideAgentId && !knownAgentIds.includes(overrideAgentId)) {
+      setOverrideAgentId(knownAgentIds[0] || '')
+    }
+  }, [knownAgentIds, overrideAgentId])
+
+  useEffect(() => {
+    if (!overrideAgentId) {
+      setOverrideSectionText({})
+      setOverrideSectionError({})
+      return
+    }
+    const policyByAgent = draftPolicy?.agent_overrides?.[overrideAgentId]?.policy || {}
+    const nextText = {}
+    AGENT_OVERRIDE_SECTIONS.forEach((section) => {
+      if (Object.prototype.hasOwnProperty.call(policyByAgent, section)) {
+        nextText[section] = JSON.stringify(policyByAgent[section], null, 2)
+      }
+    })
+    setOverrideSectionText(nextText)
+    setOverrideSectionError({})
+  }, [overrideAgentId, draftPolicy?.agent_overrides])
 
   async function fetchPolicy() {
     const res = await fetch(`${API_BASE}/policy`)
@@ -2279,6 +2332,230 @@ export default function App() {
     )
   }
 
+  function AgentOverridesPanel() {
+    const overrides = draftPolicy?.agent_overrides || {}
+    const selected = overrideAgentId ? (overrides?.[overrideAgentId]?.policy || {}) : {}
+
+    const setAgentOverridePolicy = (agentId, updater) => {
+      setDraftPolicy((prev) => {
+        const next = deepClone(prev)
+        next.agent_overrides = { ...(next.agent_overrides || {}) }
+        const current = next.agent_overrides?.[agentId] || {}
+        const currentPolicy = current.policy && typeof current.policy === 'object' ? current.policy : {}
+        const updatedPolicy = updater(currentPolicy)
+        next.agent_overrides[agentId] = { policy: updatedPolicy }
+        return next
+      })
+    }
+
+    const ensureAgent = () => {
+      const id = String(newOverrideAgentId || '').trim()
+      if (!id) {
+        setMessage('Agent ID is required')
+        return
+      }
+      if (id === '_comment') {
+        setMessage('Agent ID cannot be "_comment"')
+        return
+      }
+      setDraftPolicy((prev) => {
+        const next = deepClone(prev)
+        next.agent_overrides = { ...(next.agent_overrides || {}) }
+        next.agent_overrides[id] = next.agent_overrides[id] || { policy: {} }
+        return next
+      })
+      setOverrideAgentId(id)
+      setNewOverrideAgentId('')
+      setMessage(`Agent override profile "${id}" created`)
+    }
+
+    const removeAgent = () => {
+      if (!overrideAgentId) return
+      if (!window.confirm(`Delete all overrides for agent "${overrideAgentId}"?`)) return
+      setDraftPolicy((prev) => {
+        const next = deepClone(prev)
+        if (next.agent_overrides && Object.prototype.hasOwnProperty.call(next.agent_overrides, overrideAgentId)) {
+          delete next.agent_overrides[overrideAgentId]
+        }
+        return next
+      })
+      setMessage(`Agent override profile "${overrideAgentId}" removed`)
+    }
+
+    const setInherit = (section) => {
+      if (!overrideAgentId) return
+      setAgentOverridePolicy(overrideAgentId, (policy) => {
+        const out = { ...(policy || {}) }
+        delete out[section]
+        return out
+      })
+      setOverrideSectionText((prev) => {
+        const out = { ...prev }
+        delete out[section]
+        return out
+      })
+      setOverrideSectionError((prev) => {
+        const out = { ...prev }
+        delete out[section]
+        return out
+      })
+    }
+
+    const setOverride = (section) => {
+      if (!overrideAgentId) return
+      const base = draftPolicy?.[section] || {}
+      setAgentOverridePolicy(overrideAgentId, (policy) => ({ ...(policy || {}), [section]: deepClone(base) }))
+      setOverrideSectionText((prev) => ({ ...prev, [section]: JSON.stringify(base, null, 2) }))
+      setOverrideSectionError((prev) => ({ ...prev, [section]: '' }))
+    }
+
+    const applySectionJson = (section) => {
+      if (!overrideAgentId) return
+      const text = String(overrideSectionText[section] || '').trim()
+      if (!text) {
+        setOverrideSectionError((prev) => ({ ...prev, [section]: 'Section JSON cannot be empty while override is enabled' }))
+        return
+      }
+      try {
+        const parsed = JSON.parse(text)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setOverrideSectionError((prev) => ({ ...prev, [section]: 'Section override must be a JSON object' }))
+          return
+        }
+        setAgentOverridePolicy(overrideAgentId, (policy) => ({ ...(policy || {}), [section]: parsed }))
+        setOverrideSectionError((prev) => ({ ...prev, [section]: '' }))
+        setMessage(`Applied ${section} override for ${overrideAgentId}`)
+      } catch (err) {
+        setOverrideSectionError((prev) => ({ ...prev, [section]: String(err.message || err) }))
+      }
+    }
+
+    const resetAgentOverrides = () => {
+      if (!overrideAgentId) return
+      if (!window.confirm(`Reset all override sections to inherited for "${overrideAgentId}"?`)) return
+      setAgentOverridePolicy(overrideAgentId, () => ({}))
+      setOverrideSectionText({})
+      setOverrideSectionError({})
+      setMessage(`All sections reset to inherited for ${overrideAgentId}`)
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+          <div className="text-sm font-semibold text-slate-800">Agent Overrides</div>
+          <div className="text-xs text-slate-600">
+            Baseline policy remains global. Agent overrides apply only to: <span className="font-mono">blocked, requires_confirmation, requires_simulation, allowed, network, execution</span>.
+            Workspace remains controlled by MCP env (<span className="font-mono">AIRG_WORKSPACE</span>), not policy overrides.
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+            <div className="flex gap-2">
+              <select
+                value={overrideAgentId}
+                onChange={(e) => setOverrideAgentId(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="">Select agent…</option>
+                {knownAgentIds.map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+              <input
+                value={newOverrideAgentId}
+                onChange={(e) => setNewOverrideAgentId(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                placeholder="New agent_id"
+              />
+              <button onClick={ensureAgent} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add Agent</button>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={resetAgentOverrides}
+                disabled={!overrideAgentId}
+                className="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 text-sm disabled:opacity-50"
+              >
+                Reset to Inherited
+              </button>
+              <button
+                onClick={removeAgent}
+                disabled={!overrideAgentId}
+                className="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 bg-red-50 text-sm disabled:opacity-50"
+              >
+                Delete Agent
+              </button>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">
+            Override sections enabled: <span className="font-mono">{overrideAgentId ? String(AGENT_OVERRIDE_SECTIONS.filter((s) => Object.prototype.hasOwnProperty.call(selected || {}, s)).length) : '0'}</span>
+          </div>
+        </div>
+
+        {!overrideAgentId && (
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-sm text-slate-600">
+            Select or add an agent to edit override sections.
+          </div>
+        )}
+
+        {overrideAgentId && (
+          <div className="space-y-3">
+            {AGENT_OVERRIDE_SECTIONS.map((section) => {
+              const enabled = Object.prototype.hasOwnProperty.call(selected || {}, section)
+              const effective = enabled ? 'Overridden' : 'Inherited'
+              const sectionText = overrideSectionText[section] || ''
+              const sectionError = overrideSectionError[section] || ''
+              return (
+                <div key={section} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-semibold text-slate-800 font-mono">{section}</div>
+                      <span className={`text-[11px] px-2 py-0.5 rounded border ${enabled ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                        {effective}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 text-xs">
+                      <button
+                        onClick={() => setInherit(section)}
+                        className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+                      >
+                        Inherit
+                      </button>
+                      <button
+                        onClick={() => setOverride(section)}
+                        className="px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700"
+                      >
+                        Override
+                      </button>
+                    </div>
+                  </div>
+                  {enabled && (
+                    <>
+                      <textarea
+                        value={sectionText}
+                        onChange={(e) => setOverrideSectionText((prev) => ({ ...prev, [section]: e.target.value }))}
+                        className="w-full h-40 border border-slate-300 rounded-lg p-2 text-xs font-mono"
+                      />
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] text-slate-500">
+                          Edit section override JSON object, then apply.
+                        </div>
+                        <button
+                          onClick={() => applySectionJson(section)}
+                          className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs"
+                        >
+                          Apply Section JSON
+                        </button>
+                      </div>
+                      {sectionError && <div className="text-xs text-red-600">{sectionError}</div>}
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   function PolicyPanel() {
     return (
       <>
@@ -2305,6 +2582,7 @@ export default function App() {
         {activePolicyTab === 'paths' && PathsPanel()}
         {activePolicyTab === 'extensions' && ExtensionsPanel()}
         {activePolicyTab === 'network' && NetworkPanel()}
+        {activePolicyTab === 'agent_overrides' && AgentOverridesPanel()}
         {activePolicyTab === 'advanced' && AdvancedPolicyPanel()}
         <div className="mt-4 bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
           <button onClick={() => setJsonOpen((x) => !x)} className="text-sm font-medium text-slate-700">
