@@ -2991,13 +2991,38 @@ export default function App() {
       }
     }
 
+    const copyToClipboard = async (text) => {
+      const value = String(text || '')
+      if (!value) return
+      if (navigator?.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value)
+          return
+        } catch {
+          // Fall through to legacy copy path.
+        }
+      }
+      const el = document.createElement('textarea')
+      el.value = value
+      el.setAttribute('readonly', '')
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      el.style.pointerEvents = 'none'
+      document.body.appendChild(el)
+      el.focus()
+      el.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(el)
+      if (!ok) throw new Error('Clipboard write failed in this browser context')
+    }
+
     const copyJson = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
       try {
         await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
-        await navigator.clipboard.writeText(JSON.stringify(payload.generated?.file_json || {}, null, 2))
+        await copyToClipboard(JSON.stringify(payload.generated?.file_json || {}, null, 2))
         setMessage('Configuration JSON copied to clipboard')
       } catch (err) {
         setSettingsError(String(err.message || err))
@@ -3012,7 +3037,7 @@ export default function App() {
       try {
         await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
-        await navigator.clipboard.writeText(String(payload.generated?.command_text || ''))
+        await copyToClipboard(String(payload.generated?.command_text || ''))
         setMessage('CLI command copied to clipboard')
       } catch (err) {
         setSettingsError(String(err.message || err))

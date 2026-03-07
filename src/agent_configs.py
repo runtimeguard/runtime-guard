@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import shlex
+import shutil
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -121,7 +122,17 @@ def _server_process() -> tuple[str, list[str]]:
         parts = shlex.split(explicit)
         if not parts:
             return "airg-server", []
-        return parts[0], parts[1:]
+        cmd = parts[0]
+        args = parts[1:]
+        if os.path.isabs(cmd):
+            return cmd, args
+        resolved = shutil.which(cmd)
+        if resolved:
+            return str(pathlib.Path(resolved).resolve()), args
+        # If explicit is just bare airg-server and unresolved, continue to
+        # deterministic fallbacks instead of emitting a fragile PATH-only value.
+        if cmd != "airg-server":
+            return cmd, args
 
     venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
     if venv:

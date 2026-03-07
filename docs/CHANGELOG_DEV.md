@@ -25,6 +25,10 @@ Note: older entries in this file are preserved as historical development records
   - `command`: current Python interpreter path
   - `args`: `["-m", "airg_cli", "server"]`
 - `AIRG_SERVER_COMMAND` now supports explicit command+args parsing, preserving operator overrides.
+- Hardened explicit `AIRG_SERVER_COMMAND=airg-server` handling:
+  - unresolved bare value no longer leaks into generated config
+  - generator falls through to deterministic absolute command fallback.
+- Added clipboard fallback in GUI Settings agent actions for environments where `navigator.clipboard` is denied by browser context.
 
 ## 2026-03-06 (agent config generation: explicit server command path)
 - Updated generated MCP configs to prefer an explicit AIRG server command path when available.
