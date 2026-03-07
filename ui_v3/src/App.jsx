@@ -3415,11 +3415,6 @@ export default function App() {
         )}
 
         <main className="p-4">
-          {message && (
-            <div className="mb-3 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm text-slate-700">
-              {message}
-            </div>
-          )}
           {!loaded && <div className="text-slate-500">Loading...</div>}
           {loaded && activeRail === 'approvals' && ApprovalsPanel()}
           {loaded && activeRail === 'policy' && PolicyPanel()}
