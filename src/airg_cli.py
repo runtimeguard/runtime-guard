@@ -7,6 +7,7 @@ import pathlib
 import platform
 import runpy
 import secrets
+import shlex
 import shutil
 import socket
 import stat
@@ -181,18 +182,21 @@ def _resolve_paths_with_overrides(
 
 
 def _apply_runtime_env(paths: dict[str, pathlib.Path], *, force: bool = False) -> None:
+    server_command = _resolve_server_command_for_env()
     if force:
         os.environ["AIRG_POLICY_PATH"] = str(paths["policy_path"])
         os.environ["AIRG_APPROVAL_DB_PATH"] = str(paths["approval_db_path"])
         os.environ["AIRG_APPROVAL_HMAC_KEY_PATH"] = str(paths["approval_hmac_key_path"])
         os.environ["AIRG_LOG_PATH"] = str(paths["log_path"])
         os.environ["AIRG_REPORTS_DB_PATH"] = str(paths["reports_db_path"])
+        os.environ["AIRG_SERVER_COMMAND"] = server_command
         return
     os.environ.setdefault("AIRG_POLICY_PATH", str(paths["policy_path"]))
     os.environ.setdefault("AIRG_APPROVAL_DB_PATH", str(paths["approval_db_path"]))
     os.environ.setdefault("AIRG_APPROVAL_HMAC_KEY_PATH", str(paths["approval_hmac_key_path"]))
     os.environ.setdefault("AIRG_LOG_PATH", str(paths["log_path"]))
     os.environ.setdefault("AIRG_REPORTS_DB_PATH", str(paths["reports_db_path"]))
+    os.environ.setdefault("AIRG_SERVER_COMMAND", server_command)
 
 
 def _ensure_hmac_key_file(path: pathlib.Path) -> None:
@@ -279,12 +283,15 @@ def _init_runtime(
     print(f"[airg] AIRG_APPROVAL_HMAC_KEY_PATH={paths['approval_hmac_key_path']}")
     print(f"[airg] AIRG_LOG_PATH={paths['log_path']}")
     print(f"[airg] AIRG_REPORTS_DB_PATH={paths['reports_db_path']}")
+    server_parts = shlex.split(_resolve_server_command_for_env())
+    server_cmd = server_parts[0] if server_parts else "airg-server"
+    server_args = server_parts[1:] if len(server_parts) > 1 else []
     print("[airg] Suggested MCP env block (copy into your client config):")
     print(
         json.dumps(
             {
-                "command": "airg-server",
-                "args": [],
+                "command": server_cmd,
+                "args": server_args,
                 "env": {
                     "AIRG_AGENT_ID": os.environ.get("AIRG_AGENT_ID", "unknown-agent"),
                     "AIRG_WORKSPACE": "/absolute/path/to/agent-workspace",
@@ -293,6 +300,7 @@ def _init_runtime(
                     "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
                     "AIRG_LOG_PATH": str(paths["log_path"]),
                     "AIRG_REPORTS_DB_PATH": str(paths["reports_db_path"]),
+                    "AIRG_SERVER_COMMAND": _resolve_server_command_for_env(),
                 },
             },
             indent=2,
@@ -304,6 +312,25 @@ def _init_runtime(
 
 def _looks_executable(command: str) -> bool:
     return shutil.which(command) is not None
+
+
+def _resolve_server_command_for_env() -> str:
+    explicit = str(os.environ.get("AIRG_SERVER_COMMAND", "")).strip()
+    if explicit:
+        return explicit
+    venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
+    if venv:
+        candidate = pathlib.Path(venv) / "bin" / "airg-server"
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate.resolve())
+    exe_dir = pathlib.Path(sys.executable).resolve().parent
+    sibling = exe_dir / "airg-server"
+    if sibling.exists() and os.access(sibling, os.X_OK):
+        return str(sibling.resolve())
+    which = shutil.which("airg-server")
+    if which:
+        return str(pathlib.Path(which).resolve())
+    return f"{pathlib.Path(sys.executable).resolve()} -m airg_cli server"
 
 
 def _preflight_checks() -> tuple[list[str], list[str]]:
@@ -442,6 +469,7 @@ def _runtime_env_for_process(
         "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
         "AIRG_LOG_PATH": str(paths["log_path"]),
         "AIRG_REPORTS_DB_PATH": str(paths["reports_db_path"]),
+        "AIRG_SERVER_COMMAND": _resolve_server_command_for_env(),
         "AIRG_UI_DIST_PATH": str(_resolve_ui_dist_path()),
     }
 

@@ -42,6 +42,16 @@ Note: older entries in this file are preserved as historical development records
   - GUI prompts operator to confirm creating the missing workspace directory
   - on confirmation, save retries with `create_workspace=true` and proceeds with config generation.
 
+## 2026-03-07 (runtime env server command propagation for service-backed UI)
+- Added `AIRG_SERVER_COMMAND` to runtime env initialization and persisted service env file (`runtime.env`).
+- Runtime now resolves a deterministic server command string using:
+  - explicit env override
+  - virtualenv `bin/airg-server`
+  - sibling `airg-server` next to current Python
+  - PATH `airg-server`
+  - fallback: `<python> -m airg_cli server`.
+- Updated setup/doctor MCP snippet output to emit resolved command/args and include `AIRG_SERVER_COMMAND` in env guidance.
+
 ## 2026-03-06 (agent config generation: explicit server command path)
 - Updated generated MCP configs to prefer an explicit AIRG server command path when available.
 - Resolution order: `AIRG_SERVER_COMMAND` env override, then `$VIRTUAL_ENV/bin/airg-server`, then `dirname(sys.executable)/airg-server`, fallback to `airg-server`.
