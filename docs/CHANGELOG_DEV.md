@@ -2,6 +2,23 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-07 (v1.4 agent override editor: structured controls + diff-only persistence)
+- Reworked the Policy -> Agent Overrides UI to remove raw JSON editing and expose section-specific controls.
+- Added human-friendly section cards with:
+  - `Inherit` / `Override` toggles per section
+  - baseline info viewer (`Info`) for each section
+  - expandable section editors with typed controls.
+- Section editors now expose overridable controls per section:
+  - `blocked`: commands, paths, extensions
+  - `requires_confirmation`: commands, paths
+  - `requires_simulation`: commands, bulk threshold, retries
+  - `allowed`: limits + `paths_whitelist`
+  - `network`: enforcement mode, unknown-domain toggle, commands, allow/block domain lists
+  - `execution`: timeout/output limits + shell containment controls.
+- Changed persistence behavior to store **only per-section diffs** in `agent_overrides.<agent_id>.policy` instead of full copied baseline section payloads.
+- Kept baseline policy authoritative; effective per-agent policy remains baseline + overlay merge at runtime.
+- Rebuilt `ui_v3/dist` for the updated Agent Overrides workflow.
+
 ## 2026-03-06 (agent config generation: explicit server command path)
 - Updated generated MCP configs to prefer an explicit AIRG server command path when available.
 - Resolution order: `AIRG_SERVER_COMMAND` env override, then `$VIRTUAL_ENV/bin/airg-server`, then `dirname(sys.executable)/airg-server`, fallback to `airg-server`.

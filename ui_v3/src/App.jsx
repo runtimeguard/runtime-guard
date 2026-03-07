@@ -78,9 +78,65 @@ const AGENT_OVERRIDE_SECTIONS = [
   'network',
   'execution',
 ]
+const AGENT_OVERRIDE_SECTION_LABELS = {
+  blocked: 'Blocked',
+  requires_confirmation: 'Require Confirmation',
+  requires_simulation: 'Require Simulation',
+  allowed: 'Allowed',
+  network: 'Network',
+  execution: 'Execution',
+}
 
 function deepClone(v) {
   return JSON.parse(JSON.stringify(v))
+}
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v)
+}
+
+function deepMerge(base, overlay) {
+  if (!isPlainObject(base)) return deepClone(overlay)
+  if (!isPlainObject(overlay)) return deepClone(overlay)
+  const out = deepClone(base)
+  for (const [k, v] of Object.entries(overlay)) {
+    if (isPlainObject(v) && isPlainObject(out[k])) out[k] = deepMerge(out[k], v)
+    else out[k] = deepClone(v)
+  }
+  return out
+}
+
+function deepDiff(base, value) {
+  if (Array.isArray(value) || Array.isArray(base)) {
+    return JSON.stringify(base) === JSON.stringify(value) ? undefined : deepClone(value)
+  }
+  if (isPlainObject(value) && isPlainObject(base)) {
+    const out = {}
+    for (const key of Object.keys(value)) {
+      const diff = deepDiff(base[key], value[key])
+      if (diff !== undefined) out[key] = diff
+    }
+    return Object.keys(out).length ? out : undefined
+  }
+  return JSON.stringify(base) === JSON.stringify(value) ? undefined : deepClone(value)
+}
+
+function formatHuman(value, indent = 0) {
+  const pad = '  '.repeat(indent)
+  if (Array.isArray(value)) {
+    if (!value.length) return `${pad}(empty list)`
+    return value.map((item) => `${pad}- ${typeof item === 'object' ? '\n' + formatHuman(item, indent + 1) : String(item)}`).join('\n')
+  }
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value)
+    if (!keys.length) return `${pad}(empty object)`
+    return keys.map((k) => {
+      const v = value[k]
+      if (isPlainObject(v) || Array.isArray(v)) return `${pad}${k}:\n${formatHuman(v, indent + 1)}`
+      return `${pad}${k}: ${String(v)}`
+    }).join('\n')
+  }
+  return `${pad}${String(value)}`
 }
 
 function slugifyCategoryId(label) {
@@ -223,8 +279,9 @@ export default function App() {
   const pollRef = useRef(null)
   const [overrideAgentId, setOverrideAgentId] = useState('')
   const [newOverrideAgentId, setNewOverrideAgentId] = useState('')
-  const [overrideSectionText, setOverrideSectionText] = useState({})
-  const [overrideSectionError, setOverrideSectionError] = useState({})
+  const [overrideExpanded, setOverrideExpanded] = useState({})
+  const [overrideDraftSections, setOverrideDraftSections] = useState({})
+  const [overrideListInputs, setOverrideListInputs] = useState({})
 
   const unsaved = useMemo(() => {
     if (!appliedPolicy || !draftPolicy) return false
@@ -255,19 +312,17 @@ export default function App() {
 
   useEffect(() => {
     if (!overrideAgentId) {
-      setOverrideSectionText({})
-      setOverrideSectionError({})
+      setOverrideDraftSections({})
       return
     }
     const policyByAgent = draftPolicy?.agent_overrides?.[overrideAgentId]?.policy || {}
-    const nextText = {}
+    const nextDraft = {}
     AGENT_OVERRIDE_SECTIONS.forEach((section) => {
       if (Object.prototype.hasOwnProperty.call(policyByAgent, section)) {
-        nextText[section] = JSON.stringify(policyByAgent[section], null, 2)
+        nextDraft[section] = deepMerge(draftPolicy?.[section] || {}, policyByAgent[section] || {})
       }
     })
-    setOverrideSectionText(nextText)
-    setOverrideSectionError({})
+    setOverrideDraftSections(nextDraft)
   }, [overrideAgentId, draftPolicy?.agent_overrides])
 
   async function fetchPolicy() {
@@ -2334,7 +2389,7 @@ export default function App() {
 
   function AgentOverridesPanel() {
     const overrides = draftPolicy?.agent_overrides || {}
-    const selected = overrideAgentId ? (overrides?.[overrideAgentId]?.policy || {}) : {}
+    const selectedPolicy = overrideAgentId ? (overrides?.[overrideAgentId]?.policy || {}) : {}
 
     const setAgentOverridePolicy = (agentId, updater) => {
       setDraftPolicy((prev) => {
@@ -2346,6 +2401,52 @@ export default function App() {
         next.agent_overrides[agentId] = { policy: updatedPolicy }
         return next
       })
+    }
+
+    const setSectionValue = (section, value) => {
+      if (!overrideAgentId) return
+      const baseline = draftPolicy?.[section] || {}
+      const diff = deepDiff(baseline, value)
+      setAgentOverridePolicy(overrideAgentId, (policy) => {
+        const out = { ...(policy || {}) }
+        if (diff === undefined) delete out[section]
+        else out[section] = diff
+        return out
+      })
+      setOverrideDraftSections((prev) => {
+        const out = { ...prev }
+        if (diff === undefined) delete out[section]
+        else out[section] = value
+        return out
+      })
+    }
+
+    const sectionValue = (section) => overrideDraftSections[section] || deepMerge(draftPolicy?.[section] || {}, selectedPolicy[section] || {})
+    const isSectionOverridden = (section) => Object.prototype.hasOwnProperty.call(selectedPolicy || {}, section)
+
+    const updateListField = (section, field, transform = (v) => v) => {
+      const raw = String(overrideListInputs?.[`${section}.${field}`] || '').trim()
+      const normalized = transform(raw)
+      if (!normalized) {
+        setMessage('Value is required')
+        return
+      }
+      const current = sectionValue(section)
+      const list = Array.isArray(current?.[field]) ? current[field] : []
+      const next = { ...(current || {}), [field]: Array.from(new Set([...list, normalized])) }
+      setSectionValue(section, next)
+      setOverrideListInputs((prev) => ({ ...prev, [`${section}.${field}`]: '' }))
+    }
+
+    const removeListField = (section, field, item) => {
+      const current = sectionValue(section)
+      const list = Array.isArray(current?.[field]) ? current[field] : []
+      const next = { ...(current || {}), [field]: list.filter((x) => x !== item) }
+      setSectionValue(section, next)
+    }
+
+    const toggleExpanded = (section) => {
+      setOverrideExpanded((prev) => ({ ...prev, [section]: !prev[section] }))
     }
 
     const ensureAgent = () => {
@@ -2389,12 +2490,7 @@ export default function App() {
         delete out[section]
         return out
       })
-      setOverrideSectionText((prev) => {
-        const out = { ...prev }
-        delete out[section]
-        return out
-      })
-      setOverrideSectionError((prev) => {
+      setOverrideDraftSections((prev) => {
         const out = { ...prev }
         delete out[section]
         return out
@@ -2404,39 +2500,21 @@ export default function App() {
     const setOverride = (section) => {
       if (!overrideAgentId) return
       const base = draftPolicy?.[section] || {}
-      setAgentOverridePolicy(overrideAgentId, (policy) => ({ ...(policy || {}), [section]: deepClone(base) }))
-      setOverrideSectionText((prev) => ({ ...prev, [section]: JSON.stringify(base, null, 2) }))
-      setOverrideSectionError((prev) => ({ ...prev, [section]: '' }))
-    }
-
-    const applySectionJson = (section) => {
-      if (!overrideAgentId) return
-      const text = String(overrideSectionText[section] || '').trim()
-      if (!text) {
-        setOverrideSectionError((prev) => ({ ...prev, [section]: 'Section JSON cannot be empty while override is enabled' }))
-        return
-      }
-      try {
-        const parsed = JSON.parse(text)
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          setOverrideSectionError((prev) => ({ ...prev, [section]: 'Section override must be a JSON object' }))
-          return
-        }
-        setAgentOverridePolicy(overrideAgentId, (policy) => ({ ...(policy || {}), [section]: parsed }))
-        setOverrideSectionError((prev) => ({ ...prev, [section]: '' }))
-        setMessage(`Applied ${section} override for ${overrideAgentId}`)
-      } catch (err) {
-        setOverrideSectionError((prev) => ({ ...prev, [section]: String(err.message || err) }))
-      }
+      setSectionValue(section, deepClone(base))
+      setOverrideExpanded((prev) => ({ ...prev, [section]: true }))
     }
 
     const resetAgentOverrides = () => {
       if (!overrideAgentId) return
       if (!window.confirm(`Reset all override sections to inherited for "${overrideAgentId}"?`)) return
       setAgentOverridePolicy(overrideAgentId, () => ({}))
-      setOverrideSectionText({})
-      setOverrideSectionError({})
+      setOverrideDraftSections({})
       setMessage(`All sections reset to inherited for ${overrideAgentId}`)
+    }
+
+    const showBaselineInfo = (section) => {
+      const baseline = draftPolicy?.[section] || {}
+      window.alert(`${AGENT_OVERRIDE_SECTION_LABELS[section]} baseline\n\n${formatHuman(baseline)}`)
     }
 
     return (
@@ -2485,7 +2563,7 @@ export default function App() {
             </div>
           </div>
           <div className="text-xs text-slate-500">
-            Override sections enabled: <span className="font-mono">{overrideAgentId ? String(AGENT_OVERRIDE_SECTIONS.filter((s) => Object.prototype.hasOwnProperty.call(selected || {}, s)).length) : '0'}</span>
+            Override sections enabled: <span className="font-mono">{overrideAgentId ? String(AGENT_OVERRIDE_SECTIONS.filter((s) => isSectionOverridden(s)).length) : '0'}</span>
           </div>
         </div>
 
@@ -2498,20 +2576,29 @@ export default function App() {
         {overrideAgentId && (
           <div className="space-y-3">
             {AGENT_OVERRIDE_SECTIONS.map((section) => {
-              const enabled = Object.prototype.hasOwnProperty.call(selected || {}, section)
+              const enabled = isSectionOverridden(section)
+              const expanded = !!overrideExpanded[section]
               const effective = enabled ? 'Overridden' : 'Inherited'
-              const sectionText = overrideSectionText[section] || ''
-              const sectionError = overrideSectionError[section] || ''
+              const sectionData = sectionValue(section)
               return (
                 <div key={section} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-semibold text-slate-800 font-mono">{section}</div>
+                      <button onClick={() => toggleExpanded(section)} className="text-sm font-semibold text-slate-800 hover:text-slate-900">
+                        {expanded ? '▾' : '▸'} {AGENT_OVERRIDE_SECTION_LABELS[section]}
+                      </button>
                       <span className={`text-[11px] px-2 py-0.5 rounded border ${enabled ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                         {effective}
                       </span>
                     </div>
                     <div className="flex gap-2 text-xs">
+                      <button
+                        onClick={() => showBaselineInfo(section)}
+                        className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
+                        title="Show baseline configuration"
+                      >
+                        ℹ️
+                      </button>
                       <button
                         onClick={() => setInherit(section)}
                         className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700"
@@ -2526,26 +2613,114 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  {enabled && (
-                    <>
-                      <textarea
-                        value={sectionText}
-                        onChange={(e) => setOverrideSectionText((prev) => ({ ...prev, [section]: e.target.value }))}
-                        className="w-full h-40 border border-slate-300 rounded-lg p-2 text-xs font-mono"
-                      />
-                      <div className="flex items-center justify-between">
-                        <div className="text-[11px] text-slate-500">
-                          Edit section override JSON object, then apply.
+                  {expanded && enabled && section === 'blocked' && (
+                    <div className="space-y-3">
+                      {['commands', 'paths', 'extensions'].map((field) => (
+                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                          <div className="text-xs font-semibold text-slate-700 capitalize">{field}</div>
+                          <div className="flex gap-2">
+                            <input
+                              value={overrideListInputs[`${section}.${field}`] || ''}
+                              onChange={(e) => setOverrideListInputs((prev) => ({ ...prev, [`${section}.${field}`]: e.target.value }))}
+                              className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
+                            />
+                            <button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {((sectionData?.[field]) || []).map((item) => (
+                              <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">
+                                {item}
+                                <button onClick={() => removeListField(section, field, item)} className="text-red-600">×</button>
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                        <button
-                          onClick={() => applySectionJson(section)}
-                          className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs"
-                        >
-                          Apply Section JSON
-                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {expanded && enabled && section === 'allowed' && (
+                    <div className="space-y-3">
+                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div className="text-xs font-semibold text-slate-700">paths_whitelist</div>
+                        <div className="flex gap-2">
+                          <input value={overrideListInputs['allowed.paths_whitelist'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'allowed.paths_whitelist': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" />
+                          <button onClick={() => updateListField('allowed', 'paths_whitelist')} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {(sectionData?.paths_whitelist || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('allowed', 'paths_whitelist', item)} className="text-red-600">×</button></span>)}
+                        </div>
                       </div>
-                      {sectionError && <div className="text-xs text-red-600">{sectionError}</div>}
-                    </>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <label className="text-xs">Max files per operation<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_files_per_operation ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                        <label className="text-xs">Max file size MB<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_file_size_mb ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                        <label className="text-xs">Max directory depth<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_directory_depth ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_directory_depth: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                      </div>
+                    </div>
+                  )}
+                  {expanded && enabled && section === 'requires_confirmation' && (
+                    <div className="space-y-3">
+                      {['commands', 'paths'].map((field) => (
+                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                          <div className="text-xs font-semibold text-slate-700 capitalize">{field}</div>
+                          <div className="flex gap-2"><input value={overrideListInputs[`${section}.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`${section}.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                          <div className="flex flex-wrap gap-1">{((sectionData?.[field]) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField(section, field, item)} className="text-red-600">×</button></span>)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {expanded && enabled && section === 'requires_simulation' && (
+                    <div className="space-y-3">
+                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div className="text-xs font-semibold text-slate-700">commands</div>
+                        <div className="flex gap-2"><input value={overrideListInputs['requires_simulation.commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'requires_simulation.commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('requires_simulation', 'commands')} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                        <div className="flex flex-wrap gap-1">{((sectionData?.commands) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('requires_simulation', 'commands', item)} className="text-red-600">×</button></span>)}</div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <label className="text-xs">Bulk file threshold<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.bulk_file_threshold ?? 0} onChange={(e) => setSectionValue('requires_simulation', { ...sectionData, bulk_file_threshold: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                        <label className="text-xs">Max retries<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_retries ?? 0} onChange={(e) => setSectionValue('requires_simulation', { ...sectionData, max_retries: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                      </div>
+                    </div>
+                  )}
+                  {expanded && enabled && section === 'network' && (
+                    <div className="space-y-3">
+                      <div className="flex gap-3 text-xs">
+                        {['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.enforcement_mode || 'off') === mode} onChange={() => setSectionValue('network', { ...sectionData, enforcement_mode: mode })} /> <span className="font-mono">{mode}</span></label>)}
+                      </div>
+                      <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.block_unknown_domains)} onChange={(e) => setSectionValue('network', { ...sectionData, block_unknown_domains: e.target.checked })} /> block_unknown_domains</label>
+                      {['commands', 'allowed_domains', 'blocked_domains'].map((field) => (
+                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                          <div className="text-xs font-semibold text-slate-700">{field}</div>
+                          <div className="flex gap-2"><input value={overrideListInputs[`network.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`network.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('network', field, field.includes('domains') ? normalizeDomain : (v) => v)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                          <div className="flex flex-wrap gap-1">{((sectionData?.[field]) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('network', field, item)} className="text-red-600">×</button></span>)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {expanded && enabled && section === 'execution' && (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <label className="text-xs">Max command timeout seconds<input type="number" min={1} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_command_timeout_seconds ?? 30} onChange={(e) => setSectionValue('execution', { ...sectionData, max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
+                        <label className="text-xs">Max output chars<input type="number" min={1024} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_output_chars ?? 200000} onChange={(e) => setSectionValue('execution', { ...sectionData, max_output_chars: Math.max(1024, parseInt(e.target.value, 10) || 1024) })} /></label>
+                      </div>
+                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div className="text-xs font-semibold text-slate-700">shell_workspace_containment</div>
+                        <div className="flex gap-3 text-xs">{['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.shell_workspace_containment?.mode || 'off') === mode} onChange={() => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), mode } })} /> <span className="font-mono">{mode}</span></label>)}</div>
+                        <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.shell_workspace_containment?.log_paths)} onChange={(e) => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), log_paths: e.target.checked } })} /> log_paths</label>
+                        <div className="flex gap-2"><input value={overrideListInputs['execution.shell_workspace_containment.exempt_commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'execution.shell_workspace_containment.exempt_commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => {
+                          const raw = String(overrideListInputs['execution.shell_workspace_containment.exempt_commands'] || '').trim()
+                          if (!raw) return
+                          const current = sectionData?.shell_workspace_containment || {}
+                          const nextList = Array.from(new Set([...(current.exempt_commands || []), raw]))
+                          setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...current, exempt_commands: nextList } })
+                          setOverrideListInputs((p) => ({ ...p, 'execution.shell_workspace_containment.exempt_commands': '' }))
+                        }} className="px-2 py-1 rounded bg-brand text-white text-xs">Add exempt command</button></div>
+                        <div className="flex flex-wrap gap-1">{((sectionData?.shell_workspace_containment?.exempt_commands) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => {
+                          const current = sectionData?.shell_workspace_containment || {}
+                          const nextList = (current.exempt_commands || []).filter((x) => x !== item)
+                          setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...current, exempt_commands: nextList } })
+                        }} className="text-red-600">×</button></span>)}</div>
+                      </div>
+                    </div>
                   )}
                 </div>
               )
