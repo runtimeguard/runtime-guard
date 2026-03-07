@@ -278,7 +278,6 @@ export default function App() {
   })
   const pollRef = useRef(null)
   const [overrideAgentId, setOverrideAgentId] = useState('')
-  const [newOverrideAgentId, setNewOverrideAgentId] = useState('')
   const [overrideExpanded, setOverrideExpanded] = useState({})
   const [overrideDraftSections, setOverrideDraftSections] = useState({})
   const [overrideListInputs, setOverrideListInputs] = useState({})
@@ -2449,27 +2448,6 @@ export default function App() {
       setOverrideExpanded((prev) => ({ ...prev, [section]: !prev[section] }))
     }
 
-    const ensureAgent = () => {
-      const id = String(newOverrideAgentId || '').trim()
-      if (!id) {
-        setMessage('Agent ID is required')
-        return
-      }
-      if (id === '_comment') {
-        setMessage('Agent ID cannot be "_comment"')
-        return
-      }
-      setDraftPolicy((prev) => {
-        const next = deepClone(prev)
-        next.agent_overrides = { ...(next.agent_overrides || {}) }
-        next.agent_overrides[id] = next.agent_overrides[id] || { policy: {} }
-        return next
-      })
-      setOverrideAgentId(id)
-      setNewOverrideAgentId('')
-      setMessage(`Agent override profile "${id}" created`)
-    }
-
     const removeAgent = () => {
       if (!overrideAgentId) return
       if (!window.confirm(`Delete all overrides for agent "${overrideAgentId}"?`)) return
@@ -2499,8 +2477,6 @@ export default function App() {
 
     const setOverride = (section) => {
       if (!overrideAgentId) return
-      const base = draftPolicy?.[section] || {}
-      setSectionValue(section, deepClone(base))
       setOverrideExpanded((prev) => ({ ...prev, [section]: true }))
     }
 
@@ -2526,7 +2502,7 @@ export default function App() {
             Workspace remains controlled by MCP env (<span className="font-mono">AIRG_WORKSPACE</span>), not policy overrides.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <select
                 value={overrideAgentId}
                 onChange={(e) => setOverrideAgentId(e.target.value)}
@@ -2537,13 +2513,9 @@ export default function App() {
                   <option key={id} value={id}>{id}</option>
                 ))}
               </select>
-              <input
-                value={newOverrideAgentId}
-                onChange={(e) => setNewOverrideAgentId(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                placeholder="New agent_id"
-              />
-              <button onClick={ensureAgent} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add Agent</button>
+              <span className="text-xs text-slate-500">
+                Manage agent profiles in <span className="font-semibold">Settings → Agents</span>.
+              </span>
             </div>
             <div className="flex gap-2 justify-end">
               <button
@@ -2569,7 +2541,7 @@ export default function App() {
 
         {!overrideAgentId && (
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-sm text-slate-600">
-            Select or add an agent to edit override sections.
+            Select an existing agent to edit override sections. Create agents in Settings → Agents.
           </div>
         )}
 
@@ -2613,7 +2585,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  {expanded && enabled && section === 'blocked' && (
+                  {expanded && section === 'blocked' && (
                     <div className="space-y-3">
                       {['commands', 'paths', 'extensions'].map((field) => (
                         <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
@@ -2638,7 +2610,7 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                  {expanded && enabled && section === 'allowed' && (
+                  {expanded && section === 'allowed' && (
                     <div className="space-y-3">
                       <div className="border border-slate-200 rounded-lg p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">paths_whitelist</div>
@@ -2657,7 +2629,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {expanded && enabled && section === 'requires_confirmation' && (
+                  {expanded && section === 'requires_confirmation' && (
                     <div className="space-y-3">
                       {['commands', 'paths'].map((field) => (
                         <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
@@ -2668,7 +2640,7 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                  {expanded && enabled && section === 'requires_simulation' && (
+                  {expanded && section === 'requires_simulation' && (
                     <div className="space-y-3">
                       <div className="border border-slate-200 rounded-lg p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">commands</div>
@@ -2681,7 +2653,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {expanded && enabled && section === 'network' && (
+                  {expanded && section === 'network' && (
                     <div className="space-y-3">
                       <div className="flex gap-3 text-xs">
                         {['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.enforcement_mode || 'off') === mode} onChange={() => setSectionValue('network', { ...sectionData, enforcement_mode: mode })} /> <span className="font-mono">{mode}</span></label>)}
@@ -2696,7 +2668,7 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                  {expanded && enabled && section === 'execution' && (
+                  {expanded && section === 'execution' && (
                     <div className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <label className="text-xs">Max command timeout seconds<input type="number" min={1} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_command_timeout_seconds ?? 30} onChange={(e) => setSectionValue('execution', { ...sectionData, max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
