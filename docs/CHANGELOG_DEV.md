@@ -2,6 +2,18 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-08 (v1.5.0 bump + documentation reconciliation)
+- Bumped package version in `pyproject.toml` from `1.4.dev1` to `1.5.0` on `dev` for release preparation.
+- Reconciled root/public changelog:
+  - promoted `1.4-dev` snapshot entry to `1.5.0` release-track entry
+  - included packaging/runtime hardening details validated in TestPyPI runs.
+- Reconciled operator docs with latest runtime behavior:
+  - `docs/INSTALL.md` now includes package-index install flow and TestPyPI install notes (`--extra-index-url` dependency resolution).
+  - `docs/MANUAL.md` now reflects Settings profile/config generation behavior, diff-style agent overrides, and packaged UI/workspace path expectations.
+  - `docs/ARCHITECTURE.md` now documents `agent_configs.py` role and runtime profile/artifact model.
+  - `docs/roadmap.md` now marks v1.5 implementation progress and remaining stable-publish gate.
+- Updated release-state wording in `README.md` and `STATUS.md` for current `v1.5.0` prep on `dev`.
+
 ## 2026-03-08 (PyPI packaging fixes: installed UI dist, workspace fallback, setup MCP consistency)
 - Fixed installed-package UI dist discovery and packaging path handling:
   - added `sys.prefix/ui_v3/dist` lookup in CLI and Flask backend
