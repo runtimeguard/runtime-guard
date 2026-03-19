@@ -9,6 +9,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import approvals
 import agent_configs
+import agent_configurator
+import agent_posture
 import config
 import reports
 from audit import append_log_entry, build_operator_log_entry
@@ -60,6 +62,45 @@ approvals.init_approval_store()
 reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
+
+
+def _agent_paths() -> dict[str, pathlib.Path]:
+    return {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+
+
+def _agent_profiles(paths: dict[str, pathlib.Path]) -> list[dict[str, object]]:
+    registry = agent_configs.load_registry(paths)
+    profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
+    return profiles if isinstance(profiles, list) else []
+
+
+def _profile_by_id(profiles: list[dict[str, object]], profile_id: str) -> dict[str, object] | None:
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        if str(profile.get("profile_id", "")).strip() == profile_id:
+            return profile
+    return None
+
+
+def _posture_summary_with_state(profiles: list[dict[str, object]], paths: dict[str, pathlib.Path]) -> dict[str, object]:
+    summary = agent_posture.build_posture_summary(profiles if isinstance(profiles, list) else [])
+    rows = summary.get("profiles", []) if isinstance(summary, dict) else []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            profile_id = str(row.get("profile_id", "")).strip()
+            row["undo_available"] = bool(profile_id) and agent_configurator.undo_available(paths, profile_id)
+    return summary
 
 
 def _runtime_env_file_path() -> pathlib.Path:
@@ -403,17 +444,57 @@ def deny_pending():
 def settings_agents():
     if request.method == "OPTIONS":
         return ("", 204)
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     payload = agent_configs.list_profiles(paths)
     return jsonify(payload)
+
+
+@app.route("/settings/agents/detect", methods=["GET", "OPTIONS"])
+def settings_agents_detect():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    paths = _agent_paths()
+    registry = agent_configs.load_registry(paths)
+    profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
+    workspaces: list[pathlib.Path] = []
+    for profile in profiles:
+        workspace = str((profile or {}).get("workspace", "")).strip()
+        if workspace:
+            workspaces.append(pathlib.Path(workspace).expanduser().resolve())
+    discovered = sorted(
+        agent_posture.detect_unregistered_configs(known_workspaces=workspaces),
+        key=lambda x: (str(x.get("agent_type", "")), str(x.get("scope", "")), str(x.get("path", ""))),
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "errors": [],
+            "known_profiles": profiles,
+            "discovered_unregistered": discovered,
+        }
+    )
+
+
+@app.route("/settings/agents/posture", methods=["GET", "OPTIONS"])
+def settings_agents_posture():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    paths = _agent_paths()
+    try:
+        profiles = _agent_profiles(paths)
+        summary = _posture_summary_with_state(profiles, paths)
+        return jsonify(summary)
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": f"Failed to build agent posture: {exc}",
+                "errors": [str(exc)],
+                "profiles": [],
+                "discovered_unregistered": [],
+                "totals": {"green": 0, "yellow": 0, "red": 0},
+            }
+        ), 500
 
 
 @app.route("/settings/agents/upsert", methods=["POST", "OPTIONS"])
@@ -425,15 +506,7 @@ def settings_agents_upsert():
     create_workspace = bool(payload.get("create_workspace", False))
     if not isinstance(profile, dict):
         return jsonify({"ok": False, "errors": ["Expected JSON payload with 'profile' object"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.upsert_profile(paths, profile, create_workspace=create_workspace)
     if not result.get("ok"):
         return jsonify(result), 400
@@ -448,15 +521,7 @@ def settings_agents_delete():
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.delete_profile(paths, profile_id)
     if not result.get("ok"):
         return jsonify(result), 404
@@ -472,15 +537,7 @@ def settings_agents_generate():
     save_to_file = bool(payload.get("save_to_file", False))
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.generate_config(paths, profile_id, save_to_file=save_to_file)
     if not result.get("ok"):
         return jsonify(result), 400
@@ -494,15 +551,7 @@ def settings_agents_open_file():
     profile_id = str(request.args.get("profile_id", "")).strip()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.open_saved_file(paths, profile_id)
     if not result.get("ok"):
         return jsonify(result), 404
@@ -517,18 +566,9 @@ def settings_agents_reconfigure_runtime():
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
-    registry = agent_configs.load_registry(paths)
-    profiles = registry.get("profiles", [])
-    profile = next((p for p in profiles if str(p.get("profile_id", "")).strip() == profile_id), None)
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
     if not isinstance(profile, dict):
         return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
     if profile_id != "default-agent":
@@ -550,6 +590,48 @@ def settings_agents_reconfigure_runtime():
             "message": "Runtime env updated. Restart airg-ui service to apply changes.",
         }
     )
+
+
+@app.route("/settings/agents/config-apply", methods=["POST", "OPTIONS"])
+def settings_agents_config_apply():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    auto_add_mcp = bool(payload.get("auto_add_mcp", False))
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    result = agent_configurator.apply_hardening(paths, profile, auto_add_mcp=auto_add_mcp)
+    if not result.get("ok"):
+        status = 409 if result.get("requires_mcp") else 400
+        return jsonify(result), status
+    result["posture"] = _posture_summary_with_state(profiles, paths)
+    return jsonify(result)
+
+
+@app.route("/settings/agents/config-undo", methods=["POST", "OPTIONS"])
+def settings_agents_config_undo():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    result = agent_configurator.undo_hardening(paths, profile)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    result["posture"] = _posture_summary_with_state(profiles, paths)
+    return jsonify(result)
 
 
 def _ui_dist_ready() -> bool:

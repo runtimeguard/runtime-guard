@@ -117,6 +117,11 @@ Capabilities:
 4. Runtime includes audit logging, backup/restore flows, normalization, and path/workspace hardening.
 5. GUI supports policy editing, plus adding custom commands and custom categories.
 6. GUI `Settings -> Agents` supports profile-based MCP config generation and copy-assist modal flows for CLI/JSON.
+7. GUI `Settings -> Agents` includes read-only `Agent Security Posture`:
+   - posture status per profile (`green/yellow/red`)
+   - missing controls and recommended next actions
+   - local unregistered agent-config detection.
+8. Claude hook/cfg posture help is available via copy-assist snippets in the same panel.
 
 Caveats:
 1. Runtime policy reload is startup-based; after policy changes, restart MCP server (and usually reconnect agent client).
@@ -130,6 +135,26 @@ For package installs (PyPI/TestPyPI):
 1. UI dist is served from installed package paths (for example `<venv>/ui_v3/dist`) when source-tree paths are not present.
 2. Default workspace fallback (when `AIRG_WORKSPACE` is unset) is `~/airg-workspace`.
 3. `airg-doctor` should not report workspace under `site-packages`; if it does, treat it as misconfiguration/regression.
+
+### Agent posture + hook (v2.0.dev2 scope)
+1. Posture panel shows traffic-light status and supports safe apply/undo hardening actions for supported agents.
+2. Posture scoring intent:
+   - Claude can reach green when AIRG MCP + native deny + hook + hardened sandbox are detected.
+   - Cursor currently caps at yellow (MCP-layer posture only).
+3. `airg-hook` is a standalone binary intended for Claude `PreToolUse` integration.
+4. Hook behavior:
+   - denies native `Bash/Write/Edit/MultiEdit` with deterministic AIRG MCP redirect message.
+   - allows AIRG MCP tool calls and read-only tools.
+   - blocks sensitive native `Read` targets (`.env`, `.key`, `.pem`, `/secrets/` paths).
+   - fail-open on runtime/parsing errors to avoid bricking sessions.
+5. Hook logging is written to `hook_activity.log` next to AIRG log path (or default runtime state location).
+6. Dev2 config-writer behavior:
+   - supported write targets:
+     - Claude: `<workspace>/.claude/settings.local.json`
+     - Cursor: `<workspace>/.cursor/mcp.json`
+   - Claude preflight checks AIRG MCP presence before applying native-tool deny rules.
+   - each apply stores backup artifacts under `.airg-backup` next to modified files.
+   - undo restores from AIRG backup state for the last apply action per profile.
 
 ## 2. Policy tier order (most important)
 Command checks run in strict precedence:

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import runtimeGuardLogo64 from './assets/logo_v4_64px.png'
+import runtimeGuardLogo128 from './assets/logo_v4_128px.png'
 
 const API_BASE = 'http://127.0.0.1:5001'
 const RAIL_ITEMS = [
-  { id: 'approvals', label: 'Approvals', icon: '🔔' },
-  { id: 'policy', label: 'Policy', icon: '🛡️' },
-  { id: 'reports', label: 'Reports', icon: '📊' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' }
+  { id: 'approvals', label: 'Approvals' },
+  { id: 'policy', label: 'Policy' },
+  { id: 'reports', label: 'Reports' },
+  { id: 'settings', label: 'Settings' }
 ]
 const POLICY_TABS = [
   { id: 'commands', label: 'Commands' },
@@ -23,6 +25,15 @@ const SETTINGS_TABS = [
   { id: 'agents', label: 'Agents' },
   { id: 'advanced', label: 'Advanced' },
 ]
+const NAV_CHILDREN = {
+  approvals: [
+    { id: 'pending', label: 'Pending' },
+    { id: 'history', label: 'History' },
+  ],
+  policy: POLICY_TABS.map((tab) => ({ id: tab.id, label: tab.label })),
+  reports: REPORT_TABS.map((tab) => ({ id: tab.id, label: tab.label })),
+  settings: SETTINGS_TABS.map((tab) => ({ id: tab.id, label: tab.label })),
+}
 const DEFAULT_TABS = [{ id: 'all', label: 'All Commands' }]
 const COLUMN_DEFS = [
   { key: 'allowed', label: 'Allowed', group: 'basic' },
@@ -57,10 +68,10 @@ const REPORT_FILTER_FIELDS = [
 ]
 
 const STATUS_STYLE = {
-  allowed: 'bg-green-100 text-green-700 border-green-200',
-  requires_simulation: 'bg-blue-100 text-blue-700 border-blue-200',
-  requires_confirmation: 'bg-amber-100 text-amber-700 border-amber-200',
-  blocked: 'bg-red-100 text-red-700 border-red-200'
+  allowed: 'badge badge-allowed',
+  requires_simulation: 'badge badge-info',
+  requires_confirmation: 'badge badge-pending',
+  blocked: 'badge badge-blocked'
 }
 
 const STATUS_LABEL = {
@@ -169,6 +180,49 @@ function normalizeDomain(value) {
   return String(value || '').trim().toLowerCase()
 }
 
+function NavIcon({ id }) {
+  if (id === 'approvals') {
+    return (
+      <svg className="w-4 h-4 text-slate-300" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="2" y="3" width="12" height="10" rx="2" />
+        <path d="M5 8l2 2 4-4" />
+      </svg>
+    )
+  }
+  if (id === 'policy') {
+    return (
+      <svg className="w-4 h-4 text-slate-300" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M8 2l5 2v4c0 3.1-2.6 5-5 6-2.4-1-5-2.9-5-6V4l5-2z" />
+      </svg>
+    )
+  }
+  if (id === 'reports') {
+    return (
+      <svg className="w-4 h-4 text-slate-300" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="2" y="9" width="2.5" height="5" />
+        <rect x="6.75" y="6" width="2.5" height="8" />
+        <rect x="11.5" y="3" width="2.5" height="11" />
+      </svg>
+    )
+  }
+  return (
+    <svg className="w-4 h-4 text-slate-300" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="8" cy="8" r="2" />
+      <path d="M8 2.2v1.6M8 12.2v1.6M2.2 8h1.6M12.2 8h1.6M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M3.8 12.2l1.1-1.1M11.1 4.9l1.1-1.1" />
+    </svg>
+  )
+}
+
+function UiIcon({ kind, className = 'w-4 h-4 text-slate-700' }) {
+  if (kind === 'save') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 2h8l2 2v10H3z" /><path d="M5 2v4h6V2" /><path d="M5 10h6" /></svg>
+  if (kind === 'folder') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M2 5h4l1 1h7v7H2z" /><path d="M2 5V3h4l1 1" /></svg>
+  if (kind === 'copy') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="5" y="5" width="8" height="9" /><rect x="3" y="2" width="8" height="9" /></svg>
+  if (kind === 'terminal') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="3" width="12" height="10" rx="1" /><path d="M5 7l2 1.5L5 10" /><path d="M8.5 10h2.5" /></svg>
+  if (kind === 'info') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="8" cy="8" r="6" /><path d="M8 7v4" /><circle cx="8" cy="5" r="0.7" fill="currentColor" stroke="none" /></svg>
+  if (kind === 'trash') return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 4h10" /><path d="M6 4V2h4v2" /><path d="M5 4l.5 9h5L11 4" /></svg>
+  return <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="3" y="3" width="10" height="10" /></svg>
+}
+
 function tierFor(policy, cmd) {
   if ((policy?.blocked?.commands || []).includes(cmd)) return 'blocked'
   if ((policy?.requires_confirmation?.commands || []).includes(cmd)) return 'requires_confirmation'
@@ -204,6 +258,7 @@ function relativeTime(iso) {
 
 export default function App() {
   const [activeRail, setActiveRail] = useState('approvals')
+  const [activeApprovalsTab, setActiveApprovalsTab] = useState('pending')
   const [activePolicyTab, setActivePolicyTab] = useState('commands')
   const [policyHash, setPolicyHash] = useState('')
   const [appliedPolicy, setAppliedPolicy] = useState(null)
@@ -235,12 +290,18 @@ export default function App() {
   const [newCommandTabs, setNewCommandTabs] = useState([])
   const [newCategoryLabel, setNewCategoryLabel] = useState('')
   const [selectedCategories, setSelectedCategories] = useState([])
+  const [showAddCommandForm, setShowAddCommandForm] = useState(false)
+  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false)
   const [newPathValue, setNewPathValue] = useState('')
   const [newPathTier, setNewPathTier] = useState('blocked')
+  const [showRuntimePaths, setShowRuntimePaths] = useState(false)
+  const [showAddPathForm, setShowAddPathForm] = useState(false)
   const [newExtensionValue, setNewExtensionValue] = useState('')
+  const [showAddExtensionForm, setShowAddExtensionForm] = useState(false)
   const [newNetworkCommand, setNewNetworkCommand] = useState('')
   const [newWhitelistDomain, setNewWhitelistDomain] = useState('')
   const [newBlocklistDomain, setNewBlocklistDomain] = useState('')
+  const [showNetworkEditors, setShowNetworkEditors] = useState(false)
   const [budgetBytesUnit, setBudgetBytesUnit] = useState('MB')
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
@@ -263,6 +324,10 @@ export default function App() {
   const [settingsError, setSettingsError] = useState('')
   const [settingsSavedProfiles, setSettingsSavedProfiles] = useState({})
   const [settingsNeedsReconfigure, setSettingsNeedsReconfigure] = useState({})
+  const [agentPosture, setAgentPosture] = useState({ profiles: [], discovered_unregistered: [], totals: { green: 0, yellow: 0, red: 0 } })
+  const [agentPostureLoading, setAgentPostureLoading] = useState(false)
+  const [agentPostureError, setAgentPostureError] = useState('')
+  const [agentConfigActionLoading, setAgentConfigActionLoading] = useState({})
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
     agent_session_id: '',
@@ -301,6 +366,12 @@ export default function App() {
   const [overrideAgentId, setOverrideAgentId] = useState('')
   const [overrideExpanded, setOverrideExpanded] = useState({})
   const [overrideListInputs, setOverrideListInputs] = useState({})
+  const [navOpen, setNavOpen] = useState({
+    approvals: true,
+    policy: true,
+    reports: false,
+    settings: false,
+  })
   const validateTimerRef = useRef(null)
   const applyTimerRef = useRef(null)
   const copyAssistRef = useRef(null)
@@ -323,6 +394,32 @@ export default function App() {
     })
     return Array.from(ids).sort()
   }, [draftPolicy, agentProfiles])
+
+  const currentChildByRail = useMemo(
+    () => ({
+      approvals: activeApprovalsTab,
+      policy: activePolicyTab,
+      reports: reportsTab,
+      settings: activeSettingsTab,
+    }),
+    [activeApprovalsTab, activePolicyTab, reportsTab, activeSettingsTab]
+  )
+
+  const pageTitle = useMemo(() => {
+    if (activeRail === 'policy') {
+      const tab = POLICY_TABS.find((t) => t.id === activePolicyTab)
+      return `Policy · ${tab?.label || 'Commands'}`
+    }
+    if (activeRail === 'reports') {
+      const tab = REPORT_TABS.find((t) => t.id === reportsTab)
+      return `Reports · ${tab?.label || 'Dashboard'}`
+    }
+    if (activeRail === 'settings') {
+      const tab = SETTINGS_TABS.find((t) => t.id === activeSettingsTab)
+      return `Settings · ${tab?.label || 'Agents'}`
+    }
+    return 'Approvals · Pending'
+  }, [activeRail, activePolicyTab, reportsTab, activeSettingsTab])
 
   useEffect(() => {
     if (!overrideAgentId && knownAgentIds.length) {
@@ -493,6 +590,84 @@ export default function App() {
     return payload
   }
 
+  async function fetchAgentPosture() {
+    setAgentPostureLoading(true)
+    setAgentPostureError('')
+    const url = `${API_BASE}/settings/agents/posture`
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } })
+      const raw = await res.text()
+      let payload = {}
+      try {
+        payload = raw ? JSON.parse(raw) : {}
+      } catch {
+        throw new Error(`Agent posture returned invalid JSON (${res.status}).`)
+      }
+      if (!res.ok || payload?.ok === false) {
+        const detail = payload?.error
+          ? String(payload.error)
+          : Array.isArray(payload?.errors) && payload.errors.length
+            ? payload.errors.join('; ')
+            : `HTTP ${res.status}`
+        throw new Error(`Agent posture load failed: ${detail}`)
+      }
+      setAgentPosture({
+        profiles: payload.profiles || [],
+        discovered_unregistered: payload.discovered_unregistered || [],
+        totals: payload.totals || { green: 0, yellow: 0, red: 0 },
+      })
+    } catch (err) {
+      const name = err?.name ? `${err.name}: ` : ''
+      setAgentPostureError(`${name}${String(err.message || err)} [${url}]`)
+    } finally {
+      setAgentPostureLoading(false)
+    }
+  }
+
+  async function applyAgentConfigHardening(profileId, { autoAddMcp = false } = {}) {
+    const res = await fetch(`${API_BASE}/settings/agents/config-apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId, auto_add_mcp: autoAddMcp }),
+    })
+    const payload = await res.json().catch(() => ({}))
+    if (!res.ok || !payload.ok) {
+      const err = new Error((payload.errors || ['Agent hardening apply failed']).join('; '))
+      err.payload = payload
+      throw err
+    }
+    if (payload.posture) {
+      setAgentPosture({
+        profiles: payload.posture.profiles || [],
+        discovered_unregistered: payload.posture.discovered_unregistered || [],
+        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+      })
+    }
+    return payload
+  }
+
+  async function undoAgentConfigHardening(profileId) {
+    const res = await fetch(`${API_BASE}/settings/agents/config-undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId }),
+    })
+    const payload = await res.json().catch(() => ({}))
+    if (!res.ok || !payload.ok) {
+      const err = new Error((payload.errors || ['Agent hardening undo failed']).join('; '))
+      err.payload = payload
+      throw err
+    }
+    if (payload.posture) {
+      setAgentPosture({
+        profiles: payload.posture.profiles || [],
+        discovered_unregistered: payload.posture.discovered_unregistered || [],
+        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+      })
+    }
+    return payload
+  }
+
   function buildReportQuery(extra = {}) {
     const params = new URLSearchParams()
     const merged = { ...reportsFilters, ...extra }
@@ -583,6 +758,11 @@ export default function App() {
     if (activeRail !== 'settings') return
     fetchSettingsAgents()
   }, [activeRail])
+
+  useEffect(() => {
+    if (activeRail !== 'settings' || activeSettingsTab !== 'agents') return
+    fetchAgentPosture()
+  }, [activeRail, activeSettingsTab])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -978,23 +1158,66 @@ export default function App() {
     setTimeout(() => setPendingApprovals((prev) => prev.filter((p) => p.token !== token)), 180)
   }
 
-  function renderRailItem(item) {
-    const isActive = activeRail === item.id
+  function toggleNavSection(sectionId) {
+    setNavOpen((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }))
+  }
+
+  function activateNav(sectionId, childId = '') {
+    setActiveRail(sectionId)
+    if (sectionId === 'approvals' && childId) setActiveApprovalsTab(childId)
+    if (sectionId === 'policy' && childId) setActivePolicyTab(childId)
+    if (sectionId === 'reports' && childId) setReportsTab(childId)
+    if (sectionId === 'settings' && childId) setActiveSettingsTab(childId)
+  }
+
+  function renderSidebarSection(item) {
+    const isActiveRail = activeRail === item.id
+    const isOpen = Boolean(navOpen[item.id])
+    const children = NAV_CHILDREN[item.id] || []
+    const activeChild = currentChildByRail[item.id]
     const pending = item.id === 'approvals' ? pendingApprovals.length : 0
     return (
-      <button
-        key={item.id}
-        onClick={() => setActiveRail(item.id)}
-        className={`relative w-full min-h-[102px] flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-xs transition border ${
-          isActive ? 'bg-brand text-white border-brand' : 'bg-white text-slate-700 border-slate-200 hover:border-brand/40'
-        } ${pending > 0 && item.id === 'approvals' ? 'ring-1 ring-amber-300 bg-amber-50 text-amber-700' : ''}`}
-      >
-        <span className="text-base">{item.icon}</span>
-        <span>{item.label}</span>
-        {pending > 0 && (
-          <span className="absolute -top-1 -right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{pending}</span>
+      <div key={item.id} className="mb-2">
+        <button
+          type="button"
+          onClick={() => {
+            activateNav(item.id, activeChild || children[0]?.id || '')
+            if (children.length) toggleNavSection(item.id)
+          }}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition border sidebar-section-header ${
+            isActiveRail
+              ? 'bg-[var(--bg-sidebar-active)] text-[var(--text-sidebar-active)] border-transparent'
+              : 'text-[var(--text-sidebar)] border-transparent hover:bg-[var(--bg-sidebar-hover)] hover:text-[var(--text-sidebar-active)]'
+          }`}
+        >
+          <NavIcon id={item.id} />
+          <span className="flex-1 font-medium">{item.label}</span>
+          {pending > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500 text-white">{pending}</span>}
+          {children.length > 0 && <span className={`text-xs text-slate-400 transition ${isOpen ? 'rotate-90' : ''}`}>▸</span>}
+        </button>
+        {children.length > 0 && isOpen && (
+          <div className="mt-1 space-y-1">
+            {children.map((child) => {
+              const isActiveChild = isActiveRail && activeChild === child.id
+              return (
+                <button
+                  key={`${item.id}-${child.id}`}
+                  type="button"
+                  onClick={() => activateNav(item.id, child.id)}
+                  className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 text-left text-xs transition border sidebar-nav-item ${
+                    isActiveChild
+                      ? 'active bg-[var(--bg-sidebar-active)] text-[var(--text-sidebar-active)] border-transparent font-medium'
+                      : 'text-[var(--text-sidebar)] border-transparent hover:bg-[var(--bg-sidebar-hover)] hover:text-[var(--text-sidebar-active)]'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActiveChild ? 'bg-[var(--status-blue)]' : 'bg-slate-500'}`} />
+                  <span>{child.label}</span>
+                </button>
+              )
+            })}
+          </div>
         )}
-      </button>
+      </div>
     )
   }
 
@@ -1065,8 +1288,10 @@ export default function App() {
 
     if (!pendingApprovals.length) {
       return (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center shadow-sm">
-          <div className="text-3xl mb-2">🔔</div>
+        <div className="bg-white rounded-[10px] border border-slate-200 p-8 text-center shadow-sm">
+          <div className="mb-2 inline-flex items-center justify-center">
+            <UiIcon kind="info" className="w-8 h-8 text-slate-500" />
+          </div>
           <div className="text-green-700 font-semibold">No pending approvals</div>
         </div>
       )
@@ -1079,7 +1304,7 @@ export default function App() {
           return (
             <div
               key={item.token}
-              className={`bg-white border-l-4 ${urgency ? 'border-red-400' : 'border-amber-400'} rounded-xl border border-slate-200 p-4 shadow-sm transition-all duration-200 ${removing[item.token] ? 'opacity-0 -translate-y-1' : 'opacity-100 translate-y-0'}`}
+              className={`bg-white border-l-4 ${urgency ? 'border-red-400' : 'border-amber-400'} rounded-[10px] border border-slate-200 p-4 shadow-sm transition-all duration-200 ${removing[item.token] ? 'opacity-0 -translate-y-1' : 'opacity-100 translate-y-0'}`}
             >
               <div className="text-sm font-semibold text-slate-800">
                 Agent <span className="font-mono">{item.agent_id || 'Unknown'}</span> needs approval for the following command:
@@ -1100,8 +1325,8 @@ export default function App() {
                 </details>
               )}
               <div className="mt-3 flex gap-2">
-                <button onClick={() => approve(item.token, item.command)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium">Approve</button>
-                <button onClick={() => deny(item.token)} className="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 text-sm">Deny</button>
+                <button onClick={() => approve(item.token, item.command)} className="px-3 py-1.5 rounded-[10px] bg-green-600 text-white text-sm font-medium">Approve</button>
+                <button onClick={() => deny(item.token)} className="px-3 py-1.5 rounded-[10px] border border-red-300 text-red-700 text-sm">Deny</button>
               </div>
             </div>
           )
@@ -1175,7 +1400,7 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm text-slate-700">
@@ -1183,13 +1408,13 @@ export default function App() {
               </div>
               <div className="text-[11px] text-slate-500 mt-1">Automatic refresh runs every 5 minutes.</div>
             </div>
-            <button onClick={() => fetchReports({ sync: true })} className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm">Refresh</button>
+            <button onClick={() => fetchReports({ sync: true })} className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 text-sm">Refresh</button>
           </div>
           {reportsError && <div className="mt-2 text-sm text-red-600">{reportsError}</div>}
           {reportsLoading && <div className="mt-2 text-xs text-slate-500">Refreshing reports...</div>}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filters</div>
             <button
@@ -1208,7 +1433,7 @@ export default function App() {
                   setReportsOffset(0)
                   setReportsFilters((prev) => ({ ...prev, [field.key]: e.target.value }))
                 }}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                className="border border-slate-300 rounded-[10px] px-3 py-2 text-xs font-mono"
                 placeholder={field.label}
                 title={field.label}
               />
@@ -1219,7 +1444,7 @@ export default function App() {
                 setReportsOffset(0)
                 setReportsTimeFilter(e.target.value)
               }}
-              className="border border-slate-300 rounded-lg px-3 py-2 text-xs"
+              className="border border-slate-300 rounded-[10px] px-3 py-2 text-xs"
             >
               <option value="all_time">All Time</option>
               <option value="last_5_min">Last 5 min</option>
@@ -1235,7 +1460,7 @@ export default function App() {
                   setReportsOffset(0)
                   setReportsCustomDay(e.target.value)
                 }}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-xs"
+                className="border border-slate-300 rounded-[10px] px-3 py-2 text-xs"
               />
             )}
           </div>
@@ -1246,14 +1471,14 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <button
                 onClick={() => openLogWithFilters({}, { clearAll: true })}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+                className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm text-left hover:border-[#bfd4ff] cursor-pointer"
               >
                 <div className="text-xs text-slate-500">Total events</div>
                 <div className="text-2xl font-semibold">{totals.total_events || 0}</div>
               </button>
               <button
                 onClick={() => openLogWithFilters({ policy_decision: 'blocked' }, { clearAll: true })}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+                className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm text-left hover:border-[#bfd4ff] cursor-pointer"
               >
                 <div className="text-xs text-slate-500">Blocked events</div>
                 <div className="text-2xl font-semibold text-red-700">{totals.blocked_events || 0}</div>
@@ -1261,7 +1486,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => openLogWithFilters({ event: 'backup_created' }, { clearAll: true })}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+                className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm text-left hover:border-[#bfd4ff] cursor-pointer"
               >
                 <div className="text-xs text-slate-500">Backups created</div>
                 <div className="text-2xl font-semibold text-blue-700">{totals.backup_events || 0}</div>
@@ -1269,7 +1494,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setActiveRail('approvals')}
-                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm text-left hover:border-brand/60 cursor-pointer"
+                className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm text-left hover:border-[#bfd4ff] cursor-pointer"
               >
                 <div className="text-xs text-slate-500">Confirmations</div>
                 <div className="text-sm font-mono mt-1 text-slate-700">Pending: {pendingApprovalsCount}</div>
@@ -1279,17 +1504,17 @@ export default function App() {
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Events per day (7d)</div>
                 <TrendBars data={eventsPerDay} tone="blue" />
               </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Blocked per day (7d)</div>
                 <TrendBars data={blockedPerDay} tone="red" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Top commands</div>
                 <div className="space-y-1 text-xs font-mono">
                   {topCommands.length === 0 && <div className="text-slate-500">No data</div>}
@@ -1318,7 +1543,7 @@ export default function App() {
                   })}
                 </div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Top paths</div>
                 <div className="space-y-1 text-xs font-mono">
                   {topPaths.length === 0 && <div className="text-slate-500">No data</div>}
@@ -1334,7 +1559,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
                 <div className="text-sm font-semibold text-slate-700 mb-2">Blocked by rule</div>
                 <div className="space-y-1 text-xs font-mono">
                   {blockedByRule.length === 0 && <div className="text-slate-500">No data</div>}
@@ -1355,7 +1580,7 @@ export default function App() {
         )}
 
         {reportsTab === 'log' && (
-          <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
             <div className="flex items-center justify-between text-sm mb-2">
               <div className="text-slate-700">Log events ({reportsTotal})</div>
               <div className="flex items-center gap-2">
@@ -1376,7 +1601,7 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="overflow-auto border border-slate-200 rounded-lg">
+            <div className="overflow-auto border border-slate-200 rounded-[10px]">
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
@@ -1448,65 +1673,76 @@ export default function App() {
     const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
     return (
       <>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Command</div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
-            <input
-              value={newCommand}
-              onChange={(e) => setNewCommand(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2"
-              placeholder="Command (e.g. git cherry-pick)"
-            />
-            <input
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2"
-              placeholder="Description/comment shown in info modal"
-            />
+        <div className="card mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="section-title m-0">Command Authoring</div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowAddCommandForm((v) => !v)} className="btn btn-ghost">{showAddCommandForm ? 'Hide Add Command' : '+ Add Command'}</button>
+              <button onClick={() => setShowAddCategoryForm((v) => !v)} className="btn btn-ghost">{showAddCategoryForm ? 'Hide Add Category' : '+ Add Category'}</button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {nonAllTabs.map((tab) => (
-              <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
+          {showAddCommandForm && (
+            <div className="space-y-2 mb-3">
+              <div className="form-label">Add Command</div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
                 <input
-                  type="checkbox"
-                  checked={newCommandTabs.includes(tab.id)}
-                  onChange={(e) => {
-                    if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
-                    else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
-                  }}
+                  value={newCommand}
+                  onChange={(e) => setNewCommand(e.target.value)}
+                  className="mono-input"
+                  placeholder="Command (e.g. git cherry-pick)"
                 />
-                <span>{tab.label}</span>
-              </label>
-            ))}
-          </div>
-          <div className="text-xs text-slate-500">
-            Category selection is optional. If none is selected, the command is added as uncategorized.
-          </div>
-          <button onClick={onAddCommand} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add command</button>
+                <input
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Description/comment shown in info modal"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {nonAllTabs.map((tab) => (
+                  <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={newCommandTabs.includes(tab.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
+                        else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
+                      }}
+                    />
+                    <span>{tab.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="text-xs text-slate-500">Category selection is optional. If none is selected, the command is added as uncategorized.</div>
+              <button onClick={onAddCommand} className="btn btn-primary">Add command</button>
+            </div>
+          )}
+          {showAddCategoryForm && (
+            <div className="space-y-2">
+              <div className="form-label">Add Category</div>
+              <div className="flex gap-2">
+                <input
+                  value={newCategoryLabel}
+                  onChange={(e) => setNewCategoryLabel(e.target.value)}
+                  className="flex-1"
+                  placeholder="Category name (e.g. Databases)"
+                />
+                <button onClick={onCreateCategory} className="btn btn-ghost">Add category</button>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Category</div>
-          <div className="flex gap-2">
-            <input
-              value={newCategoryLabel}
-              onChange={(e) => setNewCategoryLabel(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 flex-1"
-              placeholder="Category name (e.g. Databases)"
-            />
-            <button onClick={onCreateCategory} className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm">Add category</button>
-          </div>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Filters</div>
+
+        <div className="card mb-3 space-y-2">
+          <div className="section-title">Filters</div>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+              className="w-full"
               placeholder="Filter commands by text..."
             />
-            <div className="border border-slate-300 rounded-lg px-3 py-2 bg-white">
-              <div className="text-xs text-slate-500 mb-1">Categories (multi-select, default: All)</div>
+            <div className="border border-[var(--border-input)] rounded-[var(--radius-md)] px-3 py-2 bg-[var(--bg-input)]">
+              <div className="text-xs text-[var(--text-secondary)] mb-1">Categories (multi-select, default: All)</div>
               <div className="flex flex-wrap gap-2">
                 {nonAllTabs.map((tab) => (
                   <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
@@ -1525,7 +1761,8 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto">
+
+        <div className="card overflow-auto">
           <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns }}>
             <div />
             <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
@@ -1610,49 +1847,60 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Runtime Paths (Read Only)</div>
-          <div className="grid grid-cols-1 gap-2">
-            {Object.entries(runtimePaths).map(([key, value]) => (
-              key === 'AIRG_AGENT_ID' ? null : (
-              <div key={key} className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-2 items-center">
-                <div className="text-xs text-slate-600">{RUNTIME_PATH_LABELS[key] || key}</div>
-                <input
-                  value={String(value || '')}
-                  readOnly
-                  className="border border-slate-300 rounded-lg px-3 py-2 bg-slate-100 text-slate-700 font-mono text-xs"
-                />
+        <div className="card">
+          <button type="button" className="section-toggle" onClick={() => setShowRuntimePaths((v) => !v)}>
+            <span>Runtime Paths</span>
+            <span className="text-[var(--text-tertiary)]">(read only)</span>
+            <span className={`ml-auto text-xs text-[var(--text-tertiary)] transition ${showRuntimePaths ? 'rotate-180' : ''}`}>▾</span>
+          </button>
+          {showRuntimePaths && (
+            <>
+              <dl className="runtime-paths-list mt-3">
+                {Object.entries(runtimePaths).map(([key, value]) => (
+                  key === 'AIRG_AGENT_ID' ? null : (
+                    <div key={key}>
+                      <dt>{RUNTIME_PATH_LABELS[key] || key}</dt>
+                      <dd className="path-display">{String(value || '')}</dd>
+                    </div>
+                  )
+                ))}
+              </dl>
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-[10px] px-3 py-2 mt-3">
+                Runtime paths are managed by MCP client configuration/env. To change workspace paths, update your AI agent MCP config,
+                then restart the MCP server and agent client.
               </div>
-              )
-            ))}
-          </div>
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Runtime paths are managed by MCP client configuration/env. To change workspace paths, update your AI agent MCP config,
-            then restart the MCP server and agent client.
-          </div>
+            </>
+          )}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Add Path</div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_320px_auto] gap-2 items-center">
-            <input
-              value={newPathValue}
-              onChange={(e) => setNewPathValue(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs"
-              placeholder="/absolute/path"
-              title="Use absolute paths only. Example: /Users/your_username/Documents/Folder"
-            />
-            <div className="flex items-center gap-3 text-xs">
-              <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'allowed'} onChange={() => setNewPathTier('allowed')} /> Allowed</label>
-              <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'blocked'} onChange={() => setNewPathTier('blocked')} /> Blocked</label>
-              {showPathAdvanced && (
-                <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'requires_confirmation'} onChange={() => setNewPathTier('requires_confirmation')} /> Requires Approval</label>
-              )}
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div className="section-title m-0">Path Rules</div>
+            <button onClick={() => setShowAddPathForm((v) => !v)} className="btn btn-ghost">{showAddPathForm ? 'Hide Add Path' : '+ Add Path'}</button>
+          </div>
+          {showAddPathForm && (
+            <div className="space-y-2 mt-3">
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_320px_auto] gap-2 items-center">
+                <input
+                  value={newPathValue}
+                  onChange={(e) => setNewPathValue(e.target.value)}
+                  className="mono-input"
+                  placeholder="/absolute/path"
+                  title="Use absolute paths only. Example: /Users/your_username/Documents/Folder"
+                />
+                <div className="flex items-center gap-3 text-xs">
+                  <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'allowed'} onChange={() => setNewPathTier('allowed')} /> Allowed</label>
+                  <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'blocked'} onChange={() => setNewPathTier('blocked')} /> Blocked</label>
+                  {showPathAdvanced && (
+                    <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'requires_confirmation'} onChange={() => setNewPathTier('requires_confirmation')} /> Requires Approval</label>
+                  )}
+                </div>
+                <button onClick={onAddPath} className="btn btn-primary">Add path</button>
+              </div>
+              <div className="text-xs text-slate-500">Example: <span className="font-mono">/Users/your_username/Documents/Folder</span></div>
             </div>
-            <button onClick={onAddPath} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add path</button>
-          </div>
-          <div className="text-xs text-slate-500">Example: <span className="font-mono">/Users/your_username/Documents/Folder</span></div>
+          )}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto">
+        <div className="card overflow-auto">
           <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns: pathGridColumns }}>
             <div />
             <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
@@ -1744,21 +1992,28 @@ export default function App() {
     }
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Blocked Extensions</div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
-            <input
-              value={newExtensionValue}
-              onChange={(e) => setNewExtensionValue(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs"
-              placeholder="*.ext"
-              title="Enter extension pattern such as *.pem, *.key, *.env"
-            />
-            <button onClick={onAdd} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add extension</button>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div className="section-title m-0">Blocked Extensions</div>
+            <button onClick={() => setShowAddExtensionForm((v) => !v)} className="btn btn-ghost">{showAddExtensionForm ? 'Hide Add Extension' : '+ Add Extension'}</button>
           </div>
-          <div className="text-xs text-slate-500">Example: <span className="font-mono">*.pem</span></div>
+          {showAddExtensionForm && (
+            <div className="space-y-2 mt-3">
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
+                <input
+                  value={newExtensionValue}
+                  onChange={(e) => setNewExtensionValue(e.target.value)}
+                  className="mono-input"
+                  placeholder="*.ext"
+                  title="Enter extension pattern such as *.pem, *.key, *.env"
+                />
+                <button onClick={onAdd} className="btn btn-primary">Add extension</button>
+              </div>
+              <div className="text-xs text-slate-500">Example: <span className="font-mono">*.pem</span></div>
+            </div>
+          )}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm overflow-auto">
+        <div className="card overflow-auto">
           <div className="grid grid-cols-[minmax(320px,1fr)_140px] gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2">
             <div>Extension</div>
             <div className="text-center">Actions</div>
@@ -1838,14 +2093,14 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-red-200 rounded-xl p-3 shadow-sm">
+        <div className="bg-white border border-red-200 rounded-[10px] p-3 shadow-sm">
           <div className="text-sm text-red-700">
             Network policy applies to commands listed under <span className="font-mono">network.commands</span>. In <span className="font-mono">off</span> mode no checks are enforced.
             In <span className="font-mono">monitor</span> mode checks are logged but commands are allowed. In <span className="font-mono">enforce</span> mode domain allow/block rules are enforced.
           </div>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 shadow-sm">
+        <div className="bg-blue-50 border border-blue-200 rounded-[10px] p-3 shadow-sm">
           <div className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Runtime Domain Matching Notes</div>
           <div className="text-xs text-blue-900 space-y-1">
             <div>Subdomains are matched: a rule for <span className="font-mono">example.com</span> also applies to <span className="font-mono">api.example.com</span>.</div>
@@ -1855,8 +2110,11 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+        <div className="card space-y-2">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Enforcement Mode</div>
+          <div className="flex items-center justify-end">
+            <button onClick={() => setShowNetworkEditors((v) => !v)} className="btn btn-ghost">{showNetworkEditors ? 'Hide Network Editors' : '+ Show Network Editors'}</button>
+          </div>
           <div className="flex flex-wrap gap-3 text-sm">
             {['off', 'monitor', 'enforce'].map((mode) => (
               <label key={mode} className="flex items-center gap-2 border border-slate-300 rounded px-3 py-1.5 bg-slate-50">
@@ -1881,19 +2139,20 @@ export default function App() {
           )}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+        {showNetworkEditors && (
+        <div className="card space-y-2">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Network Commands</div>
           <div className="text-xs text-slate-500">These commands are used to trigger network policy evaluation. Listing a command here does not block it by itself.</div>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
             <input
               value={newNetworkCommand}
               onChange={(e) => setNewNetworkCommand(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs"
+              className="mono-input"
               placeholder="curl"
             />
-            <button onClick={addNetworkCommand} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add command</button>
+            <button onClick={addNetworkCommand} className="btn btn-primary">Add command</button>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2">
+          <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2">
             <div className="flex flex-wrap gap-2">
               {commands.map((cmd) => (
                 <span key={cmd} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono">
@@ -1911,8 +2170,10 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+        {showNetworkEditors && (
+        <div className="card">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Domain Rules</div>
           <div className="text-xs text-slate-600 mb-3">
             {(network.enforcement_mode || 'off') !== 'enforce' && 'Network policy is not blocking in current mode; switch to enforce for hard blocking.'}
@@ -1929,12 +2190,12 @@ export default function App() {
                 <input
                   value={newWhitelistDomain}
                   onChange={(e) => setNewWhitelistDomain(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                  className="mono-input"
                   placeholder="api.github.com"
                 />
-                <button onClick={() => addDomain('allow')} className="px-3 py-1.5 rounded-lg bg-brand text-white text-sm">Add</button>
+                <button onClick={() => addDomain('allow')} className="btn btn-primary">Add</button>
               </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 flex flex-wrap gap-2 min-h-[52px]">
+              <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2 flex flex-wrap gap-2 min-h-[52px]">
                 {allowedDomains.map((d) => (
                   <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-green-300 bg-green-50 text-xs font-mono">
                     {d}
@@ -1950,12 +2211,12 @@ export default function App() {
                 <input
                   value={newBlocklistDomain}
                   onChange={(e) => setNewBlocklistDomain(e.target.value)}
-                  className="border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono"
+                  className="mono-input"
                   placeholder="malicious.example"
                 />
-                <button onClick={() => addDomain('block')} className="px-3 py-1.5 rounded-lg border border-red-300 text-red-700 text-sm bg-white">Add</button>
+                <button onClick={() => addDomain('block')} className="btn btn-danger">Add</button>
               </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-2 flex flex-wrap gap-2 min-h-[52px]">
+              <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2 flex flex-wrap gap-2 min-h-[52px]">
                 {blockedDomains.map((d) => (
                   <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-red-300 bg-red-50 text-xs font-mono">
                     {d}
@@ -1967,6 +2228,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
       </div>
     )
   }
@@ -2121,12 +2383,12 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+        <div className="bg-blue-50 border border-blue-200 rounded-[10px] p-3 text-xs text-blue-800">
           These settings are global/session-level controls for simulation and cumulative budget, not per-command controls.
           Check the manual for exact enforcement semantics and examples.
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Cumulative Budget</div>
           <div className="flex items-center gap-3 text-sm">
             <label className="flex items-center gap-2">
@@ -2145,7 +2407,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={limits.max_total_operations ?? ''}
                 onChange={(e) => setLimits('max_total_operations', e.target.value)}
               />
@@ -2155,7 +2417,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={limits.max_unique_paths ?? ''}
                 onChange={(e) => setLimits('max_unique_paths', e.target.value)}
               />
@@ -2167,12 +2429,12 @@ export default function App() {
                   type="number"
                   min={0}
                   step="0.01"
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  className="w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                   value={bytesDisplay}
                   onChange={(e) => onBytesDisplayChange(e.target.value)}
                 />
                 <select
-                  className="border border-slate-300 rounded-lg px-2 py-2 text-sm"
+                  className="border border-slate-300 rounded-[10px] px-2 py-2 text-sm"
                   value={budgetBytesUnit}
                   onChange={(e) => setBudgetBytesUnit(e.target.value)}
                 >
@@ -2192,7 +2454,7 @@ export default function App() {
               Commands included (comma-separated)
               <input
                 type="text"
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
                 value={commandsIncluded}
                 onChange={(e) => {
                   const values = e.target.value
@@ -2225,7 +2487,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Cumulative Budget Reset</div>
           <div className="text-[11px] text-slate-500">
             Operations older than the configured window are removed from budget calculation.
@@ -2236,7 +2498,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reset.window_seconds ?? 3600}
                 onChange={(e) => setReset({ window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2246,7 +2508,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reset.idle_reset_seconds ?? 900}
                 onChange={(e) => setReset({ idle_reset_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2254,7 +2516,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Simulation Controls</div>
           <div className="text-[11px] text-slate-500">
             Configures retry and blast-radius thresholds for commands under simulation policy.
@@ -2265,7 +2527,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={simulation.max_retries ?? 0}
                 onChange={(e) => setSimulation({ max_retries: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2275,7 +2537,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={simulation.bulk_file_threshold ?? 0}
                 onChange={(e) => setSimulation({ bulk_file_threshold: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2283,7 +2545,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Backup & Restore</div>
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
@@ -2324,7 +2586,7 @@ export default function App() {
               Backup allowed tools (comma-separated)
               <input
                 type="text"
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
                 value={allowedToolsText}
                 onChange={(e) => {
                   const values = e.target.value
@@ -2340,7 +2602,7 @@ export default function App() {
               <input
                 type="number"
                 min={30}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={restore.confirmation_ttl_seconds ?? 300}
                 onChange={(e) => setRestore({ confirmation_ttl_seconds: Math.max(30, parseInt(e.target.value, 10) || 30) })}
               />
@@ -2349,7 +2611,7 @@ export default function App() {
               Backup root
               <input
                 type="text"
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
                 value={audit.backup_root ?? ''}
                 onChange={(e) => setAudit({ backup_root: e.target.value })}
               />
@@ -2359,7 +2621,7 @@ export default function App() {
               <input
                 type="number"
                 min={1}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={audit.max_versions_per_file ?? 5}
                 onChange={(e) => setAudit({ max_versions_per_file: Math.max(1, parseInt(e.target.value, 10) || 1) })}
               />
@@ -2369,7 +2631,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={audit.backup_retention_days ?? 30}
                 onChange={(e) => setAudit({ backup_retention_days: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2377,7 +2639,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Execution Limits</div>
           <div className="text-[11px] text-slate-500">
             Sets safety limits for command runtime duration and output size.
@@ -2388,7 +2650,7 @@ export default function App() {
               <input
                 type="number"
                 min={1}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={execution.max_command_timeout_seconds ?? 30}
                 onChange={(e) => setExecution({ max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
               />
@@ -2398,7 +2660,7 @@ export default function App() {
               <input
                 type="number"
                 min={1024}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={execution.max_output_chars ?? 200000}
                 onChange={(e) => setExecution({ max_output_chars: Math.max(1024, parseInt(e.target.value, 10) || 1024) })}
               />
@@ -2425,9 +2687,9 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Whitelisted Commands Limits</div>
-          <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+          <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[10px] p-2">
             Applies to commands not explicitly configured as blocked, simulation-gated, or approval-gated.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -2436,7 +2698,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={allowed.max_file_size_mb ?? 10}
                 onChange={(e) => setAllowed({ max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2446,7 +2708,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={allowed.max_files_per_operation ?? 10}
                 onChange={(e) => setAllowed({ max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2454,7 +2716,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Approval Security Settings</div>
           <div className="text-[11px] text-slate-500">
             Controls token security and failed-approval throttling for commands requiring human approval.
@@ -2465,7 +2727,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={approvalSecurity.max_failed_attempts_per_token ?? 5}
                 onChange={(e) => setConfirmationSecurity({ max_failed_attempts_per_token: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2475,7 +2737,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={approvalSecurity.failed_attempt_window_seconds ?? 600}
                 onChange={(e) => setConfirmationSecurity({ failed_attempt_window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2485,7 +2747,7 @@ export default function App() {
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={approvalSecurity.token_ttl_seconds ?? 600}
                 onChange={(e) => setConfirmationSecurity({ token_ttl_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
@@ -2493,7 +2755,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Reports Settings</div>
           <div className="text-[11px] text-slate-500">
             Controls reports ingestion cadence and retention for reports.db.
@@ -2514,7 +2776,7 @@ export default function App() {
               <input
                 type="number"
                 min={1}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reportsCfg.ingest_poll_interval_seconds ?? 5}
                 onChange={(e) => setReportsConfig({ ingest_poll_interval_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
               />
@@ -2524,7 +2786,7 @@ export default function App() {
               <input
                 type="number"
                 min={60}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reportsCfg.reconcile_interval_seconds ?? 3600}
                 onChange={(e) => setReportsConfig({ reconcile_interval_seconds: Math.max(60, parseInt(e.target.value, 10) || 60) })}
               />
@@ -2534,7 +2796,7 @@ export default function App() {
               <input
                 type="number"
                 min={300}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reportsCfg.prune_interval_seconds ?? 86400}
                 onChange={(e) => setReportsConfig({ prune_interval_seconds: Math.max(300, parseInt(e.target.value, 10) || 300) })}
               />
@@ -2544,7 +2806,7 @@ export default function App() {
               <input
                 type="number"
                 min={1}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reportsCfg.retention_days ?? 30}
                 onChange={(e) => setReportsConfig({ retention_days: Math.max(1, parseInt(e.target.value, 10) || 1) })}
               />
@@ -2554,7 +2816,7 @@ export default function App() {
               <input
                 type="number"
                 min={10}
-                className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 value={reportsCfg.max_db_size_mb ?? 200}
                 onChange={(e) => setReportsConfig({ max_db_size_mb: Math.max(10, parseInt(e.target.value, 10) || 10) })}
               />
@@ -2562,12 +2824,12 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Log Redaction</div>
           <label className="text-xs text-slate-600 block">
             Redact patterns (one regex per line)
             <textarea
-              className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono h-28"
+              className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-xs font-mono h-28"
               value={redactPatternsText}
               onChange={(e) => {
                 const values = e.target.value
@@ -2737,7 +2999,7 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-sm font-semibold text-slate-800">Agent Overrides</div>
           <div className="text-xs text-slate-600">
             Baseline policy remains global. Agent overrides apply only to: <span className="font-mono">blocked, requires_confirmation, requires_simulation, allowed, network, execution</span>.
@@ -2748,7 +3010,7 @@ export default function App() {
               <select
                 value={overrideAgentId}
                 onChange={(e) => setOverrideAgentId(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                className="border border-slate-300 rounded-[10px] px-3 py-2 text-sm bg-white"
               >
                 <option value="">Select agent…</option>
                 {knownAgentIds.map((id) => (
@@ -2763,14 +3025,14 @@ export default function App() {
               <button
                 onClick={summarizeQuickDiff}
                 disabled={!overrideAgentId}
-                className="px-3 py-1.5 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 text-sm disabled:opacity-50"
+                className="px-3 py-1.5 rounded-[10px] border border-blue-300 text-blue-700 bg-blue-50 text-sm disabled:opacity-50"
               >
                 Quick Diff
               </button>
               <button
                 onClick={resetAgentOverrides}
                 disabled={!overrideAgentId}
-                className="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 text-sm disabled:opacity-50"
+                className="px-3 py-1.5 rounded-[10px] border border-amber-300 text-amber-700 bg-amber-50 text-sm disabled:opacity-50"
               >
                 Reset to Inherited
               </button>
@@ -2782,7 +3044,7 @@ export default function App() {
         </div>
 
         {!overrideAgentId && (
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-sm text-slate-600">
+          <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm text-sm text-slate-600">
             Select an existing agent to edit override sections. Create agents in Settings → Agents.
           </div>
         )}
@@ -2795,7 +3057,7 @@ export default function App() {
               const effective = enabled ? 'Overridden' : 'Inherited'
               const sectionData = sectionValue(section)
               return (
-                <div key={section} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-2">
+                <div key={section} className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <button onClick={() => toggleExpanded(section)} className="text-sm font-semibold text-slate-800 hover:text-slate-900">
@@ -2830,7 +3092,7 @@ export default function App() {
                   {expanded && section === 'blocked' && (
                     <div className="space-y-3">
                       {['commands', 'paths', 'extensions'].map((field) => (
-                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div key={field} className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                           <div className="text-xs font-semibold text-slate-700 capitalize">{field}</div>
                           <div className="flex gap-2">
                             <input
@@ -2838,7 +3100,7 @@ export default function App() {
                               onChange={(e) => setOverrideListInputs((prev) => ({ ...prev, [`${section}.${field}`]: e.target.value }))}
                               className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono"
                             />
-                            <button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button>
+                            <button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button>
                           </div>
                           <div className="flex flex-wrap gap-1">
                             {((sectionData?.[field]) || []).map((item) => (
@@ -2854,11 +3116,11 @@ export default function App() {
                   )}
                   {expanded && section === 'allowed' && (
                     <div className="space-y-3">
-                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                      <div className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">paths_whitelist</div>
                         <div className="flex gap-2">
                           <input value={overrideListInputs['allowed.paths_whitelist'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'allowed.paths_whitelist': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" />
-                          <button onClick={() => updateListField('allowed', 'paths_whitelist')} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button>
+                          <button onClick={() => updateListField('allowed', 'paths_whitelist')} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button>
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {(sectionData?.paths_whitelist || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('allowed', 'paths_whitelist', item)} className="text-red-600">×</button></span>)}
@@ -2874,9 +3136,9 @@ export default function App() {
                   {expanded && section === 'requires_confirmation' && (
                     <div className="space-y-3">
                       {['commands', 'paths'].map((field) => (
-                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div key={field} className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                           <div className="text-xs font-semibold text-slate-700 capitalize">{field}</div>
-                          <div className="flex gap-2"><input value={overrideListInputs[`${section}.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`${section}.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                          <div className="flex gap-2"><input value={overrideListInputs[`${section}.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`${section}.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField(section, field)} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button></div>
                           <div className="flex flex-wrap gap-1">{((sectionData?.[field]) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField(section, field, item)} className="text-red-600">×</button></span>)}</div>
                         </div>
                       ))}
@@ -2884,9 +3146,9 @@ export default function App() {
                   )}
                   {expanded && section === 'requires_simulation' && (
                     <div className="space-y-3">
-                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                      <div className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">commands</div>
-                        <div className="flex gap-2"><input value={overrideListInputs['requires_simulation.commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'requires_simulation.commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('requires_simulation', 'commands')} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                        <div className="flex gap-2"><input value={overrideListInputs['requires_simulation.commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'requires_simulation.commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('requires_simulation', 'commands')} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button></div>
                         <div className="flex flex-wrap gap-1">{((sectionData?.commands) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('requires_simulation', 'commands', item)} className="text-red-600">×</button></span>)}</div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -2902,9 +3164,9 @@ export default function App() {
                       </div>
                       <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.block_unknown_domains)} onChange={(e) => setSectionValue('network', { ...sectionData, block_unknown_domains: e.target.checked })} /> block_unknown_domains</label>
                       {['commands', 'allowed_domains', 'blocked_domains'].map((field) => (
-                        <div key={field} className="border border-slate-200 rounded-lg p-2 space-y-2">
+                        <div key={field} className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                           <div className="text-xs font-semibold text-slate-700">{field}</div>
-                          <div className="flex gap-2"><input value={overrideListInputs[`network.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`network.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('network', field, field.includes('domains') ? normalizeDomain : (v) => v)} className="px-2 py-1 rounded bg-brand text-white text-xs">Add</button></div>
+                          <div className="flex gap-2"><input value={overrideListInputs[`network.${field}`] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, [`network.${field}`]: e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('network', field, field.includes('domains') ? normalizeDomain : (v) => v)} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button></div>
                           <div className="flex flex-wrap gap-1">{((sectionData?.[field]) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('network', field, item)} className="text-red-600">×</button></span>)}</div>
                         </div>
                       ))}
@@ -2916,7 +3178,7 @@ export default function App() {
                         <label className="text-xs">Max command timeout seconds<input type="number" min={1} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_command_timeout_seconds ?? 30} onChange={(e) => setSectionValue('execution', { ...sectionData, max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
                         <label className="text-xs">Max output chars<input type="number" min={1024} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_output_chars ?? 200000} onChange={(e) => setSectionValue('execution', { ...sectionData, max_output_chars: Math.max(1024, parseInt(e.target.value, 10) || 1024) })} /></label>
                       </div>
-                      <div className="border border-slate-200 rounded-lg p-2 space-y-2">
+                      <div className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">shell_workspace_containment</div>
                         <div className="flex gap-3 text-xs">{['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.shell_workspace_containment?.mode || 'off') === mode} onChange={() => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), mode } })} /> <span className="font-mono">{mode}</span></label>)}</div>
                         <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.shell_workspace_containment?.log_paths)} onChange={(e) => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), log_paths: e.target.checked } })} /> log_paths</label>
@@ -2927,7 +3189,7 @@ export default function App() {
                           const nextList = Array.from(new Set([...(current.exempt_commands || []), raw]))
                           setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...current, exempt_commands: nextList } })
                           setOverrideListInputs((p) => ({ ...p, 'execution.shell_workspace_containment.exempt_commands': '' }))
-                        }} className="px-2 py-1 rounded bg-brand text-white text-xs">Add exempt command</button></div>
+                        }} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add exempt command</button></div>
                         <div className="flex flex-wrap gap-1">{((sectionData?.shell_workspace_containment?.exempt_commands) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => {
                           const current = sectionData?.shell_workspace_containment || {}
                           const nextList = (current.exempt_commands || []).filter((x) => x !== item)
@@ -2948,42 +3210,13 @@ export default function App() {
   function PolicyPanel() {
     return (
       <>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 flex flex-wrap items-center justify-end gap-2">
-          <button onClick={onReload} className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700">Reload</button>
-          <button
-            onClick={onValidate}
-            className={`px-4 py-2 rounded-lg text-white ${validateButtonState === 'success' ? 'bg-green-600' : 'bg-blue-600'}`}
-          >
-            {validateButtonState === 'success' ? 'OK' : 'Validate'}
-          </button>
-          <button
-            onClick={onApply}
-            className={`px-4 py-2 rounded-lg text-white ${applyButtonState === 'success' ? 'bg-green-600' : 'bg-brand'}`}
-          >
-            {applyButtonState === 'success' ? 'Applied' : 'Apply'}
-          </button>
-          <button
-            onClick={onRevertLastApply}
-            disabled={!hasRevertSnapshot}
-            className="px-4 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Revert Last Apply
-          </button>
-          <button
-            onClick={onResetDefaults}
-            disabled={!hasDefaultSnapshot}
-            className="px-4 py-2 rounded-lg border border-red-300 bg-red-50 text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Reset to Defaults
-          </button>
-        </div>
         {activePolicyTab === 'commands' && CommandsPanel()}
         {activePolicyTab === 'paths' && PathsPanel()}
         {activePolicyTab === 'extensions' && ExtensionsPanel()}
         {activePolicyTab === 'network' && NetworkPanel()}
         {activePolicyTab === 'agent_overrides' && AgentOverridesPanel()}
         {activePolicyTab === 'advanced' && AdvancedPolicyPanel()}
-        <div className="mt-4 bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+        <div className="mt-4 bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
           <button onClick={() => setJsonOpen((x) => !x)} className="text-sm font-medium text-slate-700">
             {jsonOpen ? '▾' : '▸'} Advanced JSON
           </button>
@@ -2991,7 +3224,7 @@ export default function App() {
             <textarea
               value={jsonText}
               onChange={(e) => onJsonChange(e.target.value)}
-              className="mt-3 w-full h-72 border border-slate-300 rounded-lg p-3 font-mono text-xs"
+              className="mt-3 w-full h-72 border border-slate-300 rounded-[10px] p-3 font-mono text-xs"
             />
           )}
           {jsonError && <div className="mt-2 text-sm text-red-600">{jsonError}</div>}
@@ -3001,6 +3234,14 @@ export default function App() {
   }
 
   function SettingsPanel() {
+    const postureRows = agentPosture?.profiles || []
+    const postureTotals = agentPosture?.totals || { green: 0, yellow: 0, red: 0 }
+    const postureDiscovered = agentPosture?.discovered_unregistered || []
+    const postureStatusLabel = {
+      green: 'Hardened',
+      yellow: 'Partial',
+      red: 'Unprotected',
+    }
     const workspaceHints = Array.from(
       new Set(
         [runtimePaths.AIRG_WORKSPACE, ...agentProfiles.map((p) => p.workspace || '')]
@@ -3039,9 +3280,29 @@ export default function App() {
       setAgentProfiles((prev) => [...prev, emptyProfile()])
     }
 
+    const duplicateAgentIdForProfile = (profile) => {
+      const currentId = String(profile?.agent_id || '').trim()
+      const currentProfileId = String(profile?.profile_id || '').trim()
+      if (!currentId) return ''
+      const duplicate = (agentProfiles || []).some((item) => {
+        const otherProfileId = String(item?.profile_id || '').trim()
+        const otherAgentId = String(item?.agent_id || '').trim()
+        if (!otherAgentId) return false
+        if (otherProfileId === currentProfileId) return false
+        return otherAgentId === currentId
+      })
+      return duplicate ? currentId : ''
+    }
+
     const saveRow = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
+      const duplicateId = duplicateAgentIdForProfile(profile)
+      if (duplicateId) {
+        setSettingsError(`Duplicate agent_id: ${duplicateId}. Agent IDs must be unique.`)
+        setSettingsLoading(false)
+        return
+      }
       const profileId = String(profile?.profile_id || '')
       const dirtyBeforeSave = isProfileDirty(profile)
       const hadSavedConfig = Boolean(profile?.last_saved_path)
@@ -3094,6 +3355,12 @@ export default function App() {
     const copyJson = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
+      const duplicateId = duplicateAgentIdForProfile(profile)
+      if (duplicateId) {
+        setSettingsError(`Duplicate agent_id: ${duplicateId}. Agent IDs must be unique.`)
+        setSettingsLoading(false)
+        return
+      }
       try {
         await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
@@ -3112,6 +3379,12 @@ export default function App() {
     const copyCli = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
+      const duplicateId = duplicateAgentIdForProfile(profile)
+      if (duplicateId) {
+        setSettingsError(`Duplicate agent_id: ${duplicateId}. Agent IDs must be unique.`)
+        setSettingsLoading(false)
+        return
+      }
       try {
         await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
@@ -3202,9 +3475,114 @@ export default function App() {
       }
     }
 
+    const setProfileActionLoading = (profileId, value) => {
+      setAgentConfigActionLoading((prev) => ({ ...prev, [profileId]: value }))
+    }
+
+    const applyHardeningForProfile = async (row, { autoAddMcp = false } = {}) => {
+      const profileId = String(row?.profile_id || '').trim()
+      if (!profileId) return
+      setProfileActionLoading(profileId, true)
+      setSettingsError('')
+      try {
+        const payload = await applyAgentConfigHardening(profileId, { autoAddMcp })
+        const diffSummary = Array.isArray(payload?.diff_summary) ? payload.diff_summary : []
+        setMessage(`Hardening applied for ${row?.name || row?.agent_id || profileId}`)
+        setCopyAssistModal({
+          open: true,
+          title: `Hardening Diff · ${row?.name || row?.agent_id || profileId}`,
+          content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG hardening baseline.',
+        })
+      } catch (err) {
+        const payload = err?.payload || {}
+        if (payload?.requires_mcp) {
+          const confirmAutoAdd = window.confirm(
+            `AIRG MCP server was not detected for ${row?.name || row?.agent_id || profileId}.\n\nAdd AIRG MCP to workspace .mcp.json and continue?`
+          )
+          if (confirmAutoAdd) {
+            try {
+              const retry = await applyAgentConfigHardening(profileId, { autoAddMcp: true })
+              const diffSummary = Array.isArray(retry?.diff_summary) ? retry.diff_summary : []
+              setMessage(`Hardening applied for ${row?.name || row?.agent_id || profileId} (MCP auto-added)`)
+              setCopyAssistModal({
+                open: true,
+                title: `Hardening Diff · ${row?.name || row?.agent_id || profileId}`,
+                content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG hardening baseline.',
+              })
+            } catch (retryErr) {
+              setSettingsError(String(retryErr.message || retryErr))
+            }
+          } else {
+            setSettingsError(String(err.message || err))
+          }
+        } else {
+          setSettingsError(String(err.message || err))
+        }
+      } finally {
+        setProfileActionLoading(profileId, false)
+      }
+    }
+
+    const undoHardeningForProfile = async (row) => {
+      const profileId = String(row?.profile_id || '').trim()
+      if (!profileId) return
+      if (!window.confirm(`Undo last AIRG hardening apply for ${row?.name || row?.agent_id || profileId}?`)) return
+      setProfileActionLoading(profileId, true)
+      setSettingsError('')
+      try {
+        const payload = await undoAgentConfigHardening(profileId)
+        setMessage(`Undo completed for ${row?.name || row?.agent_id || profileId}`)
+        setCopyAssistModal({
+          open: true,
+          title: `Hardening Undo · ${row?.name || row?.agent_id || profileId}`,
+          content: `Restored ${payload?.undone_changes || 0} file change(s) from AIRG backup state.`,
+        })
+      } catch (err) {
+        setSettingsError(String(err.message || err))
+      } finally {
+        setProfileActionLoading(profileId, false)
+      }
+    }
+
+    const hookSnippet = `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "airg-hook" }
+        ]
+      }
+    ]
+  }
+}`
+
+    const claudeHardenSnippet = `{
+  "permissions": {
+    "deny": ["Bash", "Write", "Edit", "MultiEdit"],
+    "allow": [
+      "mcp__ai-runtime-guard__execute_command",
+      "mcp__ai-runtime-guard__write_file",
+      "mcp__ai-runtime-guard__read_file",
+      "mcp__ai-runtime-guard__list_directory",
+      "mcp__ai-runtime-guard__restore_backup",
+      "Read",
+      "Glob",
+      "Grep",
+      "LS",
+      "Task",
+      "WebSearch"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false
+  }
+}`
+
     if (activeSettingsTab === 'advanced') {
       return (
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm text-slate-600 text-sm">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-6 shadow-sm text-slate-600 text-sm">
           <div className="font-semibold text-slate-800 mb-2">Advanced Settings</div>
           <div>This section is reserved for future global settings and adapter behavior controls.</div>
         </div>
@@ -3213,13 +3591,13 @@ export default function App() {
 
     return (
       <div className="space-y-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="text-sm font-semibold text-slate-800">Configured Agents</div>
               <div className="text-xs text-slate-500">Save generates and stores MCP config in runtime state.</div>
             </div>
-            <button onClick={addProfileRow} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm bg-white hover:bg-slate-50">Add Agent</button>
+            <button onClick={addProfileRow} className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-sm bg-white hover:bg-slate-50">Add Agent</button>
           </div>
 
           <div className="overflow-x-auto">
@@ -3230,12 +3608,12 @@ export default function App() {
                   <th className="py-2 px-2">Profile Name</th>
                   <th className="py-2 px-2">Agent ID</th>
                   <th className="py-2 px-2">Workspace</th>
-                  <th className="py-2 px-2 text-center">💾</th>
-                  <th className="py-2 px-2 text-center">📂</th>
-                  <th className="py-2 px-2 text-center">📋 JSON</th>
-                  <th className="py-2 px-2 text-center">⌨️ CLI</th>
-                  <th className="py-2 px-2 text-center">ℹ️</th>
-                  <th className="py-2 pl-3 text-center border-l-2 border-slate-300">🗑️</th>
+                  <th className="py-2 px-2 text-center"><div className="flex justify-center"><UiIcon kind="save" /></div></th>
+                  <th className="py-2 px-2 text-center"><div className="flex justify-center"><UiIcon kind="folder" /></div></th>
+                  <th className="py-2 px-2 text-center"><div className="flex items-center justify-center gap-1"><UiIcon kind="copy" /><span>JSON</span></div></th>
+                  <th className="py-2 px-2 text-center"><div className="flex items-center justify-center gap-1"><UiIcon kind="terminal" /><span>CLI</span></div></th>
+                  <th className="py-2 px-2 text-center"><div className="flex justify-center"><UiIcon kind="info" /></div></th>
+                  <th className="py-2 pl-3 text-center border-l-2 border-slate-300"><div className="flex justify-center"><UiIcon kind="trash" /></div></th>
                 </tr>
               </thead>
               <tbody>
@@ -3301,33 +3679,33 @@ export default function App() {
                         )}
                       </td>
                       <td className="py-2 px-2 text-center align-top">
-                        <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => saveRow(profile)} title="Save + generate + store">
-                          💾
+                        <button className="px-2 py-1 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50" onClick={() => saveRow(profile)} title="Save + generate + store">
+                          <UiIcon kind="save" />
                         </button>
                       </td>
                       <td className="py-2 px-2 text-center align-top">
-                        <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50" onClick={() => openConfig(profile)} disabled={!profile.last_saved_path} title="Open configuration file">
-                          📂
+                        <button className="px-2 py-1 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 disabled:opacity-50" onClick={() => openConfig(profile)} disabled={!profile.last_saved_path} title="Open configuration file">
+                          <UiIcon kind="folder" />
                         </button>
                       </td>
                       <td className="py-2 px-2 text-center align-top">
-                        <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => copyJson(profile)} title="Copy JSON to clipboard">
-                          📋
+                        <button className="px-2 py-1 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50" onClick={() => copyJson(profile)} title="Copy JSON to clipboard">
+                          <UiIcon kind="copy" />
                         </button>
                       </td>
                       <td className="py-2 px-2 text-center align-top">
-                        <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => copyCli(profile)} title="Copy CLI command to clipboard">
-                          ⌨️
+                        <button className="px-2 py-1 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50" onClick={() => copyCli(profile)} title="Copy CLI command to clipboard">
+                          <UiIcon kind="terminal" />
                         </button>
                       </td>
                       <td className="py-2 px-2 text-center align-top">
-                        <button className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50" onClick={() => showInfo(profile)} title="Show instructions">
-                          ℹ️
+                        <button className="px-2 py-1 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50" onClick={() => showInfo(profile)} title="Show instructions">
+                          <UiIcon kind="info" />
                         </button>
                       </td>
                       <td className="py-2 pl-3 text-center border-l-2 border-slate-300 align-top">
-                        <button className="px-2 py-1 border border-red-300 text-red-700 rounded bg-red-50 hover:bg-red-100" onClick={() => deleteRow(profile)} title="Delete profile">
-                          🗑️
+                        <button className="px-2 py-1 border border-red-300 text-red-700 rounded-[10px] bg-red-50 hover:bg-red-100" onClick={() => deleteRow(profile)} title="Delete profile">
+                          <UiIcon kind="trash" className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>
@@ -3346,6 +3724,151 @@ export default function App() {
           </div>
           {settingsError && <div className="text-sm text-red-600 mt-2">{settingsError}</div>}
         </div>
+
+        <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Agent Security Posture</div>
+              <div className="text-xs text-slate-500">Detection plus safe apply/undo for supported agent config targets.</div>
+            </div>
+            <button
+              onClick={fetchAgentPosture}
+              className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-xs bg-white hover:bg-slate-50"
+              disabled={agentPostureLoading}
+            >
+              {agentPostureLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="badge badge-allowed">Green: {postureTotals.green || 0}</span>
+            <span className="badge badge-pending">Yellow: {postureTotals.yellow || 0}</span>
+            <span className="badge badge-blocked">Red: {postureTotals.red || 0}</span>
+          </div>
+
+          {agentPostureError && <div className="text-sm text-red-600 mb-2">{agentPostureError}</div>}
+
+          <div className="posture-grid">
+            {postureRows.map((row, idx) => {
+              const status = String(row?.status || 'red').toLowerCase()
+              const signals = row?.signals || {}
+              const boolSignals = Object.entries(signals).filter(([, v]) => typeof v === 'boolean')
+              return (
+                <div key={`posture-${row.profile_id || row.agent_id || idx}`} className={`posture-card ${status}`}>
+                  <div className="posture-card-header">
+                    <div>
+                      <span className="agent-name">{row.name || row.profile_id || 'Unnamed Agent'}</span>
+                      <span className="agent-type">{row.agent_type || 'unknown'}</span>
+                      <div className="text-[11px] text-[var(--text-tertiary)] font-mono mt-1">{row.agent_id || '-'}</div>
+                      <div className="text-[11px] text-[var(--text-secondary)] font-mono break-all">{row.workspace || '-'}</div>
+                    </div>
+                    <span className={`posture-badge ${status}`}>
+                      {postureStatusLabel[status] || 'Unprotected'}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-[var(--text-secondary)] mb-3">{row.rationale || ''}</div>
+                  <div className="posture-signals">
+                    {boolSignals.map(([k, v]) => (
+                      <span key={`${row.profile_id}-${k}`} className="signal-indicator">
+                        <span className={`dot ${v ? 'active' : 'inactive'}`} />
+                        <span>{k.replaceAll('_', ' ')}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  {Array.isArray(row?.missing_controls) && row.missing_controls.length > 0 && (
+                    <div className="posture-recommendations mt-2">
+                      {row.missing_controls.map((item) => (
+                        <span key={`${row.profile_id}-${item}`} className="recommendation-chip">{item}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {['claude_code', 'claude_desktop', 'cursor'].includes(String(row?.agent_type || '').toLowerCase()) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => applyHardeningForProfile(row)}
+                        className="px-2 py-1 border border-slate-300 rounded text-xs bg-white hover:bg-slate-50 disabled:opacity-50"
+                        disabled={Boolean(agentConfigActionLoading[row.profile_id])}
+                      >
+                        {agentConfigActionLoading[row.profile_id] ? 'Applying…' : 'Apply Hardening'}
+                      </button>
+                      <button
+                        onClick={() => undoHardeningForProfile(row)}
+                        className="px-2 py-1 border border-slate-300 rounded text-xs bg-white hover:bg-slate-50 disabled:opacity-50"
+                        disabled={Boolean(agentConfigActionLoading[row.profile_id]) || !Boolean(row?.undo_available)}
+                      >
+                        Undo Last Apply
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {!postureRows.length && !agentPostureLoading && <div className="text-sm text-slate-500 py-4 text-center">No posture data available yet.</div>}
+
+          <div className="mt-3 pt-3 border-t border-slate-200">
+            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Claude Hook Setup Snippet</div>
+            <pre className="text-[11px] font-mono whitespace-pre-wrap break-all bg-slate-50 border border-slate-200 rounded p-2 mb-2">{hookSnippet}</pre>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <button
+                onClick={() => setCopyAssistModal({ open: true, title: 'Claude Hook Setup Snippet', content: hookSnippet })}
+                className="px-2 py-1 border border-slate-300 rounded text-xs bg-white hover:bg-slate-50"
+              >
+                Copy Hook Snippet
+              </button>
+              <button
+                onClick={() => setCopyAssistModal({ open: true, title: 'Claude Baseline Hardening Snippet', content: claudeHardenSnippet })}
+                className="px-2 py-1 border border-slate-300 rounded text-xs bg-white hover:bg-slate-50"
+              >
+                Copy Hardening Snippet
+              </button>
+            </div>
+            <div className="text-xs text-slate-500 mb-3">Dev2 can apply/undo baseline hardening directly for supported profiles. Keep snippets for manual review/customization.</div>
+          </div>
+
+          <div className="mt-1 pt-3 border-t border-slate-200">
+            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Recommended Next Actions</div>
+            {postureRows.length ? (
+              <div className="space-y-2 mb-3">
+                {postureRows.map((row, idx) => (
+                  <div key={`advice-${row.profile_id || idx}`} className="text-xs border border-slate-200 rounded px-2 py-1 bg-slate-50">
+                    <div className="font-medium text-slate-700 mb-1">{row.name || row.profile_id || row.agent_id || 'Agent'}</div>
+                    {Array.isArray(row?.recommended_actions) && row.recommended_actions.length ? (
+                      row.recommended_actions.map((line, ix) => (
+                        <div key={`${row.profile_id || idx}-line-${ix}`} className="text-slate-600">- {line}</div>
+                      ))
+                    ) : (
+                      <div className="text-slate-500">No recommendations.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 mb-3">No posture rows available.</div>
+            )}
+          </div>
+
+          <div className="mt-1 pt-3 border-t border-slate-200">
+            <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Unregistered Agent Configs Detected</div>
+            {postureDiscovered.length ? (
+              <div className="space-y-1">
+                {postureDiscovered.map((item, idx) => (
+                  <div key={`${item.path}-${idx}`} className="text-xs border border-slate-200 rounded px-2 py-1 bg-slate-50">
+                    <span className="font-medium text-slate-700">{item.agent_type || 'agent'}</span>
+                    <span className="text-slate-500"> ({item.scope || 'unknown'})</span>
+                    <div className="font-mono text-[11px] text-slate-600 break-all">{item.path}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500">No additional config files detected outside registered profiles.</div>
+            )}
+          </div>
+        </div>
       </div>
     )
   }
@@ -3356,7 +3879,7 @@ export default function App() {
     const contextsForCmd = contexts[cmd] || []
     return (
       <div className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4" onClick={() => setCommandModal({ open: false, command: '' })}>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
           <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
             <div className="font-semibold text-slate-800">Command Details</div>
             <button className="text-slate-500 hover:text-slate-700" onClick={() => setCommandModal({ open: false, command: '' })}>✕</button>
@@ -3385,7 +3908,7 @@ export default function App() {
     const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
     return (
       <div className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4" onClick={() => setCommandEditModal({ open: false, original: '', command: '', description: '', tabIds: [] })}>
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
             <div className="font-semibold text-slate-800">Edit Command</div>
             <button className="text-slate-500 hover:text-slate-700" onClick={() => setCommandEditModal({ open: false, original: '', command: '', description: '', tabIds: [] })}>✕</button>
@@ -3396,7 +3919,7 @@ export default function App() {
               <input
                 value={commandEditModal.command}
                 onChange={(e) => setCommandEditModal((prev) => ({ ...prev, command: e.target.value }))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono text-xs"
+                className="w-full border border-slate-300 rounded-[10px] px-3 py-2 font-mono text-xs"
               />
             </label>
             <label className="block">
@@ -3404,7 +3927,7 @@ export default function App() {
               <input
                 value={commandEditModal.description}
                 onChange={(e) => setCommandEditModal((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                className="w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
                 placeholder="Description/comment shown in info modal"
               />
             </label>
@@ -3433,12 +3956,12 @@ export default function App() {
           </div>
           <div className="px-4 py-3 border-t border-slate-200 flex justify-end gap-2">
             <button
-              className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700"
+              className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700"
               onClick={() => setCommandEditModal({ open: false, original: '', command: '', description: '', tabIds: [] })}
             >
               Cancel
             </button>
-            <button className="px-3 py-1.5 rounded-lg bg-brand text-white" onClick={saveCommandEdit}>
+            <button className="px-3 py-1.5 rounded-[10px] bg-[#0055ff] text-white" onClick={saveCommandEdit}>
               Save
             </button>
           </div>
@@ -3454,7 +3977,7 @@ export default function App() {
         className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4"
         onClick={() => setValidationErrorModal({ open: false, title: '', details: '' })}
       >
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
             <div className="font-semibold text-red-700">{validationErrorModal.title || 'Validation Error'}</div>
             <button className="text-slate-500 hover:text-slate-700" onClick={() => setValidationErrorModal({ open: false, title: '', details: '' })}>✕</button>
@@ -3481,7 +4004,7 @@ export default function App() {
         className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4"
         onClick={() => setCopyAssistModal({ open: false, title: '', content: '' })}
       >
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
           <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
             <div className="font-semibold text-slate-800">{copyAssistModal.title || 'Copy Content'}</div>
             <button className="text-slate-500 hover:text-slate-700" onClick={() => setCopyAssistModal({ open: false, title: '', content: '' })}>✕</button>
@@ -3491,13 +4014,13 @@ export default function App() {
               ref={copyAssistRef}
               readOnly
               value={copyAssistModal.content || ''}
-              className="w-full h-72 border border-slate-300 rounded-lg p-3 font-mono text-xs"
+              className="w-full h-72 border border-slate-300 rounded-[10px] p-3 font-mono text-xs"
             />
             <div className="flex justify-end gap-2">
-              <button className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700" onClick={onSelectAll}>
+              <button className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700" onClick={onSelectAll}>
                 Select All
               </button>
-              <button className="px-3 py-1.5 rounded-lg bg-brand text-white" onClick={() => setCopyAssistModal({ open: false, title: '', content: '' })}>
+              <button className="px-3 py-1.5 rounded-[10px] bg-[#0055ff] text-white" onClick={() => setCopyAssistModal({ open: false, title: '', content: '' })}>
                 Close
               </button>
             </div>
@@ -3508,76 +4031,84 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f1f3] text-slate-800 font-[system-ui]">
-      <div className="border-b border-slate-200 bg-white/80 backdrop-blur px-5 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Policy Control Plane</h1>
+    <div className='airg-app-shell relative min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] overflow-hidden'>
+      <div className="relative z-10 mx-auto max-w-[1720px] border border-[var(--border-default)] overflow-hidden bg-[var(--bg-app)] shadow-sm h-screen grid grid-cols-[var(--sidebar-width)_1fr]">
+        <aside className="airg-sidebar h-full min-h-0 border-r border-white/10 bg-[var(--bg-sidebar)] flex flex-col">
+          <div className="h-[78px] px-5 border-b border-white/10 flex items-center sidebar-brand">
+            <div className="flex items-center gap-2">
+              <img
+                src={runtimeGuardLogo64}
+                srcSet={`${runtimeGuardLogo64} 1x, ${runtimeGuardLogo128} 2x`}
+                alt="Runtime Guard logo"
+                className="w-8 h-8 object-contain logo-icon"
+              />
+              <div>
+                <div className="text-sm font-semibold text-[var(--text-sidebar-active)] app-name">Runtime Guard</div>
+                <div className="text-xs text-[var(--text-sidebar-heading)] app-subtitle">Policy Control Plane</div>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {unsaved && <span className="text-xs text-amber-700 font-medium flex items-center gap-1 ml-2"><span className="w-2 h-2 rounded-full bg-amber-500" /> Unsaved changes</span>}
+          <nav className="flex-1 min-h-0 overflow-y-auto p-3">
+            {RAIL_ITEMS.map(renderSidebarSection)}
+          </nav>
+          <div className="p-4 border-t border-white/10 sidebar-footer">
+            <div className="rounded-[8px] px-0 py-1 text-xs text-[var(--text-sidebar-heading)] flex items-center gap-2 sidebar-server-status">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-green)] dot" />
+              Server active · v2.0.dev2
+            </div>
           </div>
+        </aside>
+
+        <div className="airg-content flex flex-col min-w-0 min-h-0 bg-[var(--bg-app)]">
+          <div className="h-[78px] px-6 border-b border-[var(--border-default)] bg-[var(--bg-header-bar)] flex items-center justify-between gap-3 page-header">
+            <div className="min-w-0">
+              <div className="text-lg font-semibold text-[var(--text-primary)] title">{pageTitle}</div>
+              <div className="text-xs text-[var(--text-secondary)] mt-0.5 flex flex-wrap items-center gap-3">
+                {policyHash && <span className="font-mono hash">hash {String(policyHash).slice(0, 12)}</span>}
+                {unsaved && <span className="inline-flex items-center gap-1 text-[var(--status-amber)]"><span className="w-1.5 h-1.5 rounded-full bg-[var(--status-amber)]" />Unsaved changes</span>}
+              </div>
+            </div>
+            {activeRail === 'policy' && (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button onClick={onReload} className="btn btn-ghost">Reload</button>
+                <button
+                  onClick={onValidate}
+                  className={`btn ${validateButtonState === 'success' ? 'btn-success-filled' : 'btn-success'}`}
+                >
+                  {validateButtonState === 'success' ? 'OK' : 'Validate'}
+                </button>
+                <button
+                  onClick={onApply}
+                  className={`btn ${applyButtonState === 'success' ? 'btn-success-filled' : 'btn-primary'}`}
+                >
+                  {applyButtonState === 'success' ? 'Applied' : 'Apply'}
+                </button>
+                <button
+                  onClick={onRevertLastApply}
+                  disabled={!hasRevertSnapshot}
+                  className="btn btn-ghost disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Revert
+                </button>
+                <button
+                  onClick={onResetDefaults}
+                  disabled={!hasDefaultSnapshot}
+                  className="btn btn-danger disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Reset
+                </button>
+              </div>
+            )}
+          </div>
+
+          <main className="page-body flex-1 min-h-0 overflow-y-auto p-6">
+            {!loaded && <div className="text-slate-500">Loading...</div>}
+            {loaded && activeRail === 'approvals' && ApprovalsPanel()}
+            {loaded && activeRail === 'policy' && PolicyPanel()}
+            {loaded && activeRail === 'reports' && ReportsPanel()}
+            {loaded && activeRail === 'settings' && SettingsPanel()}
+          </main>
         </div>
-      </div>
-
-      <div className="grid grid-cols-[96px_170px_1fr] gap-0 min-h-[calc(100vh-84px)]">
-        <nav className="border-r border-slate-200 p-2 bg-white">
-          <div className="space-y-2">
-            {renderRailItem(RAIL_ITEMS[0])}
-          </div>
-          <div className="my-3 border-t border-slate-200" />
-          <div className="space-y-2">
-            {RAIL_ITEMS.slice(1).map(renderRailItem)}
-          </div>
-        </nav>
-
-        {activeRail === 'policy' ? (
-          <aside className="border-r border-slate-200 bg-white p-3 space-y-2">
-            {POLICY_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActivePolicyTab(tab.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${activePolicyTab === tab.id ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </aside>
-        ) : activeRail === 'reports' ? (
-          <aside className="border-r border-slate-200 bg-white p-3 space-y-2">
-            {REPORT_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setReportsTab(tab.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${reportsTab === tab.id ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </aside>
-        ) : activeRail === 'settings' ? (
-          <aside className="border-r border-slate-200 bg-white p-3 space-y-2">
-            {SETTINGS_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveSettingsTab(tab.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${activeSettingsTab === tab.id ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </aside>
-        ) : (
-          <aside className="border-r border-slate-200 bg-white p-3" />
-        )}
-
-        <main className="p-4">
-          {!loaded && <div className="text-slate-500">Loading...</div>}
-          {loaded && activeRail === 'approvals' && ApprovalsPanel()}
-          {loaded && activeRail === 'policy' && PolicyPanel()}
-          {loaded && activeRail === 'reports' && ReportsPanel()}
-          {loaded && activeRail === 'settings' && SettingsPanel()}
-        </main>
       </div>
       {CommandInfoModal()}
       {CommandEditModal()}

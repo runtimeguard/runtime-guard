@@ -1,0 +1,120 @@
+import json
+import pathlib
+import tempfile
+import unittest
+
+import agent_configurator
+
+
+class AgentConfiguratorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = pathlib.Path(self.tmp.name)
+        self.workspace = self.base / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.paths = {
+            "policy_path": self.base / "policy.json",
+            "approval_db_path": self.base / "state" / "approvals.db",
+            "approval_hmac_key_path": self.base / "state" / "approvals.db.hmac.key",
+            "log_path": self.base / "state" / "activity.log",
+            "reports_db_path": self.base / "state" / "reports.db",
+        }
+        self.paths["approval_db_path"].parent.mkdir(parents=True, exist_ok=True)
+        self.paths["policy_path"].write_text("{}\n")
+        self.paths["approval_hmac_key_path"].write_text("hmac\n")
+        self.paths["log_path"].write_text("\n")
+        self.paths["reports_db_path"].write_text("\n")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_claude_apply_requires_mcp_without_auto_add(self) -> None:
+        profile = {
+            "profile_id": "p-claude",
+            "agent_type": "claude_code",
+            "workspace": str(self.workspace),
+            "agent_id": "claude-code-1",
+        }
+        result = agent_configurator.apply_hardening(self.paths, profile, auto_add_mcp=False)
+        self.assertFalse(result.get("ok"))
+        self.assertTrue(result.get("requires_mcp"))
+
+    def test_claude_apply_auto_add_mcp_and_undo(self) -> None:
+        profile = {
+            "profile_id": "p-claude",
+            "agent_type": "claude_code",
+            "workspace": str(self.workspace),
+            "agent_id": "claude-code-1",
+        }
+        settings_local = self.workspace / ".claude" / "settings.local.json"
+        settings_local.parent.mkdir(parents=True, exist_ok=True)
+        original_settings = {
+            "permissions": {
+                "deny": ["Read"],
+                "allow": ["Task"],
+            },
+            "sandbox": {
+                "enabled": False,
+                "allowUnsandboxedCommands": True,
+            },
+        }
+        settings_local.write_text(json.dumps(original_settings, indent=2))
+
+        applied = agent_configurator.apply_hardening(self.paths, profile, auto_add_mcp=True)
+        self.assertTrue(applied.get("ok"), msg=applied)
+        self.assertTrue(agent_configurator.undo_available(self.paths, "p-claude"))
+
+        merged_settings = json.loads(settings_local.read_text())
+        deny = merged_settings.get("permissions", {}).get("deny", [])
+        self.assertIn("Bash", deny)
+        self.assertIn("Write", deny)
+        self.assertIn("Edit", deny)
+        self.assertIn("MultiEdit", deny)
+        self.assertIn("Read", deny)
+        self.assertFalse(merged_settings.get("sandbox", {}).get("allowUnsandboxedCommands", True))
+        self.assertTrue(merged_settings.get("sandbox", {}).get("enabled", False))
+
+        workspace_mcp = self.workspace / ".mcp.json"
+        self.assertTrue(workspace_mcp.exists())
+        mcp_payload = json.loads(workspace_mcp.read_text())
+        self.assertIn("ai-runtime-guard", mcp_payload.get("mcpServers", {}))
+
+        undone = agent_configurator.undo_hardening(self.paths, profile)
+        self.assertTrue(undone.get("ok"), msg=undone)
+        self.assertFalse(agent_configurator.undo_available(self.paths, "p-claude"))
+        self.assertEqual(json.loads(settings_local.read_text()), original_settings)
+        self.assertFalse(workspace_mcp.exists())
+
+    def test_cursor_apply_and_undo_restores_file(self) -> None:
+        profile = {
+            "profile_id": "p-cursor",
+            "agent_type": "cursor",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-agent",
+        }
+        cursor_mcp = self.workspace / ".cursor" / "mcp.json"
+        cursor_mcp.parent.mkdir(parents=True, exist_ok=True)
+        original = {
+            "mcpServers": {
+                "existing": {
+                    "command": "node",
+                    "args": ["server.js"],
+                }
+            }
+        }
+        cursor_mcp.write_text(json.dumps(original, indent=2))
+
+        applied = agent_configurator.apply_hardening(self.paths, profile)
+        self.assertTrue(applied.get("ok"), msg=applied)
+
+        merged = json.loads(cursor_mcp.read_text())
+        self.assertIn("existing", merged.get("mcpServers", {}))
+        self.assertIn("ai-runtime-guard", merged.get("mcpServers", {}))
+
+        undone = agent_configurator.undo_hardening(self.paths, profile)
+        self.assertTrue(undone.get("ok"), msg=undone)
+        self.assertEqual(json.loads(cursor_mcp.read_text()), original)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -2,6 +2,48 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-19 (v2.0.dev2 config-writer apply/undo)
+- Added dev2 agent config writer module:
+  - `src/agent_configurator.py`
+  - safe write with `.airg-backup` snapshots and post-write verification
+  - per-profile undo state tracking in runtime state.
+- Added backend apply/undo endpoints for agent hardening:
+  - `POST /settings/agents/config-apply`
+  - `POST /settings/agents/config-undo`
+  - automatic posture response refresh after apply/undo.
+- Added Claude preflight behavior before deny-rule apply:
+  - checks AIRG MCP presence in known Claude MCP config paths
+  - optional workspace `.mcp.json` auto-add path when operator confirms.
+- Added UI actions under `Settings -> Agents -> Agent Security Posture`:
+  - `Apply Hardening` per supported profile (`claude_code`, `claude_desktop`, `cursor`)
+  - `Undo Last Apply` using stored AIRG backup state
+  - diff summary modal after apply.
+- Added configurator unit tests:
+  - `tests/test_agent_configurator.py`.
+- Bumped package/dev surface version to `2.0.dev2`.
+
+## 2026-03-19 (v2.0.dev1 posture + hook foundation)
+- Added read-only Agent Security Posture under `Settings -> Agents`:
+  - traffic-light totals (`green/yellow/red`)
+  - per-agent posture rows with rationale + signal chips
+  - missing-control summary + recommended next actions
+  - detected unregistered local agent config files.
+- Added posture backend module and endpoints:
+  - `src/agent_posture.py`
+  - `GET /settings/agents/posture`
+  - `GET /settings/agents/detect`
+- Standardized posture API response contract:
+  - includes `ok`, `errors`, `profiles`, `totals`, `discovered_unregistered`.
+- Added `airg-hook` standalone PreToolUse interceptor:
+  - deterministic redirect mapping for `Bash/Write/Edit/MultiEdit`
+  - sensitive native `Read` path block guard (`.env/.key/.pem` + `/secrets/`)
+  - fail-open safety on runtime/parser errors
+  - structured `hook_activity.log` events.
+- Added `airg-hook` package entrypoint in `pyproject.toml`.
+- Added copy-assist snippets in GUI for:
+  - Claude hook wiring (`PreToolUse -> airg-hook`)
+  - baseline Claude hardening template (`deny` + sandbox knobs).
+
 ## 2026-03-08 (v1.5.0 bump + documentation reconciliation)
 - Bumped package version in `pyproject.toml` from `1.4.dev1` to `1.5.0` on `dev` for release preparation.
 - Reconciled root/public changelog:

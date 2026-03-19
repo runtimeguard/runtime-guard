@@ -1,0 +1,535 @@
+import json
+import os
+import pathlib
+import shlex
+import shutil
+import sys
+from datetime import UTC, datetime
+from typing import Any
+
+
+SENSITIVE_READ_DENY = [
+    "Read(.env*)",
+    "Read(**/*.key)",
+    "Read(**/*.pem)",
+    "Read(**/secrets/**)",
+]
+
+CLAUDE_HARDEN_FRAGMENT: dict[str, Any] = {
+    "permissions": {
+        "deny": ["Bash", "Write", "Edit", "MultiEdit", *SENSITIVE_READ_DENY],
+        "allow": [
+            "mcp__ai-runtime-guard__execute_command",
+            "mcp__ai-runtime-guard__write_file",
+            "mcp__ai-runtime-guard__read_file",
+            "mcp__ai-runtime-guard__list_directory",
+            "mcp__ai-runtime-guard__restore_backup",
+            "Read",
+            "Glob",
+            "Grep",
+            "LS",
+            "Task",
+            "WebSearch",
+        ],
+        "disableBypassPermissionsMode": "disable",
+    },
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "airg-hook",
+                    }
+                ],
+            }
+        ]
+    },
+    "sandbox": {
+        "enabled": True,
+        "autoAllowBashIfSandboxed": False,
+        "allowUnsandboxedCommands": False,
+    },
+}
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _state_dir(paths: dict[str, pathlib.Path]) -> pathlib.Path:
+    return paths["approval_db_path"].expanduser().resolve().parent
+
+
+def _state_path(paths: dict[str, pathlib.Path]) -> pathlib.Path:
+    return _state_dir(paths) / "mcp-configs" / "agent-config-state.json"
+
+
+def _read_json_file(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        if not path.exists() or not path.is_file():
+            return {}
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        raise ValueError(f"Invalid JSON at {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected object at {path}, found {type(payload).__name__}")
+    return payload
+
+
+def _merge_list_union(base: list[Any], overlay: list[Any]) -> list[Any]:
+    out: list[Any] = list(base)
+    seen = {_canonical(item) for item in out}
+    for item in overlay:
+        marker = _canonical(item)
+        if marker in seen:
+            continue
+        out.append(item)
+        seen.add(marker)
+    return out
+
+
+def _deep_merge_union(base: Any, overlay: Any) -> Any:
+    if isinstance(base, dict) and isinstance(overlay, dict):
+        out = {k: _deep_copy(v) for k, v in base.items()}
+        for key, value in overlay.items():
+            if key in out:
+                out[key] = _deep_merge_union(out[key], value)
+            else:
+                out[key] = _deep_copy(value)
+        return out
+    if isinstance(base, list) and isinstance(overlay, list):
+        return _merge_list_union(base, overlay)
+    return _deep_copy(overlay)
+
+
+def _deep_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value))
+
+
+def _summarize_diff(before: Any, after: Any, *, _path: str = "") -> list[str]:
+    path = _path or "root"
+    if isinstance(before, dict) and isinstance(after, dict):
+        out: list[str] = []
+        keys = sorted(set(before.keys()) | set(after.keys()))
+        for key in keys:
+            child_path = f"{path}.{key}" if _path else key
+            if key not in before:
+                out.append(f"+ {child_path}")
+                continue
+            if key not in after:
+                out.append(f"- {child_path}")
+                continue
+            out.extend(_summarize_diff(before[key], after[key], _path=child_path))
+        return out
+    if isinstance(before, list) and isinstance(after, list):
+        if _canonical(before) == _canonical(after):
+            return []
+        before_set = {_canonical(item): item for item in before}
+        after_set = {_canonical(item): item for item in after}
+        added = [after_set[k] for k in after_set.keys() - before_set.keys()]
+        removed = [before_set[k] for k in before_set.keys() - after_set.keys()]
+        out: list[str] = []
+        if added:
+            out.append(f"+ {path} ({len(added)} added)")
+        if removed:
+            out.append(f"- {path} ({len(removed)} removed)")
+        if not out:
+            out.append(f"~ {path} (order/values updated)")
+        return out
+    if _canonical(before) == _canonical(after):
+        return []
+    return [f"~ {path}"]
+
+
+def _server_process() -> tuple[str, list[str]]:
+    explicit = str(os.environ.get("AIRG_SERVER_COMMAND", "")).strip()
+    if explicit:
+        parts = shlex.split(explicit)
+        if parts:
+            cmd = parts[0]
+            args = parts[1:]
+            if os.path.isabs(cmd):
+                return cmd, args
+            resolved = shutil.which(cmd)
+            if resolved:
+                return str(pathlib.Path(resolved).resolve()), args
+            if cmd != "airg-server":
+                return cmd, args
+
+    venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
+    if venv:
+        candidate = pathlib.Path(venv) / "bin" / "airg-server"
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate.resolve()), []
+
+    exe_dir = pathlib.Path(sys.executable).resolve().parent
+    candidate = exe_dir / "airg-server"
+    if candidate.exists() and os.access(candidate, os.X_OK):
+        return str(candidate.resolve()), []
+
+    return str(pathlib.Path(sys.executable).resolve()), ["-m", "airg_cli", "server"]
+
+
+def _shared_env(paths: dict[str, pathlib.Path], workspace: pathlib.Path, agent_id: str) -> dict[str, str]:
+    return {
+        "AIRG_AGENT_ID": str(agent_id).strip() or "default",
+        "AIRG_WORKSPACE": str(workspace),
+        "AIRG_POLICY_PATH": str(paths["policy_path"]),
+        "AIRG_APPROVAL_DB_PATH": str(paths["approval_db_path"]),
+        "AIRG_APPROVAL_HMAC_KEY_PATH": str(paths["approval_hmac_key_path"]),
+        "AIRG_LOG_PATH": str(paths["log_path"]),
+        "AIRG_REPORTS_DB_PATH": str(paths["reports_db_path"]),
+    }
+
+
+def _airg_server_block(paths: dict[str, pathlib.Path], workspace: pathlib.Path, agent_id: str) -> dict[str, Any]:
+    command, args = _server_process()
+    return {
+        "command": command,
+        "args": args,
+        "env": _shared_env(paths, workspace, agent_id),
+    }
+
+
+def _contains_airg_mcp(payload: dict[str, Any]) -> bool:
+    servers = payload.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        return False
+    if "ai-runtime-guard" in servers:
+        return True
+    for value in servers.values():
+        if not isinstance(value, dict):
+            continue
+        cmd = str(value.get("command", "")).strip().lower()
+        args = [str(v).strip().lower() for v in (value.get("args") or []) if str(v).strip()]
+        if "airg" in cmd or any("airg" in item for item in args):
+            return True
+    return False
+
+
+def _home() -> pathlib.Path:
+    return pathlib.Path.home().expanduser().resolve()
+
+
+def _workspace_path(profile: dict[str, Any]) -> pathlib.Path:
+    raw = str(profile.get("workspace", "")).strip()
+    if not raw:
+        raise ValueError("Profile workspace is required")
+    workspace = pathlib.Path(raw).expanduser().resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        raise ValueError(f"Workspace does not exist or is not a directory: {workspace}")
+    return workspace
+
+
+def _settings_local_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".claude" / "settings.local.json"
+
+
+def _cursor_mcp_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".cursor" / "mcp.json"
+
+
+def _workspace_mcp_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".mcp.json"
+
+
+def _mcp_probe_paths(workspace: pathlib.Path) -> list[pathlib.Path]:
+    home = _home()
+    return [
+        workspace / ".mcp.json",
+        home / ".mcp.json",
+        workspace / ".claude.json",
+        home / ".claude.json",
+    ]
+
+
+def _backup_path_for(target: pathlib.Path) -> pathlib.Path:
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = target.parent / ".airg-backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir / f"{target.name}.{ts}.bak"
+
+
+def _write_with_backup(target: pathlib.Path, merged_payload: dict[str, Any]) -> dict[str, Any]:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    before_exists = target.exists()
+    before_payload: dict[str, Any] = _read_json_file(target) if before_exists else {}
+
+    backup_path = _backup_path_for(target)
+    if before_exists:
+        shutil.copy2(target, backup_path)
+    else:
+        backup_path.write_text("{}\n")
+
+    target.write_text(json.dumps(merged_payload, indent=2) + "\n")
+
+    verify_payload = _read_json_file(target)
+    if _canonical(verify_payload) != _canonical(merged_payload):
+        if before_exists:
+            shutil.copy2(backup_path, target)
+        else:
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+        raise RuntimeError(f"Verification failed after writing {target}")
+
+    return {
+        "target_path": str(target),
+        "backup_path": str(backup_path),
+        "original_missing": not before_exists,
+        "before": before_payload,
+        "after": merged_payload,
+        "diff_summary": _summarize_diff(before_payload, merged_payload),
+    }
+
+
+def _load_state(paths: dict[str, pathlib.Path]) -> dict[str, Any]:
+    state_file = _state_path(paths)
+    payload = {"profiles": {}}
+    if not state_file.exists():
+        return payload
+    try:
+        data = json.loads(state_file.read_text())
+        if isinstance(data, dict) and isinstance(data.get("profiles"), dict):
+            return data
+    except Exception:
+        pass
+    return payload
+
+
+def _save_state(paths: dict[str, pathlib.Path], payload: dict[str, Any]) -> None:
+    state_file = _state_path(paths)
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def _update_profile_state(paths: dict[str, pathlib.Path], profile_id: str, record: dict[str, Any]) -> None:
+    state = _load_state(paths)
+    profiles = state.setdefault("profiles", {})
+    profiles[profile_id] = record
+    _save_state(paths, state)
+
+
+def _clear_profile_state(paths: dict[str, pathlib.Path], profile_id: str) -> None:
+    state = _load_state(paths)
+    profiles = state.setdefault("profiles", {})
+    profiles.pop(profile_id, None)
+    _save_state(paths, state)
+
+
+def _profile_state(paths: dict[str, pathlib.Path], profile_id: str) -> dict[str, Any]:
+    state = _load_state(paths)
+    profiles = state.get("profiles", {})
+    if not isinstance(profiles, dict):
+        return {}
+    record = profiles.get(profile_id, {})
+    return record if isinstance(record, dict) else {}
+
+
+def undo_available(paths: dict[str, pathlib.Path], profile_id: str) -> bool:
+    return bool(_profile_state(paths, profile_id).get("changes"))
+
+
+def _restore_change(change: dict[str, Any]) -> None:
+    target = pathlib.Path(str(change.get("target_path", "")).strip())
+    backup = pathlib.Path(str(change.get("backup_path", "")).strip())
+    original_missing = bool(change.get("original_missing", False))
+    if not str(target):
+        return
+    if original_missing:
+        if target.exists():
+            target.unlink()
+        return
+    if not backup.exists():
+        raise FileNotFoundError(f"Backup not found for restore: {backup}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(backup, target)
+
+
+def _mcp_present_for_claude(workspace: pathlib.Path) -> bool:
+    for path in _mcp_probe_paths(workspace):
+        try:
+            if _contains_airg_mcp(_read_json_file(path)):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _apply_claude(
+    paths: dict[str, pathlib.Path],
+    profile: dict[str, Any],
+    *,
+    auto_add_mcp: bool,
+) -> dict[str, Any]:
+    workspace = _workspace_path(profile)
+    agent_id = str(profile.get("agent_id", "")).strip() or "default"
+    profile_id = str(profile.get("profile_id", "")).strip()
+
+    changes: list[dict[str, Any]] = []
+    preflight = {
+        "mcp_present": _mcp_present_for_claude(workspace),
+        "mcp_probe_paths": [str(p) for p in _mcp_probe_paths(workspace)],
+    }
+
+    try:
+        if not preflight["mcp_present"]:
+            if not auto_add_mcp:
+                return {
+                    "ok": False,
+                    "requires_mcp": True,
+                    "errors": [
+                        "AIRG MCP server was not detected in Claude MCP config. Add it first or allow auto-add in this action."
+                    ],
+                    "preflight": preflight,
+                }
+            mcp_target = _workspace_mcp_path(workspace)
+            mcp_overlay = {
+                "mcpServers": {
+                    "ai-runtime-guard": _airg_server_block(paths, workspace, agent_id),
+                }
+            }
+            mcp_before = _read_json_file(mcp_target) if mcp_target.exists() else {}
+            mcp_after = _deep_merge_union(mcp_before, mcp_overlay)
+            changes.append(_write_with_backup(mcp_target, mcp_after))
+            preflight["mcp_present"] = True
+            preflight["mcp_auto_added"] = True
+
+        target = _settings_local_path(workspace)
+        before = _read_json_file(target) if target.exists() else {}
+        after = _deep_merge_union(before, CLAUDE_HARDEN_FRAGMENT)
+        changes.append(_write_with_backup(target, after))
+    except Exception:
+        for change in reversed(changes):
+            _restore_change(change)
+        raise
+
+    summary: list[str] = []
+    for change in changes:
+        summary.extend(change.get("diff_summary", []))
+
+    record = {
+        "profile_id": profile_id,
+        "agent_type": "claude_code",
+        "applied_at": _now_iso(),
+        "changes": [
+            {
+                "target_path": c["target_path"],
+                "backup_path": c["backup_path"],
+                "original_missing": c["original_missing"],
+            }
+            for c in changes
+        ],
+        "diff_summary": summary,
+    }
+    _update_profile_state(paths, profile_id, record)
+
+    return {
+        "ok": True,
+        "profile_id": profile_id,
+        "agent_type": "claude_code",
+        "target_path": str(target),
+        "changes": changes,
+        "diff_summary": summary,
+        "preflight": preflight,
+        "undo_available": True,
+    }
+
+
+def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> dict[str, Any]:
+    workspace = _workspace_path(profile)
+    agent_id = str(profile.get("agent_id", "")).strip() or "default"
+    profile_id = str(profile.get("profile_id", "")).strip()
+
+    target = _cursor_mcp_path(workspace)
+    overlay = {
+        "mcpServers": {
+            "ai-runtime-guard": _airg_server_block(paths, workspace, agent_id),
+        }
+    }
+
+    before = _read_json_file(target) if target.exists() else {}
+    after = _deep_merge_union(before, overlay)
+    change = _write_with_backup(target, after)
+    record = {
+        "profile_id": profile_id,
+        "agent_type": "cursor",
+        "applied_at": _now_iso(),
+        "changes": [
+            {
+                "target_path": change["target_path"],
+                "backup_path": change["backup_path"],
+                "original_missing": change["original_missing"],
+            }
+        ],
+        "diff_summary": change.get("diff_summary", []),
+    }
+    _update_profile_state(paths, profile_id, record)
+
+    return {
+        "ok": True,
+        "profile_id": profile_id,
+        "agent_type": "cursor",
+        "target_path": str(target),
+        "changes": [change],
+        "diff_summary": change.get("diff_summary", []),
+        "undo_available": True,
+    }
+
+
+def apply_hardening(
+    paths: dict[str, pathlib.Path],
+    profile: dict[str, Any],
+    *,
+    auto_add_mcp: bool = False,
+) -> dict[str, Any]:
+    agent_type = str(profile.get("agent_type", "")).strip().lower()
+    profile_id = str(profile.get("profile_id", "")).strip()
+    if not profile_id:
+        return {"ok": False, "errors": ["profile_id is required"]}
+
+    try:
+        if agent_type in {"claude_code", "claude_desktop"}:
+            return _apply_claude(paths, profile, auto_add_mcp=auto_add_mcp)
+        if agent_type == "cursor":
+            return _apply_cursor(paths, profile)
+        return {
+            "ok": False,
+            "errors": [f"Agent type '{agent_type or 'unknown'}' is not supported for config hardening in dev2."],
+        }
+    except Exception as exc:
+        return {"ok": False, "errors": [str(exc)]}
+
+
+def undo_hardening(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> dict[str, Any]:
+    profile_id = str(profile.get("profile_id", "")).strip()
+    if not profile_id:
+        return {"ok": False, "errors": ["profile_id is required"]}
+
+    record = _profile_state(paths, profile_id)
+    changes = record.get("changes", []) if isinstance(record, dict) else []
+    if not isinstance(changes, list) or not changes:
+        return {"ok": False, "errors": ["No hardening backup record found for this profile."]}
+
+    try:
+        for change in reversed(changes):
+            if not isinstance(change, dict):
+                continue
+            _restore_change(change)
+    except Exception as exc:
+        return {"ok": False, "errors": [f"Undo failed: {exc}"]}
+
+    _clear_profile_state(paths, profile_id)
+    return {
+        "ok": True,
+        "profile_id": profile_id,
+        "undone_changes": len(changes),
+        "undo_available": False,
+    }
