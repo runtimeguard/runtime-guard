@@ -2678,138 +2678,196 @@ export default function App() {
       })
     }
 
+    const [backupAdvancedOpen, setBackupAdvancedOpen] = useState(true)
+    const [reportsAdvancedOpen, setReportsAdvancedOpen] = useState(true)
+
     const allowedToolsText = Array.isArray(backupAccess.allowed_tools) ? backupAccess.allowed_tools.join(', ') : ''
     const redactPatternsText = Array.isArray(audit.redact_patterns) ? audit.redact_patterns.join('\n') : ''
+    const scanSizeMb = Math.max(1, Math.round((scriptSentinel.max_scan_bytes ?? 1048576) / 1048576))
+    const scanModeValue = scriptSentinel.scan_mode || 'exec_context'
+    const yesNoOptions = [
+      { label: 'Yes', value: true, activeClass: 'yn-yes' },
+      { label: 'No', value: false, activeClass: 'yn-no' },
+    ]
+
+    const rowClass = 'grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 items-center p-4 border-t border-slate-200'
+    const titleClass = 'text-sm font-semibold text-slate-800'
+    const helpClass = 'text-xs text-slate-400 mt-1'
+
+    const CardHeader = ({ icon, iconBg, iconFg, title, subtitle, right = null }) => (
+      <div className="flex items-center justify-between gap-3 p-4">
+        <div className="flex items-center gap-3">
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: iconBg,
+              color: iconFg,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 13,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {icon}
+          </div>
+          <div>
+            <div className={titleClass}>{title}</div>
+            <div className={helpClass}>{subtitle}</div>
+          </div>
+        </div>
+        {right}
+      </div>
+    )
+
+    const AdvancedToggle = ({ open, onToggle }) => (
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-4 py-2 border-t border-slate-200 bg-slate-50/60 text-slate-400 hover:text-slate-500"
+      >
+        <span className={`text-xs transition ${open ? 'rotate-0' : '-rotate-90'}`}>▾</span>
+        <span className="text-xs font-semibold tracking-[0.08em] uppercase">Advanced</span>
+      </button>
+    )
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Backup & Restore</div>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(backupAccess.block_agent_tools)}
-                onChange={(e) => setBackupAccess({ block_agent_tools: e.target.checked })}
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="☑"
+            iconBg="#e2e8f0"
+            iconFg="#2563eb"
+            title="Backup"
+            subtitle="Automatic backups before destructive and overwrite operations"
+            right={(
+              <div style={{ width: 122 }}>
+                <SegControl
+                  value={Boolean(audit.backup_enabled)}
+                  onChange={(enabled) => setAudit({ backup_enabled: Boolean(enabled) })}
+                  options={yesNoOptions}
+                />
+              </div>
+            )}
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Backup on content change only</div>
+              <div className={helpClass}>Skip backup if file content hasn't changed (deduplication by SHA256)</div>
+            </div>
+            <div style={{ width: 122, justifySelf: 'end' }}>
+              <SegControl
+                value={Boolean(audit.backup_on_content_change_only)}
+                onChange={(enabled) => setAudit({ backup_on_content_change_only: Boolean(enabled) })}
+                options={yesNoOptions}
               />
-              Protect backup storage from agent tools
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(restore.require_dry_run_before_apply)}
-                onChange={(e) => setRestore({ require_dry_run_before_apply: e.target.checked })}
-              />
-              Require dry run before restore apply
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(audit.backup_enabled)}
-                onChange={(e) => setAudit({ backup_enabled: e.target.checked })}
-              />
-              Backup enabled
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(audit.backup_on_content_change_only)}
-                onChange={(e) => setAudit({ backup_on_content_change_only: e.target.checked })}
-              />
-              Backup on content change only
-            </label>
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Backup allowed tools (comma-separated)
-              <input
-                type="text"
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
-                value={allowedToolsText}
-                onChange={(e) => {
-                  const values = e.target.value
-                    .split(',')
-                    .map((v) => normalizeListToken(v))
-                    .filter(Boolean)
-                  setBackupAccess({ allowed_tools: values })
-                }}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Restore confirmation TTL (seconds)
-              <input
-                type="number"
-                min={30}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={restore.confirmation_ttl_seconds ?? 300}
-                onChange={(e) => setRestore({ confirmation_ttl_seconds: Math.max(30, parseInt(e.target.value, 10) || 30) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Backup root
-              <input
-                type="text"
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
-                value={audit.backup_root ?? ''}
-                onChange={(e) => setAudit({ backup_root: e.target.value })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max versions per file
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={audit.max_versions_per_file ?? 5}
-                onChange={(e) => setAudit({ max_versions_per_file: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Backup retention days
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Retention</div>
+              <div className={helpClass}>Remove backups older than this</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
                 value={audit.backup_retention_days ?? 30}
                 onChange={(e) => setAudit({ backup_retention_days: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
+              <span className="text-xs text-slate-400">days</span>
             </label>
           </div>
+
+          <AdvancedToggle open={backupAdvancedOpen} onToggle={() => setBackupAdvancedOpen((v) => !v)} />
+
+          {backupAdvancedOpen && (
+            <>
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Max versions per file</div>
+                </div>
+                <label className="flex items-center gap-2 justify-self-end w-full">
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                    value={audit.max_versions_per_file ?? 5}
+                    onChange={(e) => setAudit({ max_versions_per_file: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                  />
+                  <span className="text-xs text-slate-400">versions</span>
+                </label>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Protect backup storage from agents</div>
+                  <div className={helpClass}>Block agent tools from accessing the backup directory</div>
+                </div>
+                <div style={{ width: 122, justifySelf: 'end' }}>
+                  <SegControl
+                    value={Boolean(backupAccess.block_agent_tools)}
+                    onChange={(enabled) => setBackupAccess({ block_agent_tools: Boolean(enabled) })}
+                    options={yesNoOptions}
+                  />
+                </div>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Require dry run before restore apply</div>
+                  <div className={helpClass}>Apply step requires a valid token from a prior dry-run</div>
+                </div>
+                <div style={{ width: 122, justifySelf: 'end' }}>
+                  <SegControl
+                    value={Boolean(restore.require_dry_run_before_apply)}
+                    onChange={(enabled) => setRestore({ require_dry_run_before_apply: Boolean(enabled) })}
+                    options={yesNoOptions}
+                  />
+                </div>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Restore confirmation TTL</div>
+                  <div className={helpClass}>Dry-run token expires after this period</div>
+                </div>
+                <label className="flex items-center gap-2 justify-self-end w-full">
+                  <input
+                    type="number"
+                    min={30}
+                    className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                    value={restore.confirmation_ttl_seconds ?? 300}
+                    onChange={(e) => setRestore({ confirmation_ttl_seconds: Math.max(30, parseInt(e.target.value, 10) || 30) })}
+                  />
+                  <span className="text-xs text-slate-400">seconds</span>
+                </label>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Execution Limits</div>
-          <div className="text-[11px] text-slate-500">
-            Sets safety limits for command runtime duration and output size.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Max command timeout (seconds)
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={execution.max_command_timeout_seconds ?? 30}
-                onChange={(e) => setExecution({ max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max output chars
-              <input
-                type="number"
-                min={1024}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={execution.max_output_chars ?? 200000}
-                onChange={(e) => setExecution({ max_output_chars: Math.max(1024, parseInt(e.target.value, 10) || 1024) })}
-              />
-            </label>
-          </div>
-          <div className="border-t border-slate-200 pt-3 space-y-2">
-            <div className="text-xs font-semibold text-slate-600">Attempt workspace shell command containment</div>
-            <div className="text-[11px] text-slate-500">
-              Best-effort path containment for `execute_command`. In monitor mode, commands are allowed and logged; in enforce mode, commands referencing outside paths are blocked.
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="↳"
+            iconBg="#dcfce7"
+            iconFg="#15803d"
+            title="Shell workspace containment"
+            subtitle="Heuristic path guard for shell command arguments and redirection targets"
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Containment mode</div>
+              <div className={helpClass}>Off: no containment · Monitor: log violations, allow execution · Enforce: block out-of-workspace shell paths</div>
             </div>
-            <div style={{ maxWidth: 280 }}>
+            <div style={{ width: 200, justifySelf: 'end' }}>
               <SegControl
                 value={shellContainment.mode || 'off'}
                 onChange={(mode) => setShellContainment({ mode })}
@@ -2821,171 +2879,151 @@ export default function App() {
               />
             </div>
           </div>
-        </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Whitelisted Commands Limits</div>
-          <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[10px] p-2">
-            Applies to commands not explicitly configured as blocked or approval-gated.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Max file size (MB)
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={allowed.max_file_size_mb ?? 10}
-                onChange={(e) => setAllowed({ max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Log paths</div>
+              <div className={helpClass}>Emit path observations to activity log even when mode is off</div>
+            </div>
+            <div style={{ width: 122, justifySelf: 'end' }}>
+              <SegControl
+                value={Boolean(shellContainment.log_paths)}
+                onChange={(enabled) => setShellContainment({ log_paths: Boolean(enabled) })}
+                options={yesNoOptions}
               />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max files per operation
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={allowed.max_files_per_operation ?? 10}
-                onChange={(e) => setAllowed({ max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Approval Security Settings</div>
-          <div className="text-[11px] text-slate-500">
-            Controls token security and failed-approval throttling for commands requiring human approval.
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="◔"
+            iconBg="#fef3c7"
+            iconFg="#b45309"
+            title="Command execution limits"
+            subtitle="Safety caps on runtime duration and output size"
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Max command timeout</div>
+              <div className={helpClass}>Hard limit before command is killed</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={1}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={execution.max_command_timeout_seconds ?? 30}
+                onChange={(e) => setExecution({ max_command_timeout_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+              />
+              <span className="text-xs text-slate-400">seconds</span>
+            </label>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="text-xs text-slate-600">
-              Max failed attempts per token
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Max output</div>
+              <div className={helpClass}>Output truncated beyond this limit</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
               <input
                 type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={approvalSecurity.max_failed_attempts_per_token ?? 5}
-                onChange={(e) => setConfirmationSecurity({ max_failed_attempts_per_token: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                min={1024}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={execution.max_output_chars ?? 200000}
+                onChange={(e) => setExecution({ max_output_chars: Math.max(1024, parseInt(e.target.value, 10) || 1024) })}
               />
+              <span className="text-xs text-slate-400">chars</span>
             </label>
-            <label className="text-xs text-slate-600">
-              Failed-attempt window (seconds)
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="🔒"
+            iconBg="#ede9fe"
+            iconFg="#7c3aed"
+            title="Command approval security"
+            subtitle="Token security and failed-attempt throttling for confirmation-gated commands"
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Approval token TTL</div>
+              <div className={helpClass}>Token expires after this period if unused</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
               <input
                 type="number"
                 min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={approvalSecurity.failed_attempt_window_seconds ?? 600}
-                onChange={(e) => setConfirmationSecurity({ failed_attempt_window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Approval token TTL (seconds)
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
                 value={approvalSecurity.token_ttl_seconds ?? 600}
                 onChange={(e) => setConfirmationSecurity({ token_ttl_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
+              <span className="text-xs text-slate-400">seconds</span>
+            </label>
+          </div>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Max failed attempts per token</div>
+              <div className={helpClass}>Token is invalidated after this many failed attempts</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={0}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={approvalSecurity.max_failed_attempts_per_token ?? 5}
+                onChange={(e) => setConfirmationSecurity({ max_failed_attempts_per_token: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              />
+              <span className="text-xs text-slate-400">attempts</span>
+            </label>
+          </div>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Failed attempt window</div>
+              <div className={helpClass}>Failure count resets after this period of inactivity</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={0}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={approvalSecurity.failed_attempt_window_seconds ?? 600}
+                onChange={(e) => setConfirmationSecurity({ failed_attempt_window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              />
+              <span className="text-xs text-slate-400">seconds</span>
             </label>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Reports Settings</div>
-          <div className="text-[11px] text-slate-500">
-            Controls reports ingestion cadence and retention for reports.db.
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(reportsCfg.enabled)}
-                onChange={(e) => setReportsConfig({ enabled: e.target.checked })}
-              />
-              Reports enabled
-            </label>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="text-xs text-slate-600">
-              Ingest poll interval (seconds)
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reportsCfg.ingest_poll_interval_seconds ?? 5}
-                onChange={(e) => setReportsConfig({ ingest_poll_interval_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Reconcile interval (seconds)
-              <input
-                type="number"
-                min={60}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reportsCfg.reconcile_interval_seconds ?? 3600}
-                onChange={(e) => setReportsConfig({ reconcile_interval_seconds: Math.max(60, parseInt(e.target.value, 10) || 60) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Prune interval (seconds)
-              <input
-                type="number"
-                min={300}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reportsCfg.prune_interval_seconds ?? 86400}
-                onChange={(e) => setReportsConfig({ prune_interval_seconds: Math.max(300, parseInt(e.target.value, 10) || 300) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Retention days
-              <input
-                type="number"
-                min={1}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reportsCfg.retention_days ?? 30}
-                onChange={(e) => setReportsConfig({ retention_days: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max reports DB size (MB)
-              <input
-                type="number"
-                min={10}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reportsCfg.max_db_size_mb ?? 200}
-                onChange={(e) => setReportsConfig({ max_db_size_mb: Math.max(10, parseInt(e.target.value, 10) || 10) })}
-              />
-            </label>
-          </div>
-        </div>
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="⛨"
+            iconBg="#fee2e2"
+            iconFg="#dc2626"
+            title="Script sentinel"
+            subtitle="Scans content written via write_file for blocked or approval-gated command patterns"
+            right={(
+              <div style={{ width: 122 }}>
+                <SegControl
+                  value={Boolean(scriptSentinel.enabled)}
+                  onChange={(enabled) => setScriptSentinel({ enabled: Boolean(enabled) })}
+                  options={yesNoOptions}
+                />
+              </div>
+            )}
+          />
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Script Sentinel</div>
-          <div className="text-[11px] text-slate-500">
-            Policy-intent continuity for script-mediated execution. Content written via <span className="font-mono">write_file</span> is scanned for blocked/approval-gated patterns.
-          </div>
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(scriptSentinel.enabled)}
-                onChange={(e) => setScriptSentinel({ enabled: e.target.checked })}
-              />
-              Enabled
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(scriptSentinel.include_wrappers)}
-                onChange={(e) => setScriptSentinel({ include_wrappers: e.target.checked })}
-              />
-              Include common wrapper signatures
-            </label>
-          </div>
-          <div className="space-y-2">
-            <div className="text-xs text-slate-600">Mode</div>
-            <div style={{ maxWidth: 360 }}>
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Mode</div>
+              <div className={helpClass}>What to do when a blocked pattern is detected in written file content</div>
+            </div>
+            <div style={{ width: 260, justifySelf: 'end' }}>
               <SegControl
                 value={scriptSentinel.mode || 'match_original'}
                 onChange={(mode) => setScriptSentinel({ mode })}
@@ -2997,53 +3035,245 @@ export default function App() {
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="text-xs text-slate-600">Scan Mode</div>
-            <div style={{ maxWidth: 420 }}>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Scan mode</div>
+              <div className={helpClass}>Choose executable-context only, or include mention-only audit hits</div>
+            </div>
+            <div style={{ width: 260, justifySelf: 'end' }}>
               <SegControl
-                value={scriptSentinel.scan_mode || 'exec_context'}
+                value={scanModeValue}
                 onChange={(scan_mode) => setScriptSentinel({ scan_mode })}
                 options={[
-                  { label: 'exec_context', value: 'exec_context', activeClass: 'm-blue' },
-                  { label: 'exec_context_plus_mentions', value: 'exec_context_plus_mentions', activeClass: 'active-confirm' },
+                  { label: 'Exec context', value: 'exec_context', activeClass: 'm-blue' },
+                  { label: 'Exec + mentions', value: 'exec_context_plus_mentions', activeClass: 'active-confirm' },
                 ]}
               />
             </div>
-            <div className="text-[11px] text-slate-500">
-              <span className="font-mono">exec_context</span> flags executable usage patterns only. <span className="font-mono">exec_context_plus_mentions</span> also records mention-only hits for audit visibility.
+          </div>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Include common wrapper signatures</div>
+              <div className={helpClass}>Extend detection to common shell wrapper patterns</div>
+            </div>
+            <div style={{ width: 122, justifySelf: 'end' }}>
+              <SegControl
+                value={Boolean(scriptSentinel.include_wrappers)}
+                onChange={(enabled) => setScriptSentinel({ include_wrappers: Boolean(enabled) })}
+                options={yesNoOptions}
+              />
             </div>
           </div>
-          <label className="text-xs text-slate-600 block">
-            Max scan bytes per write
-            <input
-              type="number"
-              min={1024}
-              className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-              value={scriptSentinel.max_scan_bytes ?? 1048576}
-              onChange={(e) => setScriptSentinel({ max_scan_bytes: Math.max(1024, parseInt(e.target.value, 10) || 1024) })}
-            />
-            <div className="mt-1 text-[11px] text-slate-500">
-              Files larger than this limit are skipped for write-time scanning.
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Max scan size</div>
+              <div className={helpClass}>Files larger than this are skipped for write-time scanning</div>
             </div>
-          </label>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={1}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={scanSizeMb}
+                onChange={(e) => {
+                  const mb = Math.max(1, parseInt(e.target.value, 10) || 1)
+                  setScriptSentinel({ max_scan_bytes: mb * 1024 * 1024 })
+                }}
+              />
+              <span className="text-xs text-slate-400">MB</span>
+            </label>
+          </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Log Redaction</div>
-          <label className="text-xs text-slate-600 block">
-            Redact patterns (one regex per line)
-            <textarea
-              className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-xs font-mono h-28"
-              value={redactPatternsText}
-              onChange={(e) => {
-                const values = e.target.value
-                  .split('\n')
-                  .map((v) => v.trim())
-                  .filter(Boolean)
-                setAudit({ redact_patterns: values })
-              }}
-            />
-          </label>
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="📊"
+            iconBg="#e2e8f0"
+            iconFg="#2563eb"
+            title="Reports & logs"
+            subtitle="Activity ingestion, retention, and log redaction patterns"
+            right={(
+              <div style={{ width: 122 }}>
+                <SegControl
+                  value={Boolean(reportsCfg.enabled)}
+                  onChange={(enabled) => setReportsConfig({ enabled: Boolean(enabled) })}
+                  options={yesNoOptions}
+                />
+              </div>
+            )}
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Retention</div>
+              <div className={helpClass}>Events older than this are pruned from reports.db</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={1}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={reportsCfg.retention_days ?? 30}
+                onChange={(e) => setReportsConfig({ retention_days: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+              />
+              <span className="text-xs text-slate-400">days</span>
+            </label>
+          </div>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Max database size</div>
+              <div className={helpClass}>Oldest events pruned when size limit is reached</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={10}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={reportsCfg.max_db_size_mb ?? 200}
+                onChange={(e) => setReportsConfig({ max_db_size_mb: Math.max(10, parseInt(e.target.value, 10) || 10) })}
+              />
+              <span className="text-xs text-slate-400">MB</span>
+            </label>
+          </div>
+
+          <AdvancedToggle open={reportsAdvancedOpen} onToggle={() => setReportsAdvancedOpen((v) => !v)} />
+
+          {reportsAdvancedOpen && (
+            <>
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Ingest poll interval</div>
+                  <div className={helpClass}>How often activity.log is checked for new events</div>
+                </div>
+                <label className="flex items-center gap-2 justify-self-end w-full">
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                    value={reportsCfg.ingest_poll_interval_seconds ?? 5}
+                    onChange={(e) => setReportsConfig({ ingest_poll_interval_seconds: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                  />
+                  <span className="text-xs text-slate-400">seconds</span>
+                </label>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Reconcile interval</div>
+                  <div className={helpClass}>How often log rotation/truncation is checked</div>
+                </div>
+                <label className="flex items-center gap-2 justify-self-end w-full">
+                  <input
+                    type="number"
+                    min={60}
+                    className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                    value={reportsCfg.reconcile_interval_seconds ?? 3600}
+                    onChange={(e) => setReportsConfig({ reconcile_interval_seconds: Math.max(60, parseInt(e.target.value, 10) || 60) })}
+                  />
+                  <span className="text-xs text-slate-400">seconds</span>
+                </label>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Prune interval</div>
+                  <div className={helpClass}>How often retention and size limits are enforced</div>
+                </div>
+                <label className="flex items-center gap-2 justify-self-end w-full">
+                  <input
+                    type="number"
+                    min={300}
+                    className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                    value={reportsCfg.prune_interval_seconds ?? 86400}
+                    onChange={(e) => setReportsConfig({ prune_interval_seconds: Math.max(300, parseInt(e.target.value, 10) || 300) })}
+                  />
+                  <span className="text-xs text-slate-400">seconds</span>
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50/60 text-xs font-semibold tracking-[0.06em] text-slate-400 uppercase">
+            Log redaction — always active
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-[6px] px-3 py-2">
+              Redaction patterns apply to activity.log regardless of whether reports are enabled.
+            </div>
+            <label className="text-xs text-slate-600 block">
+              Redact patterns
+              <div className="text-[11px] text-slate-400 mt-1 mb-2">One regex per line. Matched values are replaced with &lt;redacted&gt; in activity.log</div>
+              <textarea
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-xs font-mono h-28"
+                value={redactPatternsText}
+                onChange={(e) => {
+                  const values = e.target.value
+                    .split('\n')
+                    .map((v) => v.trim())
+                    .filter(Boolean)
+                  setAudit({ redact_patterns: values })
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50/60 text-xs font-semibold tracking-[0.06em] text-slate-400 uppercase">
+            Additional controls
+          </div>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="text-xs text-slate-600">
+              Backup root
+              <input
+                type="text"
+                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm font-mono"
+                value={audit.backup_root ?? ''}
+                onChange={(e) => setAudit({ backup_root: e.target.value })}
+              />
+            </label>
+            <label className="text-xs text-slate-600">
+              Backup allowed tools (comma-separated)
+              <input
+                type="text"
+                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm font-mono"
+                value={allowedToolsText}
+                onChange={(e) => {
+                  const values = e.target.value
+                    .split(',')
+                    .map((v) => normalizeListToken(v))
+                    .filter(Boolean)
+                  setBackupAccess({ allowed_tools: values })
+                }}
+              />
+            </label>
+            <label className="text-xs text-slate-600">
+              Allowed max file size (MB)
+              <input
+                type="number"
+                min={0}
+                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm"
+                value={allowed.max_file_size_mb ?? 10}
+                onChange={(e) => setAllowed({ max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              />
+            </label>
+            <label className="text-xs text-slate-600">
+              Allowed max files per operation
+              <input
+                type="number"
+                min={0}
+                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm"
+                value={allowed.max_files_per_operation ?? 10}
+                onChange={(e) => setAllowed({ max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              />
+            </label>
+          </div>
         </div>
       </div>
     )
