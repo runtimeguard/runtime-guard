@@ -1,53 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg-app: #f8f9fb;
-  --bg-sidebar: #1a1d23;
-  --bg-sidebar-hover: #252830;
-  --bg-sidebar-active: #2a2d35;
+  --bg-app: #f8f9fa;
+  --bg-sidebar: #0f1117;
+  --bg-sidebar-hover: #171b24;
+  --bg-sidebar-active: #1f2430;
   --bg-card: #ffffff;
-  --bg-card-alt: #f4f5f7;
-  --bg-input: #f8faff;
+  --bg-card-alt: #f3f4f6;
+  --bg-input: #ffffff;
   --bg-header-bar: #ffffff;
 
-  --border-default: #e2e5ea;
-  --border-input: #6f7f97;
-  --border-input-focus: #4a7cff;
+  --border-default: #e5e7eb;
+  --border-input: #b8c0cc;
+  --border-input-focus: #4f46e5;
 
-  --text-primary: #1a1d23;
-  --text-secondary: #5f6672;
+  --text-primary: #111827;
+  --text-secondary: #374151;
   --text-tertiary: #9ca3af;
-  --text-sidebar: #c8ccd4;
+  --text-sidebar: #cbd5e1;
   --text-sidebar-active: #ffffff;
-  --text-sidebar-heading: #7c8290;
+  --text-sidebar-heading: #9ca3af;
   --text-inverse: #ffffff;
 
-  --status-green: #22c55e;
-  --status-green-bg: #f0fdf4;
-  --status-green-border: #bbf7d0;
-  --status-red: #ef4444;
-  --status-red-bg: #fef2f2;
+  --status-green: #15803d;
+  --status-green-bg: #dcfce7;
+  --status-green-border: #86efac;
+  --status-red: #dc2626;
+  --status-red-bg: #fee2e2;
   --status-red-border: #fecaca;
-  --status-amber: #f59e0b;
-  --status-amber-bg: #fffbeb;
-  --status-amber-border: #fde68a;
-  --status-blue: #3b82f6;
-  --status-blue-bg: #eff6ff;
+  --status-amber: #b45309;
+  --status-amber-bg: #fef3c7;
+  --status-amber-border: #fcd34d;
+  --status-blue: #4f46e5;
+  --status-blue-bg: #eef2ff;
 
-  --btn-primary: #4a7cff;
-  --btn-primary-hover: #3a6ae8;
-  --btn-success: #22c55e;
-  --btn-success-hover: #16a34a;
-  --btn-danger: #ef4444;
+  --btn-primary: #4f46e5;
+  --btn-primary-hover: #4338ca;
+  --btn-success: #15803d;
+  --btn-success-hover: #166534;
+  --btn-danger: #dc2626;
   --btn-danger-hover: #dc2626;
   --btn-ghost: transparent;
   --btn-ghost-border: #d1d5db;
   --btn-ghost-hover: #f4f5f7;
 
-  --font-body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+  --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "DM Mono", "SF Mono", "Fira Code", monospace;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -57,7 +59,7 @@
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.12);
 
-  --sidebar-width: 240px;
+  --sidebar-width: 200px;
 }
 
 @layer base {
@@ -86,8 +88,8 @@
     font-size: 0.8125rem;
     color: var(--text-primary);
     background: var(--bg-input) !important;
-    border: 2px solid var(--border-input) !important;
-    box-shadow: inset 0 0 0 1px rgba(63, 78, 102, 0.1);
+    border: 1px solid var(--border-input) !important;
+    box-shadow: none;
     border-radius: var(--radius-md);
     padding: 8px 12px;
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -99,20 +101,20 @@
   textarea:focus {
     outline: none;
     border-color: var(--border-input-focus);
-    box-shadow: 0 0 0 3px rgba(74, 124, 255, 0.12);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
     background: #ffffff;
   }
 
   input:hover,
   select:hover,
   textarea:hover {
-    border-color: #5f6f89 !important;
-    box-shadow: inset 0 0 0 1px rgba(63, 78, 102, 0.14);
+    border-color: #9ca3af !important;
+    box-shadow: none;
   }
 
   input::placeholder,
   textarea::placeholder {
-    color: #7f8b9d;
+    color: #9ca3af;
     font-style: normal;
   }
 
@@ -124,12 +126,12 @@
   thead th {
     background: var(--bg-card-alt);
     font-family: var(--font-body);
-    font-size: 0.75rem;
+    font-size: 10px;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: #9ca3af;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border-bottom: 2px solid var(--border-default);
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border-default);
   }
 
   tbody tr {

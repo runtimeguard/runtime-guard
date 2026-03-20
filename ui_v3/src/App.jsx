@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import runtimeGuardLogo64 from './assets/logo_v4_64px.png'
 import runtimeGuardLogo128 from './assets/logo_v4_128px.png'
+import SegControl from './components/SegControl'
+import IconBtn, { PencilIcon, RemoveIcon } from './components/IconBtn'
+import CollapsibleSection from './components/CollapsibleSection'
 
 const API_BASE = 'http://127.0.0.1:5001'
 const RAIL_ITEMS = [
@@ -10,20 +13,18 @@ const RAIL_ITEMS = [
   { id: 'settings', label: 'Settings' }
 ]
 const POLICY_TABS = [
-  { id: 'commands', label: 'Commands' },
-  { id: 'paths', label: 'Paths' },
-  { id: 'extensions', label: 'Extensions' },
+  { id: 'rules', label: 'Rules' },
   { id: 'network', label: 'Network' },
   { id: 'agent_overrides', label: 'Agent Overrides' },
-  { id: 'advanced', label: 'Advanced Policy' },
+  { id: 'advanced', label: 'Advanced' },
 ]
 const REPORT_TABS = [
   { id: 'dashboard', label: 'Dashboard' },
+  { id: 'script_sentinel', label: 'Script Sentinel' },
   { id: 'log', label: 'Log' },
 ]
 const SETTINGS_TABS = [
   { id: 'agents', label: 'Agents' },
-  { id: 'advanced', label: 'Advanced' },
 ]
 const NAV_CHILDREN = {
   approvals: [
@@ -35,17 +36,6 @@ const NAV_CHILDREN = {
   settings: SETTINGS_TABS.map((tab) => ({ id: tab.id, label: tab.label })),
 }
 const DEFAULT_TABS = [{ id: 'all', label: 'All Commands' }]
-const COLUMN_DEFS = [
-  { key: 'allowed', label: 'Allowed', group: 'basic' },
-  { key: 'blocked', label: 'Blocked', group: 'basic' },
-  { key: 'requires_confirmation', label: 'Requires Approval', group: 'advanced' }
-]
-
-const BASIC_TIER_COLUMNS = COLUMN_DEFS.filter((c) => c.group === 'basic')
-const ADVANCED_TIER_COLUMNS = COLUMN_DEFS.filter((c) => c.group === 'advanced')
-const BASIC_GRID_COLS = 'minmax(320px,1fr)_90px_90px'
-const ADVANCED_TOGGLE_KEY = 'airg.ui.showAdvancedSettings'
-const PATHS_ADVANCED_TOGGLE_KEY = 'airg.ui.showAdvancedPaths'
 const RUNTIME_PATH_LABELS = {
   AIRG_WORKSPACE: 'Agent Workspace',
   AIRG_POLICY_PATH: 'Policy File',
@@ -269,7 +259,7 @@ function ensureScriptSentinelPolicy(policy) {
 export default function App() {
   const [activeRail, setActiveRail] = useState('approvals')
   const [activeApprovalsTab, setActiveApprovalsTab] = useState('pending')
-  const [activePolicyTab, setActivePolicyTab] = useState('commands')
+  const [activePolicyTab, setActivePolicyTab] = useState('rules')
   const [policyHash, setPolicyHash] = useState('')
   const [appliedPolicy, setAppliedPolicy] = useState(null)
   const [draftPolicy, setDraftPolicy] = useState(null)
@@ -299,17 +289,6 @@ export default function App() {
   })
   const [newCommand, setNewCommand] = useState('')
   const [newComment, setNewComment] = useState('')
-  const [newCommandTabs, setNewCommandTabs] = useState([])
-  const [newCategoryLabel, setNewCategoryLabel] = useState('')
-  const [selectedCategories, setSelectedCategories] = useState([])
-  const [showAddCommandForm, setShowAddCommandForm] = useState(false)
-  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false)
-  const [newPathValue, setNewPathValue] = useState('')
-  const [newPathTier, setNewPathTier] = useState('blocked')
-  const [showRuntimePaths, setShowRuntimePaths] = useState(false)
-  const [showAddPathForm, setShowAddPathForm] = useState(false)
-  const [newExtensionValue, setNewExtensionValue] = useState('')
-  const [showAddExtensionForm, setShowAddExtensionForm] = useState(false)
   const [newNetworkCommand, setNewNetworkCommand] = useState('')
   const [newWhitelistDomain, setNewWhitelistDomain] = useState('')
   const [newBlocklistDomain, setNewBlocklistDomain] = useState('')
@@ -370,14 +349,7 @@ export default function App() {
     title: '',
     content: '',
   })
-  const [showAdvanced, setShowAdvanced] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.localStorage.getItem(ADVANCED_TOGGLE_KEY) === '1'
-  })
-  const [showPathAdvanced, setShowPathAdvanced] = useState(() => {
-    if (typeof window === 'undefined') return false
-    return window.localStorage.getItem(PATHS_ADVANCED_TOGGLE_KEY) === '1'
-  })
+  const [rulesWhitelistOpen, setRulesWhitelistOpen] = useState(false)
   const pollRef = useRef(null)
   const [overrideAgentId, setOverrideAgentId] = useState('')
   const [overrideExpanded, setOverrideExpanded] = useState({})
@@ -860,20 +832,12 @@ export default function App() {
   useEffect(() => {
     if (activeRail !== 'settings' || activeSettingsTab !== 'agents') return
     fetchAgentPosture()
-    fetchScriptSentinel()
   }, [activeRail, activeSettingsTab])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ADVANCED_TOGGLE_KEY, showAdvanced ? '1' : '0')
-    }
-  }, [showAdvanced])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(PATHS_ADVANCED_TOGGLE_KEY, showPathAdvanced ? '1' : '0')
-    }
-  }, [showPathAdvanced])
+    if (activeRail !== 'reports' || reportsTab !== 'script_sentinel') return
+    fetchScriptSentinel()
+  }, [activeRail, reportsTab])
 
   useEffect(() => {
     // Table edits are source-of-truth while editing. Keep JSON textarea in sync
@@ -886,13 +850,8 @@ export default function App() {
   const commandRows = useMemo(() => {
     const base = allCommands
     const q = search.trim().toLowerCase()
-    return base.filter((cmd) => {
-      if (q && !cmd.toLowerCase().includes(q)) return false
-      if (!selectedCategories.length) return true
-      const cats = (contexts[cmd] || []).map((x) => String(x).toLowerCase())
-      return selectedCategories.some((c) => cats.includes(c.toLowerCase()))
-    })
-  }, [allCommands, search, contexts, selectedCategories])
+    return base.filter((cmd) => !q || cmd.toLowerCase().includes(q))
+  }, [allCommands, search])
 
   function onJsonChange(next) {
     setJsonText(next)
@@ -1018,47 +977,26 @@ export default function App() {
     return next
   }
 
-  function onCreateCategory() {
-    const label = String(newCategoryLabel || '').trim()
-    if (!label) {
-      setMessage('Category name is required')
-      return
-    }
-    const id = slugifyCategoryId(label)
-    if (tabDefs.some((t) => t.id === id)) {
-      setMessage(`Category "${label}" already exists`)
-      return
-    }
-    setDraftPolicy((prev) => ensureUiCatalogTab(prev, id, label))
-    setTabDefs((prev) => [...prev, { id, label }])
-    setTabCommands((prev) => ({ ...prev, [id]: [] }))
-    setNewCategoryLabel('')
-    setMessage(`Category "${label}" added`)
-  }
-
   function onAddCommand() {
     const command = normalizeCommandName(newCommand)
     if (!command) {
       setMessage('Command text is required')
       return
     }
-    const selectedTabs = newCommandTabs
-    const validTabs = selectedTabs.filter((id) => id !== 'all' && tabDefs.some((t) => t.id === id))
+    if (allCommands.includes(command)) {
+      setMessage(`Command "${command}" already exists`)
+      return
+    }
 
     setDraftPolicy((prev) => {
       let next = deepClone(prev)
-      for (const tabId of validTabs) {
-        const tabLabel = tabDefs.find((t) => t.id === tabId)?.label || tabId
-        next = ensureUiCatalogTab(next, tabId, tabLabel)
-        const tab = next.ui_catalog.tabs.find((t) => t.id === tabId)
-        if (!tab.commands.includes(command)) {
-          tab.commands.push(command)
-          tab.commands.sort()
-        }
-        if (String(newComment || '').trim()) {
-          tab.descriptions[command] = String(newComment).trim()
-        }
+      next = ensureUiCatalogTab(next, 'all', 'All Commands')
+      const tab = next.ui_catalog.tabs.find((t) => t.id === 'all')
+      if (!tab.commands.includes(command)) {
+        tab.commands.push(command)
+        tab.commands.sort()
       }
+      if (String(newComment || '').trim()) tab.descriptions[command] = String(newComment).trim()
       return next
     })
 
@@ -1067,30 +1005,125 @@ export default function App() {
       const comment = String(newComment).trim()
       setDescriptions((prev) => ({ ...prev, [command]: comment }))
     }
-    setContexts((prev) => {
-      const next = { ...prev }
-      for (const tabId of validTabs) {
-        const label = tabDefs.find((t) => t.id === tabId)?.label || tabId
-        const cur = new Set(next[command] || [])
-        cur.add(label)
-        next[command] = Array.from(cur)
-      }
-      return next
-    })
+    setContexts((prev) => ({ ...prev, [command]: [] }))
     setTabCommands((prev) => {
       const next = { ...prev }
-      for (const tabId of validTabs) {
-        const cur = new Set(next[tabId] || [])
-        cur.add(command)
-        next[tabId] = Array.from(cur).sort()
-      }
       next.all = Array.from(new Set([...(next.all || []), command])).sort()
       return next
     })
     setNewCommand('')
     setNewComment('')
-    setNewCommandTabs([])
     setMessage(`Command "${command}" added`)
+  }
+
+  function editCommandInline(original) {
+    const currentDescription = String(descriptions[original] || '')
+    const updatedRaw = window.prompt('Edit command pattern', original)
+    if (updatedRaw === null) return
+    const updated = normalizeCommandName(updatedRaw)
+    if (!updated) {
+      setMessage('Command text is required')
+      return
+    }
+    if (updated !== original && allCommands.includes(updated)) {
+      setMessage(`Command "${updated}" already exists`)
+      return
+    }
+    const nextDescriptionRaw = window.prompt('Edit description (optional)', currentDescription)
+    if (nextDescriptionRaw === null) return
+    const updatedDescription = String(nextDescriptionRaw || '').trim()
+
+    setDraftPolicy((prev) => {
+      let next = deepClone(prev)
+      const priorTier = tierFor(next, original)
+      const remove = (arr = []) => arr.filter((x) => x !== original)
+      next.blocked.commands = remove(next.blocked?.commands)
+      next.requires_confirmation.commands = remove(next.requires_confirmation?.commands)
+      if (priorTier === 'blocked') next.blocked.commands = Array.from(new Set([...(next.blocked.commands || []), updated])).sort()
+      if (priorTier === 'requires_confirmation') {
+        next.requires_confirmation.commands = Array.from(new Set([...(next.requires_confirmation.commands || []), updated])).sort()
+      }
+
+      next.ui_catalog = next.ui_catalog || {}
+      next.ui_catalog.tabs = Array.isArray(next.ui_catalog.tabs) ? next.ui_catalog.tabs : []
+      for (const tab of next.ui_catalog.tabs) {
+        tab.commands = Array.isArray(tab.commands) ? tab.commands.filter((c) => c !== original) : []
+        tab.descriptions = typeof tab.descriptions === 'object' && tab.descriptions ? tab.descriptions : {}
+        delete tab.descriptions[original]
+      }
+      next = ensureUiCatalogTab(next, 'all', 'All Commands')
+      const allTab = next.ui_catalog.tabs.find((t) => t.id === 'all')
+      if (!allTab.commands.includes(updated)) {
+        allTab.commands.push(updated)
+        allTab.commands.sort()
+      }
+      if (updatedDescription) allTab.descriptions[updated] = updatedDescription
+      return next
+    })
+
+    setAllCommands((prev) => {
+      const next = prev.filter((c) => c !== original)
+      next.push(updated)
+      return Array.from(new Set(next)).sort()
+    })
+    setDescriptions((prev) => {
+      const next = { ...prev }
+      delete next[original]
+      if (updatedDescription) next[updated] = updatedDescription
+      return next
+    })
+    setContexts((prev) => {
+      const next = { ...prev }
+      delete next[original]
+      next[updated] = []
+      return next
+    })
+    setTabCommands((prev) => {
+      const next = { ...prev }
+      Object.keys(next).forEach((tabId) => {
+        next[tabId] = (next[tabId] || []).filter((c) => c !== original)
+      })
+      next.all = Array.from(new Set([...(next.all || []), updated])).sort()
+      return next
+    })
+    setMessage(`Command "${original}" updated`)
+  }
+
+  function removeCommandInline(command) {
+    const ok = window.confirm(`Remove command "${command}"?`)
+    if (!ok) return
+
+    setDraftPolicy((prev) => {
+      const next = deepClone(prev)
+      next.blocked.commands = (next.blocked?.commands || []).filter((x) => x !== command)
+      next.requires_confirmation.commands = (next.requires_confirmation?.commands || []).filter((x) => x !== command)
+      next.ui_catalog = next.ui_catalog || {}
+      next.ui_catalog.tabs = Array.isArray(next.ui_catalog.tabs) ? next.ui_catalog.tabs : []
+      for (const tab of next.ui_catalog.tabs) {
+        tab.commands = (tab.commands || []).filter((c) => c !== command)
+        if (tab.descriptions && typeof tab.descriptions === 'object') delete tab.descriptions[command]
+      }
+      return next
+    })
+    setAllCommands((prev) => prev.filter((x) => x !== command))
+    setDescriptions((prev) => {
+      const next = { ...prev }
+      delete next[command]
+      return next
+    })
+    setContexts((prev) => {
+      const next = { ...prev }
+      delete next[command]
+      return next
+    })
+    setTabCommands((prev) => {
+      const next = { ...prev }
+      Object.keys(next).forEach((tabId) => {
+        next[tabId] = (next[tabId] || []).filter((c) => c !== command)
+      })
+      return next
+    })
+    setMessage(`Command "${command}" removed`)
   }
 
   function openCommandEditModal(cmd) {
@@ -1322,58 +1355,58 @@ export default function App() {
 
   function CommandRow({ cmd }) {
     const currentTier = tierFor(draftPolicy, cmd)
-    const appliedTier = tierFor(appliedPolicy, cmd)
-    const contextList = (contexts[cmd] || []).join(', ') || 'Uncategorized'
-    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px' : ''}`.replaceAll('_', ' ')
+    const [hovered, setHovered] = useState(false)
+    const rowBg = currentTier === 'blocked' ? '#fff8f8' : currentTier === 'requires_confirmation' ? '#fffdf5' : 'white'
+    const hoverBg = currentTier === 'blocked' ? '#fff2f2' : currentTier === 'requires_confirmation' ? '#fffaeb' : '#fafafa'
+    const description = String(descriptions[cmd] || '').trim()
 
     return (
-      <div className="grid gap-2 items-center border-b border-slate-200 py-2 text-sm" style={{ gridTemplateColumns }}>
-        <div className="bg-white">
-          <div className="font-semibold text-slate-800 flex items-center gap-2">
-            <span className="font-mono">{cmd}</span>
-            <button
-              type="button"
-              className="text-slate-400 hover:text-slate-600"
-              onClick={() => setCommandModal({ open: true, command: cmd })}
-              title="View command details"
-            >
-              ⓘ
-            </button>
-            <button
-              type="button"
-              className="text-slate-400 hover:text-slate-600"
-              onClick={() => openCommandEditModal(cmd)}
-              title="Edit command metadata"
-            >
-              ✎
-            </button>
-            <span className={`px-2 py-0.5 rounded-full border text-xs ${STATUS_STYLE[appliedTier]}`}>{STATUS_LABEL[appliedTier]}</span>
-          </div>
-          <div className="text-xs text-slate-400">{contextList}</div>
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 16px',
+          borderBottom: '1px solid #f3f4f6',
+          minHeight: 46,
+          background: hovered ? hoverBg : rowBg,
+          transition: 'background 0.1s',
+        }}
+      >
+        <div style={{ flex: 1, padding: '8px 0', minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, fontFamily: 'var(--font-mono)', color: '#111827' }}>{cmd}</div>
+          {description && (
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{description}</div>
+          )}
         </div>
-        {BASIC_TIER_COLUMNS.map((col) => (
-          <label key={col.key} className="flex justify-center bg-white">
-            <input
-              type="radio"
-              name={`tier-${cmd}`}
-              checked={currentTier === col.key}
-              onChange={() => setDraftPolicy((p) => setTier(p, cmd, col.key))}
-            />
-          </label>
-        ))}
-        {showAdvanced && ADVANCED_TIER_COLUMNS.map((col) => (
-          <label
-            key={col.key}
-            className="flex justify-center bg-blue-50"
-          >
-            <input
-              type="radio"
-              name={`tier-${cmd}`}
-              checked={currentTier === col.key}
-              onChange={() => setDraftPolicy((p) => setTier(p, cmd, col.key))}
-            />
-          </label>
-        ))}
+
+        <div style={{ width: 175, flexShrink: 0 }}>
+          <SegControl
+            value={currentTier}
+            onChange={(nextTier) => setDraftPolicy((p) => setTier(p, cmd, nextTier))}
+            options={[
+              { label: 'Allow', value: 'allowed', activeClass: 'active-allow' },
+              { label: 'Block', value: 'blocked', activeClass: 'active-block' },
+              { label: 'Confirm', value: 'requires_confirmation', activeClass: 'active-confirm' },
+            ]}
+          />
+        </div>
+
+        <div
+          style={{
+            width: 44,
+            flexShrink: 0,
+            display: 'flex',
+            gap: 2,
+            justifyContent: 'flex-end',
+            opacity: hovered ? 1 : 0,
+            transition: 'opacity 0.15s',
+          }}
+        >
+          <IconBtn icon={<PencilIcon />} variant="default" title="Edit" onClick={() => editCommandInline(cmd)} />
+          <IconBtn icon={<RemoveIcon />} variant="danger" title="Remove" onClick={() => removeCommandInline(cmd)} />
+        </div>
       </div>
     )
   }
@@ -1487,6 +1520,115 @@ export default function App() {
             </div>
           )
         })}
+      </div>
+    )
+  }
+
+  function ScriptSentinelPanel() {
+    const sentinelArtifacts = scriptSentinelData?.artifacts?.items || []
+    const sentinelSummary = scriptSentinelData?.summary || null
+    return (
+      <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Script Sentinel</div>
+            <div className="text-xs text-slate-500">Policy-intent continuity for script-mediated command execution.</div>
+          </div>
+          <button
+            onClick={fetchScriptSentinel}
+            className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-xs bg-white hover:bg-slate-50"
+            disabled={scriptSentinelLoading}
+          >
+            {scriptSentinelLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+
+        {sentinelSummary && (
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 text-xs">
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Flagged: <span className="font-semibold">{sentinelSummary.flagged_artifacts || 0}</span></div>
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Checks(24h): <span className="font-semibold">{sentinelSummary.total_checks || 0}</span></div>
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Blocked: <span className="font-semibold">{sentinelSummary.blocked || 0}</span></div>
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Needs Approval: <span className="font-semibold">{sentinelSummary.requires_confirmation || 0}</span></div>
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Trusted: <span className="font-semibold">{sentinelSummary.trusted_allowances || 0}</span></div>
+            <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Dismissed Once: <span className="font-semibold">{sentinelSummary.one_time_allowances || 0}</span></div>
+          </div>
+        )}
+
+        {scriptSentinelError && <div className="text-sm text-red-600 mb-2">{scriptSentinelError}</div>}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="text-left text-slate-500 border-b border-slate-200">
+                <th className="py-2 pr-2">Path</th>
+                <th className="py-2 px-2">Hash</th>
+                <th className="py-2 px-2">Execution Context</th>
+                <th className="py-2 px-2">Matched Signatures</th>
+                <th className="py-2 px-2">Last Seen</th>
+                <th className="py-2 px-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sentinelArtifacts.map((item) => {
+                const hash = String(item.content_hash || '')
+                const onceKey = `once:${hash}`
+                const trustKey = `persistent:${hash}`
+                const signatures = Array.isArray(item.matched_signatures) ? item.matched_signatures : []
+                const hasExecContext = signatures.some((sig) => {
+                  if (sig?.match_context === 'exec_context') return true
+                  if (sig?.enforceable === true) return true
+                  if (sig?.type === 'policy_command' && sig?.enforceable === undefined && !sig?.match_context) return true
+                  return false
+                })
+                const signaturePreview = signatures
+                  .map((sig) => {
+                    const base = String(sig?.pattern || sig?.normalized_pattern || '')
+                    const ctx = String(sig?.match_context || '')
+                    if (!ctx) return base
+                    return `${base} [${ctx}]`
+                  })
+                  .filter(Boolean)
+                  .slice(0, 4)
+                  .join(', ')
+                return (
+                  <tr key={`${item.path}:${hash}`} className="border-b border-slate-100">
+                    <td className="py-2 pr-2 font-mono break-all">{item.path}</td>
+                    <td className="py-2 px-2 font-mono break-all">{hash}</td>
+                    <td className="py-2 px-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] ${hasExecContext ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-300 text-slate-600'}`}>
+                        {hasExecContext ? 'Yes' : 'No'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-slate-600">{signaturePreview || '-'}</td>
+                    <td className="py-2 px-2 text-slate-600">{relativeTime(item.path_last_seen_ts || item.last_seen_ts || '')}</td>
+                    <td className="py-2 px-2">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => scriptSentinelAllowance(hash, 'once')}
+                          className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+                          disabled={Boolean(scriptSentinelActionLoading[onceKey])}
+                        >
+                          Dismiss Once
+                        </button>
+                        <button
+                          onClick={() => scriptSentinelAllowance(hash, 'persistent')}
+                          className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+                          disabled={Boolean(scriptSentinelActionLoading[trustKey])}
+                        >
+                          Trust Artifact
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {!sentinelArtifacts.length && !scriptSentinelLoading && (
+          <div className="text-xs text-slate-500 mt-2">No flagged script artifacts recorded yet.</div>
+        )}
       </div>
     )
   }
@@ -1626,7 +1768,8 @@ export default function App() {
 
     return (
       <div className="space-y-3">
-        <div className="card">
+        {reportsTab === 'log' && (
+          <div className="card">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="text-xs text-slate-500">
               {reportsStatus?.last_ingested_at ? `Last indexed ${relativeTime(reportsStatus.last_ingested_at)}` : 'No ingest data yet'}
@@ -1648,7 +1791,7 @@ export default function App() {
             </div>
             <div className="status-item">
               <span className="value">{timeSinceLastEvent}</span>
-              <span>since last event</span>
+              <span>last event</span>
             </div>
             <div className="status-item">
               <span className="value">{nextIndexIn}</span>
@@ -1657,9 +1800,11 @@ export default function App() {
           </div>
           {reportsError && <div className="mt-2 text-sm text-red-600">{reportsError}</div>}
           {reportsLoading && <div className="mt-2 text-xs text-slate-500">Refreshing reports...</div>}
-        </div>
+          </div>
+        )}
 
-        <div className="card">
+        {reportsTab !== 'script_sentinel' && (
+          <div className="card">
           <div className="flex items-center justify-between gap-2">
             <button onClick={() => setShowReportFilters((v) => !v)} className="btn btn-ghost">
               {showReportFilters ? 'Hide filters' : 'Show filters'} ({activeFilterCount})
@@ -1715,7 +1860,12 @@ export default function App() {
               </div>
             </div>
           )}
-        </div>
+          </div>
+        )}
+
+        {reportsTab === 'script_sentinel' && (
+          <ScriptSentinelPanel />
+        )}
 
         {reportsTab === 'dashboard' && (
           <>
@@ -1872,10 +2022,10 @@ export default function App() {
                     <th className="text-left px-2 py-1"> </th>
                     <th className="text-left px-2 py-1">Time</th>
                     <th className="text-left px-2 py-1">Agent</th>
-                    <th className="text-left px-2 py-1">Session</th>
                     <th className="text-left px-2 py-1">Source</th>
                     <th className="text-left px-2 py-1">Tool</th>
                     <th className="text-left px-2 py-1">Decision</th>
+                    <th className="text-left px-2 py-1">Event</th>
                     <th className="text-left px-2 py-1">Matched Rule</th>
                     <th className="text-left px-2 py-1">Command / Path</th>
                   </tr>
@@ -1892,6 +2042,18 @@ export default function App() {
                     } catch {
                       prettyJson = e.raw_json || '{}'
                     }
+                    const source = String(e.source || '-')
+                    const sourceClass = source === 'mcp-server'
+                      ? 'bg-violet-100 text-violet-700 border-violet-200'
+                      : source === 'human-operator'
+                        ? 'bg-green-100 text-green-700 border-green-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    const decision = String(e.policy_decision || '-')
+                    const decisionClass = decision === 'blocked'
+                      ? 'bg-red-100 text-red-600 border-red-200'
+                      : decision === 'confirmed'
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
                     return (
                       <React.Fragment key={e.id}>
                         <tr className="border-t border-slate-100">
@@ -1906,17 +2068,45 @@ export default function App() {
                           </td>
                           <td className="px-2 py-1 font-mono">{e.timestamp}</td>
                           <td className="px-2 py-1">{e.agent_id || 'Unknown'}</td>
-                          <td className="px-2 py-1 font-mono">{e.agent_session_id || e.session_id || '-'}</td>
-                          <td className="px-2 py-1">{e.source || '-'}</td>
+                          <td className="px-2 py-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] ${sourceClass}`}>{source}</span>
+                          </td>
                           <td className="px-2 py-1">{e.tool || '-'}</td>
-                          <td className="px-2 py-1">{e.policy_decision || '-'}</td>
+                          <td className="px-2 py-1">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] ${decisionClass}`}>{decision}</span>
+                          </td>
+                          <td className="px-2 py-1">
+                            {e.event ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-mono bg-amber-100 text-amber-800 border-amber-200">
+                                {e.event}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
                           <td className="px-2 py-1 font-mono">{e.matched_rule || '-'}</td>
                           <td className="px-2 py-1 font-mono">{e.command || e.path || '-'}</td>
                         </tr>
                         {expanded && (
-                          <tr className="bg-slate-50 border-t border-slate-100">
+                          <tr className="bg-indigo-50/40 border-t border-slate-100">
                             <td colSpan={9} className="px-2 py-2">
-                              <pre className="text-xs font-mono whitespace-pre-wrap break-all">{prettyJson}</pre>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] text-slate-600 mb-2">
+                                <div><span className="font-semibold text-slate-700">Agent:</span> {e.agent_id || 'Unknown'}</div>
+                                <div><span className="font-semibold text-slate-700">Source:</span> {source}</div>
+                                <div><span className="font-semibold text-slate-700">Tool:</span> {e.tool || '-'}</div>
+                                <div><span className="font-semibold text-slate-700">Decision:</span> {decision}</div>
+                                <div><span className="font-semibold text-slate-700">Event:</span> {e.event || '-'}</div>
+                                <div><span className="font-semibold text-slate-700">Matched rule:</span> {e.matched_rule || '-'}</div>
+                              </div>
+                              {e.block_reason && (
+                                <div className="mb-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                                  <span className="font-semibold">Block reason:</span> {e.block_reason}
+                                </div>
+                              )}
+                              <details>
+                                <summary className="cursor-pointer text-xs text-slate-600">Show raw JSON</summary>
+                                <pre className="mt-2 text-xs font-mono whitespace-pre-wrap break-all bg-[#0f1117] text-slate-100 p-3 rounded">{prettyJson}</pre>
+                              </details>
                             </td>
                           </tr>
                         )}
@@ -1932,374 +2122,280 @@ export default function App() {
     )
   }
 
-  function CommandsPanel() {
-    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px' : ''}`.replaceAll('_', ' ')
-    const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
+  function PathLikeRow({ label, onEdit, onRemove, tint = 'white' }) {
+    const [hovered, setHovered] = useState(false)
+    const hoverBg = tint === '#fff8f8' ? '#fff2f2' : '#fafafa'
     return (
-      <>
-        <div className="card mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="section-title m-0">Command Authoring</div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setShowAddCommandForm((v) => !v)} className="btn btn-ghost">{showAddCommandForm ? 'Hide Add Command' : '+ Add Command'}</button>
-              <button onClick={() => setShowAddCategoryForm((v) => !v)} className="btn btn-ghost">{showAddCategoryForm ? 'Hide Add Category' : '+ Add Category'}</button>
-            </div>
-          </div>
-          {showAddCommandForm && (
-            <div className="space-y-2 mb-3">
-              <div className="form-label">Add Command</div>
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
-                <input
-                  value={newCommand}
-                  onChange={(e) => setNewCommand(e.target.value)}
-                  className="mono-input"
-                  placeholder="Command (e.g. git cherry-pick)"
-                />
-                <input
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Description/comment shown in info modal"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {nonAllTabs.map((tab) => (
-                  <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={newCommandTabs.includes(tab.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setNewCommandTabs((prev) => Array.from(new Set([...prev, tab.id])))
-                        else setNewCommandTabs((prev) => prev.filter((x) => x !== tab.id))
-                      }}
-                    />
-                    <span>{tab.label}</span>
-                  </label>
-                ))}
-              </div>
-              <div className="text-xs text-slate-500">Category selection is optional. If none is selected, the command is added as uncategorized.</div>
-              <button onClick={onAddCommand} className="btn btn-primary">Add command</button>
-            </div>
-          )}
-          {showAddCategoryForm && (
-            <div className="space-y-2">
-              <div className="form-label">Add Category</div>
-              <div className="flex gap-2">
-                <input
-                  value={newCategoryLabel}
-                  onChange={(e) => setNewCategoryLabel(e.target.value)}
-                  className="flex-1"
-                  placeholder="Category name (e.g. Databases)"
-                />
-                <button onClick={onCreateCategory} className="btn btn-ghost">Add category</button>
-              </div>
-            </div>
-          )}
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 16px',
+          borderBottom: '1px solid #f3f4f6',
+          minHeight: 42,
+          background: hovered ? hoverBg : tint,
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#374151' }}>{label}</span>
         </div>
-
-        <div className="card mb-3 space-y-2">
-          <div className="section-title">Filters</div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full"
-              placeholder="Filter commands by text..."
-            />
-            <div className="border border-[var(--border-input)] rounded-[var(--radius-md)] px-3 py-2 bg-[var(--bg-input)]">
-              <div className="text-xs text-[var(--text-secondary)] mb-1">Categories (multi-select, default: All)</div>
-              <div className="flex flex-wrap gap-2">
-                {nonAllTabs.map((tab) => (
-                  <label key={tab.id} className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedCategories.includes(tab.label)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedCategories((prev) => Array.from(new Set([...prev, tab.label])))
-                        else setSelectedCategories((prev) => prev.filter((x) => x !== tab.label))
-                      }}
-                    />
-                    <span>{tab.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
+        <div style={{ width: 175, flexShrink: 0 }} />
+        <div
+          style={{
+            width: 44,
+            flexShrink: 0,
+            display: 'flex',
+            gap: 2,
+            justifyContent: 'flex-end',
+            opacity: hovered ? 1 : 0,
+            transition: 'opacity 0.15s',
+          }}
+        >
+          <IconBtn icon={<PencilIcon />} variant="default" title="Edit" onClick={onEdit} />
+          <IconBtn icon={<RemoveIcon />} variant="danger" title="Remove" onClick={onRemove} />
         </div>
-
-        <div className="card overflow-auto">
-          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns }}>
-            <div />
-            <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
-            {showAdvanced ? (
-              <div className="col-span-1 rounded-md bg-blue-50 py-1 text-slate-700 px-2 flex items-center justify-between">
-                <span className="font-semibold">Advanced</span>
-                <button
-                  onClick={() => setShowAdvanced(false)}
-                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
-                >
-                  Hide advanced settings
-                </button>
-              </div>
-            ) : (
-              <div className="col-span-1 py-1 px-2 flex items-center justify-end">
-                <button
-                  onClick={() => setShowAdvanced(true)}
-                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
-                >
-                  Show advanced settings
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2 pt-2" style={{ gridTemplateColumns }}>
-            <div className="bg-white">Command</div>
-            <div className="text-center bg-white">Allowed</div>
-            <div className="text-center bg-white">Blocked</div>
-            {showAdvanced && (
-              <>
-                <div className="text-center bg-blue-50">Requires Approval</div>
-              </>
-            )}
-          </div>
-          {commandRows.map((cmd) => <CommandRow key={cmd} cmd={cmd} />)}
-        </div>
-      </>
+      </div>
     )
   }
 
-  function PathsPanel() {
-    const allPaths = Array.from(new Set([
-      ...((draftPolicy?.allowed?.paths_whitelist) || []),
-      ...((draftPolicy?.blocked?.paths) || []),
-      ...((draftPolicy?.requires_confirmation?.paths) || []),
-    ])).sort()
+  function RulesPanel() {
+    const blockedPaths = (draftPolicy?.blocked?.paths || []).slice().sort()
+    const whitelistedPaths = (draftPolicy?.allowed?.paths_whitelist || []).slice().sort()
+    const blockedExtensions = (draftPolicy?.blocked?.extensions || []).slice().sort()
 
-    const visiblePaths = allPaths.filter((p) => showPathAdvanced || pathTierFor(draftPolicy, p) !== 'requires_confirmation')
-    const pathGridColumns = `minmax(420px,1fr)_90px_90px${showPathAdvanced ? '_120px' : ''}_90px`.replaceAll('_', ' ')
-
-    const onAddPath = () => {
-      const p = normalizeAbsolutePath(newPathValue)
-      if (!p) {
-        setMessage('Path is required')
-        return
-      }
-      if (!isAbsolutePath(p)) {
-        setMessage('Only absolute paths are allowed (must start with /)')
-        return
-      }
-      setDraftPolicy((prev) => setPathTier(prev, p, newPathTier))
-      setNewPathValue('')
-      setMessage(`Path "${p}" added`)
-    }
-
-    const onEditPath = (oldPath) => {
-      const next = window.prompt('Edit absolute path', oldPath)
+    const editPath = (oldPath, tier) => {
+      const next = window.prompt('Edit path', oldPath)
       if (next === null) return
       const normalized = normalizeAbsolutePath(next)
       if (!normalized || !isAbsolutePath(normalized)) {
         setMessage('Only absolute paths are allowed (must start with /)')
         return
       }
-      setDraftPolicy((prev) => renamePath(prev, oldPath, normalized))
+      setDraftPolicy((prev) => {
+        const cleared = removePath(prev, oldPath)
+        return setPathTier(cleared, normalized, tier)
+      })
     }
 
-    return (
-      <div className="space-y-3">
-        <div className="card">
-          <button type="button" className="section-toggle" onClick={() => setShowRuntimePaths((v) => !v)}>
-            <span>Runtime Paths</span>
-            <span className="text-[var(--text-tertiary)]">(read only)</span>
-            <span className={`ml-auto text-xs text-[var(--text-tertiary)] transition ${showRuntimePaths ? 'rotate-180' : ''}`}>▾</span>
-          </button>
-          {showRuntimePaths && (
-            <>
-              <dl className="runtime-paths-list mt-3">
-                {Object.entries(runtimePaths).map(([key, value]) => (
-                  key === 'AIRG_AGENT_ID' ? null : (
-                    <div key={key}>
-                      <dt>{RUNTIME_PATH_LABELS[key] || key}</dt>
-                      <dd className="path-display">{String(value || '')}</dd>
-                    </div>
-                  )
-                ))}
-              </dl>
-              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-[10px] px-3 py-2 mt-3">
-                Runtime paths are managed by MCP client configuration/env. To change workspace paths, update your AI agent MCP config,
-                then restart the MCP server and agent client.
-              </div>
-            </>
-          )}
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div className="section-title m-0">Path Rules</div>
-            <button onClick={() => setShowAddPathForm((v) => !v)} className="btn btn-ghost">{showAddPathForm ? 'Hide Add Path' : '+ Add Path'}</button>
-          </div>
-          {showAddPathForm && (
-            <div className="space-y-2 mt-3">
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_320px_auto] gap-2 items-center">
-                <input
-                  value={newPathValue}
-                  onChange={(e) => setNewPathValue(e.target.value)}
-                  className="mono-input"
-                  placeholder="/absolute/path"
-                  title="Use absolute paths only. Example: /Users/your_username/Documents/Folder"
-                />
-                <div className="flex items-center gap-3 text-xs">
-                  <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'allowed'} onChange={() => setNewPathTier('allowed')} /> Allowed</label>
-                  <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'blocked'} onChange={() => setNewPathTier('blocked')} /> Blocked</label>
-                  {showPathAdvanced && (
-                    <label className="flex items-center gap-1"><input type="radio" checked={newPathTier === 'requires_confirmation'} onChange={() => setNewPathTier('requires_confirmation')} /> Requires Approval</label>
-                  )}
-                </div>
-                <button onClick={onAddPath} className="btn btn-primary">Add path</button>
-              </div>
-              <div className="text-xs text-slate-500">Example: <span className="font-mono">/Users/your_username/Documents/Folder</span></div>
-            </div>
-          )}
-        </div>
-        <div className="card overflow-auto">
-          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2" style={{ gridTemplateColumns: pathGridColumns }}>
-            <div />
-            <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
-            {showPathAdvanced ? (
-              <div className="col-span-2 rounded-md bg-blue-50 py-1 text-slate-700 border-l-2 border-slate-300 pl-4 pr-2 flex items-center justify-between">
-                <span className="font-semibold">Advanced</span>
-                <button
-                  onClick={() => setShowPathAdvanced(false)}
-                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
-                >
-                  Hide advanced settings
-                </button>
-              </div>
-            ) : (
-              <div className="col-span-1 py-1 px-2 flex items-center justify-end">
-                <button
-                  onClick={() => setShowPathAdvanced(true)}
-                  className="text-xs text-slate-500 underline underline-offset-2 hover:text-slate-700"
-                >
-                  Show advanced settings
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="grid gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2 pt-2" style={{ gridTemplateColumns: pathGridColumns }}>
-            <div>Path</div>
-            <div className="text-center">Allowed</div>
-            <div className="text-center">Blocked</div>
-            {showPathAdvanced && <div className="text-center bg-blue-50 border-l-2 border-slate-300 pl-4">Requires Approval</div>}
-            <div className="text-center">Actions</div>
-          </div>
-          {visiblePaths.map((p) => {
-            const tier = pathTierFor(draftPolicy, p)
-            return (
-              <div key={p} className="grid gap-2 items-center border-b border-slate-200 py-2 text-sm" style={{ gridTemplateColumns: pathGridColumns }}>
-                <div className="border border-slate-300 rounded px-2 py-1 font-mono text-xs bg-[var(--bg-input)]">{p}</div>
-                <label className="flex justify-center"><input type="radio" checked={tier === 'allowed'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'allowed'))} /></label>
-                <label className="flex justify-center"><input type="radio" checked={tier === 'blocked'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'blocked'))} /></label>
-                {showPathAdvanced && (
-                  <label className="flex justify-center bg-blue-50 border-l-2 border-slate-300 pl-4">
-                    <input type="radio" checked={tier === 'requires_confirmation'} onChange={() => setDraftPolicy((prev) => setPathTier(prev, p, 'requires_confirmation'))} />
-                  </label>
-                )}
-                <div className="flex justify-center gap-2">
-                  <button onClick={() => onEditPath(p)} className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-xs">Edit</button>
-                  <button onClick={() => setDraftPolicy((prev) => removePath(prev, p))} className="px-2 py-1 rounded border border-red-300 text-red-700 text-xs">Remove</button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
+    const addBlockedPath = () => {
+      const raw = window.prompt('Add blocked absolute path', '')
+      if (raw === null) return
+      const normalized = normalizeAbsolutePath(raw)
+      if (!normalized || !isAbsolutePath(normalized)) {
+        setMessage('Only absolute paths are allowed (must start with /)')
+        return
+      }
+      setDraftPolicy((prev) => setPathTier(prev, normalized, 'blocked'))
+      setMessage(`Blocked path "${normalized}" added`)
+    }
 
-  function ExtensionsPanel() {
-    const blockedExt = (draftPolicy?.blocked?.extensions || []).slice().sort()
-    const onAdd = () => {
-      const val = String(newExtensionValue || '').trim()
-      if (!val) {
+    const addAllowedPath = () => {
+      const raw = window.prompt('Add allowed absolute path', '')
+      if (raw === null) return
+      const normalized = normalizeAbsolutePath(raw)
+      if (!normalized || !isAbsolutePath(normalized)) {
+        setMessage('Only absolute paths are allowed (must start with /)')
+        return
+      }
+      setDraftPolicy((prev) => setPathTier(prev, normalized, 'allowed'))
+      setMessage(`Allowed path "${normalized}" added`)
+    }
+
+    const addBlockedExtension = () => {
+      const raw = window.prompt('Add blocked extension pattern', '')
+      if (raw === null) return
+      const value = String(raw || '').trim()
+      if (!value) {
         setMessage('Extension value is required')
         return
       }
       setDraftPolicy((prev) => {
         const next = deepClone(prev)
         next.blocked = next.blocked || {}
-        next.blocked.extensions = Array.from(new Set([...(next.blocked.extensions || []), val])).sort()
+        next.blocked.extensions = Array.from(new Set([...(next.blocked.extensions || []), value])).sort()
         return next
       })
-      setNewExtensionValue('')
-      setMessage(`Extension "${val}" added to blocked list`)
+      setMessage(`Extension "${value}" added`)
     }
-    const onEdit = (oldExt) => {
-      const nextVal = window.prompt('Edit extension value', oldExt)
-      if (nextVal === null) return
-      const val = String(nextVal || '').trim()
-      if (!val) {
+
+    const editExtension = (oldExt) => {
+      const raw = window.prompt('Edit extension pattern', oldExt)
+      if (raw === null) return
+      const value = String(raw || '').trim()
+      if (!value) {
         setMessage('Extension value is required')
         return
       }
       setDraftPolicy((prev) => {
         const next = deepClone(prev)
         const list = (next.blocked?.extensions || []).filter((e) => e !== oldExt)
-        list.push(val)
+        list.push(value)
         next.blocked.extensions = Array.from(new Set(list)).sort()
         return next
       })
       setMessage(`Extension "${oldExt}" updated`)
     }
+
+    const pathsIcon = (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M2.5 5h4l1.2 1.2h5.8v6H2.5z" />
+        <path d="M2.5 5V3.5h4l1.2 1.2" />
+      </svg>
+    )
+    const extensionsIcon = (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <path d="M3 3h10v10H3z" />
+        <path d="M5.5 6.5h5M5.5 9.5h3.5" />
+      </svg>
+    )
+
     return (
       <div className="space-y-3">
-        <div className="card">
-          <div className="flex items-center justify-between">
-            <div className="section-title m-0">Blocked Extensions</div>
-            <button onClick={() => setShowAddExtensionForm((v) => !v)} className="btn btn-ghost">{showAddExtensionForm ? 'Hide Add Extension' : '+ Add Extension'}</button>
+        <div className="bg-white border border-slate-200 rounded-[8px] overflow-hidden">
+          <div style={{ display: 'flex', gap: 8, padding: '10px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
+            <input
+              value={newCommand}
+              onChange={(e) => setNewCommand(e.target.value)}
+              style={{ flex: 2, fontFamily: 'var(--font-mono)', fontSize: 12, padding: '6px 10px', border: '1px solid #94a3b8', borderRadius: 5, outline: 'none', background: '#ffffff' }}
+              placeholder="Command pattern (e.g. rm -rf, git push --force)"
+            />
+            <input
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              style={{ flex: 1, fontSize: 12, padding: '6px 10px', border: '1px solid #94a3b8', borderRadius: 5, outline: 'none', background: '#ffffff' }}
+              placeholder="Description (optional)"
+            />
+            <button
+              onClick={onAddCommand}
+              style={{
+                background: '#4f46e5',
+                color: 'white',
+                border: 'none',
+                borderRadius: 5,
+                padding: '6px 14px',
+                fontSize: 11,
+                fontWeight: 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Add
+            </button>
           </div>
-          {showAddExtensionForm && (
-            <div className="space-y-2 mt-3">
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
-                <input
-                  value={newExtensionValue}
-                  onChange={(e) => setNewExtensionValue(e.target.value)}
-                  className="mono-input"
-                  placeholder="*.ext"
-                  title="Enter extension pattern such as *.pem, *.key, *.env"
-                />
-                <button onClick={onAdd} className="btn btn-primary">Add extension</button>
-              </div>
-              <div className="text-xs text-slate-500">Example: <span className="font-mono">*.pem</span></div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <svg style={{ position: 'absolute', left: 8, top: 8, width: 12, height: 12, color: '#9ca3af' }} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="6" cy="6" r="4" />
+                <path d="M9.5 9.5L12.5 12.5" />
+              </svg>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{ width: '100%', fontSize: 12, padding: '6px 10px 6px 28px', border: '1px solid #94a3b8', borderRadius: 5, outline: 'none', background: '#ffffff' }}
+                placeholder="Search commands..."
+              />
             </div>
-          )}
-        </div>
-        <div className="card overflow-auto">
-          <div className="grid grid-cols-[minmax(320px,1fr)_140px] gap-2 text-xs font-semibold text-slate-500 border-b border-slate-200 pb-2">
-            <div>Extension</div>
-            <div className="text-center">Actions</div>
+            <span style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>{commandRows.length} rules</span>
           </div>
-          {blockedExt.map((ext) => (
-            <div key={ext} className="grid grid-cols-[minmax(320px,1fr)_140px] gap-2 items-center border-b border-slate-200 py-2 text-sm">
-              <div className="border border-slate-300 rounded px-2 py-1 font-mono text-xs bg-[var(--bg-input)]">{ext}</div>
-              <div className="flex justify-center gap-2">
-                <button
-                  onClick={() => onEdit(ext)}
-                  className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-xs"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => setDraftPolicy((prev) => {
-                    const next = deepClone(prev)
-                    next.blocked.extensions = (next.blocked?.extensions || []).filter((e) => e !== ext)
-                    return next
-                  })}
-                  className="px-2 py-1 rounded border border-red-300 text-red-700 text-xs"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
+
+          <div style={{ display: 'flex', padding: '5px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+            <span style={{ flex: 1, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Command</span>
+            <span style={{ width: 175, textAlign: 'center', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af', flexShrink: 0 }}>Policy tier</span>
+            <span style={{ width: 44, flexShrink: 0 }} />
+          </div>
+
+          {commandRows.map((cmd) => <CommandRow key={cmd} cmd={cmd} />)}
         </div>
+
+        <CollapsibleSection
+          icon={pathsIcon}
+          title="Paths"
+          badges={[
+            { label: `${blockedPaths.length} blocked`, style: 'red' },
+            { label: `${whitelistedPaths.length} whitelisted`, style: 'gray' },
+          ]}
+        >
+          <div style={{ borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: '#fafafa' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280' }}>Blocked paths</span>
+              <button className="btn btn-ghost" onClick={addBlockedPath}>+ Add</button>
+            </div>
+            {blockedPaths.map((path) => (
+              <PathLikeRow
+                key={path}
+                label={path}
+                tint="#fff8f8"
+                onEdit={() => editPath(path, 'blocked')}
+                onRemove={() => setDraftPolicy((prev) => removePath(prev, path))}
+              />
+            ))}
+            {!blockedPaths.length && <div className="px-4 py-3 text-xs text-slate-500">No blocked paths.</div>}
+          </div>
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setRulesWhitelistOpen((v) => !v)}
+              style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#fafafa' }}
+            >
+              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280' }}>
+                Allowed paths (whitelist)
+              </span>
+              <span className="text-xs text-slate-500">{rulesWhitelistOpen ? 'Hide' : 'Show'}</span>
+            </button>
+            {rulesWhitelistOpen && (
+              <div style={{ borderTop: '1px solid #f3f4f6' }}>
+                <div style={{ margin: '10px 16px', padding: '8px 12px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 5, fontSize: 11, color: '#0369a1' }}>
+                  Whitelisted paths allow access outside AIRG_WORKSPACE for file tools and shell containment checks. Only effective when shell workspace containment is set to enforce mode (Advanced Policy).
+                </div>
+                <div style={{ padding: '0 16px 12px' }}>
+                  <button className="btn btn-ghost" onClick={addAllowedPath}>+ Add allowed path</button>
+                </div>
+                {whitelistedPaths.map((path) => (
+                  <PathLikeRow
+                    key={path}
+                    label={path}
+                    tint="white"
+                    onEdit={() => editPath(path, 'allowed')}
+                    onRemove={() => setDraftPolicy((prev) => removePath(prev, path))}
+                  />
+                ))}
+                {!whitelistedPaths.length && <div className="px-4 pb-3 text-xs text-slate-500">No allowed paths.</div>}
+              </div>
+            )}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          icon={extensionsIcon}
+          title="Extensions"
+          badges={[{ label: `${blockedExtensions.length} blocked`, style: 'red' }]}
+          defaultCollapsed={true}
+        >
+          <div style={{ borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 16px', background: '#fafafa' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280' }}>Blocked extensions</span>
+              <button className="btn btn-ghost" onClick={addBlockedExtension}>+ Add</button>
+            </div>
+            {blockedExtensions.map((ext) => (
+              <PathLikeRow
+                key={ext}
+                label={ext}
+                tint="#fff8f8"
+                onEdit={() => editExtension(ext)}
+                onRemove={() => setDraftPolicy((prev) => {
+                  const next = deepClone(prev)
+                  next.blocked.extensions = (next.blocked?.extensions || []).filter((e) => e !== ext)
+                  return next
+                })}
+              />
+            ))}
+            {!blockedExtensions.length && <div className="px-4 py-3 text-xs text-slate-500">No blocked extensions.</div>}
+          </div>
+        </CollapsibleSection>
       </div>
     )
   }
@@ -2373,17 +2469,16 @@ export default function App() {
           <div className="flex items-center justify-end">
             <button onClick={() => setShowNetworkEditors((v) => !v)} className="btn btn-ghost">{showNetworkEditors ? 'Hide Network Editors' : '+ Show Network Editors'}</button>
           </div>
-          <div className="flex flex-wrap gap-3 text-sm">
-            {['off', 'monitor', 'enforce'].map((mode) => (
-              <label key={mode} className="flex items-center gap-2 border border-slate-300 rounded px-3 py-1.5 bg-slate-50">
-                <input
-                  type="radio"
-                  checked={(network.enforcement_mode || 'off') === mode}
-                  onChange={() => updateNetwork({ enforcement_mode: mode })}
-                />
-                <span className="font-mono">{mode}</span>
-              </label>
-            ))}
+          <div style={{ maxWidth: 280 }}>
+            <SegControl
+              value={network.enforcement_mode || 'off'}
+              onChange={(mode) => updateNetwork({ enforcement_mode: mode })}
+              options={[
+                { label: 'Off', value: 'off', activeClass: 'm-off' },
+                { label: 'Monitor', value: 'monitor', activeClass: 'm-monitor' },
+                { label: 'Enforce', value: 'enforce', activeClass: 'm-enforce' },
+              ]}
+            />
           </div>
           {(network.enforcement_mode || 'off') === 'enforce' && (
             <label className="mt-1 inline-flex items-center gap-2 text-xs text-slate-700">
@@ -2714,18 +2809,16 @@ export default function App() {
             <div className="text-[11px] text-slate-500">
               Best-effort path containment for `execute_command`. In monitor mode, commands are allowed and logged; in enforce mode, commands referencing outside paths are blocked.
             </div>
-            <div className="flex flex-wrap gap-3 text-sm">
-              {['off', 'monitor', 'enforce'].map((mode) => (
-                <label key={mode} className="flex items-center gap-2 capitalize">
-                  <input
-                    type="radio"
-                    name="shell-containment-mode"
-                    checked={(shellContainment.mode || 'off') === mode}
-                    onChange={() => setShellContainment({ mode })}
-                  />
-                  {mode}
-                </label>
-              ))}
+            <div style={{ maxWidth: 280 }}>
+              <SegControl
+                value={shellContainment.mode || 'off'}
+                onChange={(mode) => setShellContainment({ mode })}
+                options={[
+                  { label: 'Off', value: 'off', activeClass: 'm-off' },
+                  { label: 'Monitor', value: 'monitor', activeClass: 'm-monitor' },
+                  { label: 'Enforce', value: 'enforce', activeClass: 'm-enforce' },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -2892,37 +2985,29 @@ export default function App() {
           </div>
           <div className="space-y-2">
             <div className="text-xs text-slate-600">Mode</div>
-            <div className="flex flex-wrap gap-3 text-sm">
-              {['match_original', 'block', 'requires_confirmation'].map((mode) => (
-                <label key={mode} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="script-sentinel-mode"
-                    checked={(scriptSentinel.mode || 'match_original') === mode}
-                    onChange={() => setScriptSentinel({ mode })}
-                  />
-                  <span className="font-mono">{mode}</span>
-                </label>
-              ))}
+            <div style={{ maxWidth: 360 }}>
+              <SegControl
+                value={scriptSentinel.mode || 'match_original'}
+                onChange={(mode) => setScriptSentinel({ mode })}
+                options={[
+                  { label: 'Match original', value: 'match_original', activeClass: 'm-blue' },
+                  { label: 'Block', value: 'block', activeClass: 'active-block' },
+                  { label: 'Confirm', value: 'requires_confirmation', activeClass: 'active-confirm' },
+                ]}
+              />
             </div>
           </div>
           <div className="space-y-2">
             <div className="text-xs text-slate-600">Scan Mode</div>
-            <div className="flex flex-wrap gap-3 text-sm">
-              {[
-                { id: 'exec_context', label: 'exec_context (default)' },
-                { id: 'exec_context_plus_mentions', label: 'exec_context_plus_mentions' },
-              ].map((scanMode) => (
-                <label key={scanMode.id} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="script-sentinel-scan-mode"
-                    checked={(scriptSentinel.scan_mode || 'exec_context') === scanMode.id}
-                    onChange={() => setScriptSentinel({ scan_mode: scanMode.id })}
-                  />
-                  <span className="font-mono">{scanMode.label}</span>
-                </label>
-              ))}
+            <div style={{ maxWidth: 420 }}>
+              <SegControl
+                value={scriptSentinel.scan_mode || 'exec_context'}
+                onChange={(scan_mode) => setScriptSentinel({ scan_mode })}
+                options={[
+                  { label: 'exec_context', value: 'exec_context', activeClass: 'm-blue' },
+                  { label: 'exec_context_plus_mentions', value: 'exec_context_plus_mentions', activeClass: 'active-confirm' },
+                ]}
+              />
             </div>
             <div className="text-[11px] text-slate-500">
               <span className="font-mono">exec_context</span> flags executable usage patterns only. <span className="font-mono">exec_context_plus_mentions</span> also records mention-only hits for audit visibility.
@@ -3259,8 +3344,16 @@ export default function App() {
                   )}
                   {expanded && section === 'network' && (
                     <div className="space-y-3">
-                      <div className="flex gap-3 text-xs">
-                        {['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.enforcement_mode || 'off') === mode} onChange={() => setSectionValue('network', { ...sectionData, enforcement_mode: mode })} /> <span className="font-mono">{mode}</span></label>)}
+                      <div style={{ maxWidth: 280 }}>
+                        <SegControl
+                          value={sectionData?.enforcement_mode || 'off'}
+                          onChange={(mode) => setSectionValue('network', { ...sectionData, enforcement_mode: mode })}
+                          options={[
+                            { label: 'Off', value: 'off', activeClass: 'm-off' },
+                            { label: 'Monitor', value: 'monitor', activeClass: 'm-monitor' },
+                            { label: 'Enforce', value: 'enforce', activeClass: 'm-enforce' },
+                          ]}
+                        />
                       </div>
                       <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.block_unknown_domains)} onChange={(e) => setSectionValue('network', { ...sectionData, block_unknown_domains: e.target.checked })} /> block_unknown_domains</label>
                       {['commands', 'allowed_domains', 'blocked_domains'].map((field) => (
@@ -3280,7 +3373,17 @@ export default function App() {
                       </div>
                       <div className="border border-slate-200 rounded-[10px] p-2 space-y-2">
                         <div className="text-xs font-semibold text-slate-700">shell_workspace_containment</div>
-                        <div className="flex gap-3 text-xs">{['off', 'monitor', 'enforce'].map((mode) => <label key={mode} className="flex items-center gap-1"><input type="radio" checked={(sectionData?.shell_workspace_containment?.mode || 'off') === mode} onChange={() => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), mode } })} /> <span className="font-mono">{mode}</span></label>)}</div>
+                        <div style={{ maxWidth: 280 }}>
+                          <SegControl
+                            value={sectionData?.shell_workspace_containment?.mode || 'off'}
+                            onChange={(mode) => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), mode } })}
+                            options={[
+                              { label: 'Off', value: 'off', activeClass: 'm-off' },
+                              { label: 'Monitor', value: 'monitor', activeClass: 'm-monitor' },
+                              { label: 'Enforce', value: 'enforce', activeClass: 'm-enforce' },
+                            ]}
+                          />
+                        </div>
                         <label className="text-xs inline-flex items-center gap-2"><input type="checkbox" checked={Boolean(sectionData?.shell_workspace_containment?.log_paths)} onChange={(e) => setSectionValue('execution', { ...sectionData, shell_workspace_containment: { ...(sectionData?.shell_workspace_containment || {}), log_paths: e.target.checked } })} /> log_paths</label>
                         <div className="flex gap-2"><input value={overrideListInputs['execution.shell_workspace_containment.exempt_commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'execution.shell_workspace_containment.exempt_commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => {
                           const raw = String(overrideListInputs['execution.shell_workspace_containment.exempt_commands'] || '').trim()
@@ -3310,9 +3413,7 @@ export default function App() {
   function PolicyPanel() {
     return (
       <>
-        {activePolicyTab === 'commands' && CommandsPanel()}
-        {activePolicyTab === 'paths' && PathsPanel()}
-        {activePolicyTab === 'extensions' && ExtensionsPanel()}
+        {activePolicyTab === 'rules' && RulesPanel()}
         {activePolicyTab === 'network' && NetworkPanel()}
         {activePolicyTab === 'agent_overrides' && AgentOverridesPanel()}
         {activePolicyTab === 'advanced' && AdvancedPolicyPanel()}
@@ -3337,8 +3438,6 @@ export default function App() {
     const postureRows = agentPosture?.profiles || []
     const postureTotals = agentPosture?.totals || { green: 0, yellow: 0, red: 0 }
     const postureDiscovered = agentPosture?.discovered_unregistered || []
-    const sentinelArtifacts = scriptSentinelData?.artifacts?.items || []
-    const sentinelSummary = scriptSentinelData?.summary || null
     const postureStatusLabel = {
       green: 'Hardened',
       yellow: 'Partial',
@@ -3682,15 +3781,6 @@ export default function App() {
   }
 }`
 
-    if (activeSettingsTab === 'advanced') {
-      return (
-        <div className="bg-white border border-slate-200 rounded-[10px] p-6 shadow-sm text-slate-600 text-sm">
-          <div className="font-semibold text-slate-800 mb-2">Advanced Settings</div>
-          <div>This section is reserved for future global settings and adapter behavior controls.</div>
-        </div>
-      )
-    }
-
     return (
       <div className="space-y-4">
         <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm">
@@ -3972,108 +4062,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-sm font-semibold text-slate-800">Script Sentinel</div>
-              <div className="text-xs text-slate-500">Policy-intent continuity for script-mediated command execution.</div>
-            </div>
-            <button
-              onClick={fetchScriptSentinel}
-              className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-xs bg-white hover:bg-slate-50"
-              disabled={scriptSentinelLoading}
-            >
-              {scriptSentinelLoading ? 'Refreshing…' : 'Refresh'}
-            </button>
-          </div>
-
-          {sentinelSummary && (
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 text-xs">
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Flagged: <span className="font-semibold">{sentinelSummary.flagged_artifacts || 0}</span></div>
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Checks(24h): <span className="font-semibold">{sentinelSummary.total_checks || 0}</span></div>
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Blocked: <span className="font-semibold">{sentinelSummary.blocked || 0}</span></div>
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Needs Approval: <span className="font-semibold">{sentinelSummary.requires_confirmation || 0}</span></div>
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Trusted: <span className="font-semibold">{sentinelSummary.trusted_allowances || 0}</span></div>
-              <div className="border border-slate-200 rounded px-2 py-1 bg-slate-50">Dismissed Once: <span className="font-semibold">{sentinelSummary.one_time_allowances || 0}</span></div>
-            </div>
-          )}
-
-          {scriptSentinelError && <div className="text-sm text-red-600 mb-2">{scriptSentinelError}</div>}
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-200">
-                  <th className="py-2 pr-2">Path</th>
-                  <th className="py-2 px-2">Hash</th>
-                  <th className="py-2 px-2">Execution Context</th>
-                  <th className="py-2 px-2">Matched Signatures</th>
-                  <th className="py-2 px-2">Last Seen</th>
-                  <th className="py-2 px-2 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sentinelArtifacts.map((item) => {
-                  const hash = String(item.content_hash || '')
-                  const onceKey = `once:${hash}`
-                  const trustKey = `persistent:${hash}`
-                  const signatures = Array.isArray(item.matched_signatures) ? item.matched_signatures : []
-                  const hasExecContext = signatures.some((sig) => {
-                    if (sig?.match_context === 'exec_context') return true
-                    if (sig?.enforceable === true) return true
-                    if (sig?.type === 'policy_command' && sig?.enforceable === undefined && !sig?.match_context) return true
-                    return false
-                  })
-                  const signaturePreview = signatures
-                    .map((sig) => {
-                      const base = String(sig?.pattern || sig?.normalized_pattern || '')
-                      const ctx = String(sig?.match_context || '')
-                      if (!ctx) return base
-                      return `${base} [${ctx}]`
-                    })
-                    .filter(Boolean)
-                    .slice(0, 4)
-                    .join(', ')
-                  return (
-                    <tr key={`${item.path}:${hash}`} className="border-b border-slate-100">
-                      <td className="py-2 pr-2 font-mono break-all">{item.path}</td>
-                      <td className="py-2 px-2 font-mono break-all">{hash}</td>
-                      <td className="py-2 px-2">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] ${hasExecContext ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-300 text-slate-600'}`}>
-                          {hasExecContext ? 'Yes' : 'No'}
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 text-slate-600">{signaturePreview || '-'}</td>
-                      <td className="py-2 px-2 text-slate-600">{relativeTime(item.path_last_seen_ts || item.last_seen_ts || '')}</td>
-                      <td className="py-2 px-2">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => scriptSentinelAllowance(hash, 'once')}
-                            className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
-                            disabled={Boolean(scriptSentinelActionLoading[onceKey])}
-                          >
-                            Dismiss Once
-                          </button>
-                          <button
-                            onClick={() => scriptSentinelAllowance(hash, 'persistent')}
-                            className="px-2 py-1 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
-                            disabled={Boolean(scriptSentinelActionLoading[trustKey])}
-                          >
-                            Trust Artifact
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {!sentinelArtifacts.length && !scriptSentinelLoading && (
-            <div className="text-xs text-slate-500 mt-2">No flagged script artifacts recorded yet.</div>
-          )}
-        </div>
       </div>
     )
   }
@@ -4239,7 +4227,7 @@ export default function App() {
     <div className='airg-app-shell relative min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] overflow-hidden'>
       <div className="relative z-10 mx-auto max-w-[1720px] border border-[var(--border-default)] overflow-hidden bg-[var(--bg-app)] shadow-sm h-screen grid grid-cols-[var(--sidebar-width)_1fr]">
         <aside className="airg-sidebar h-full min-h-0 border-r border-white/10 bg-[var(--bg-sidebar)] flex flex-col">
-          <div className="h-[78px] px-5 border-b border-white/10 flex items-center sidebar-brand">
+          <div className="h-[52px] px-4 border-b border-white/10 flex items-center sidebar-brand">
             <div className="flex items-center gap-2">
               <img
                 src={runtimeGuardLogo64}
@@ -4259,13 +4247,13 @@ export default function App() {
           <div className="p-4 border-t border-white/10 sidebar-footer">
             <div className="rounded-[8px] px-0 py-1 text-xs text-[var(--text-sidebar-heading)] flex items-center gap-2 sidebar-server-status">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-green)] dot" />
-              Server active · v2.0.dev2
+              Server active
             </div>
           </div>
         </aside>
 
         <div className="airg-content flex flex-col min-w-0 min-h-0 bg-[var(--bg-app)]">
-          <div className="h-[78px] px-6 border-b border-[var(--border-default)] bg-[var(--bg-header-bar)] flex items-center justify-between gap-3 page-header">
+          <div className="h-[52px] px-5 border-b border-[var(--border-default)] bg-[var(--bg-header-bar)] flex items-center justify-between gap-3 page-header sticky top-0 z-10">
             <div className="min-w-0">
               <div className="text-lg font-semibold text-[var(--text-primary)] title">{pageTitle}</div>
               <div className="text-xs text-[var(--text-secondary)] mt-0.5 flex flex-wrap items-center gap-3">
@@ -4302,6 +4290,9 @@ export default function App() {
                 >
                   Reset
                 </button>
+                <span className="text-[10px] text-[var(--text-secondary)] hidden xl:inline">
+                  Changes take effect after Apply + server restart
+                </span>
               </div>
             )}
           </div>
