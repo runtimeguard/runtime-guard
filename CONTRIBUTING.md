@@ -31,10 +31,9 @@ Typical checks before PR:
 Changes in these modules need extra care and test coverage:
 1. `policy_engine.py`
 2. `approvals.py`
-3. `budget.py`
-4. `backup.py`
-5. `executor.py`
-6. `tools/command_tools.py` and `tools/file_tools.py`
+3. `backup.py`
+4. `executor.py`
+5. `tools/command_tools.py` and `tools/file_tools.py`
 
 For security-relevant PRs, include:
 1. Risk statement

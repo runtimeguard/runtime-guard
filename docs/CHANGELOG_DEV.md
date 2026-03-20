@@ -2,6 +2,24 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-20 (v2.0.dev5 policy model simplification)
+- Removed simulation tier and cumulative budget logic from runtime enforcement.
+- Simplified runtime decision model to:
+  - `blocked`
+  - `requires_confirmation`
+  - `allowed`
+- Removed simulation/budget controls from policy schema and defaults:
+  - dropped `requires_simulation` from active policy surface
+  - retained migration compatibility by folding legacy `requires_simulation.commands` into `requires_confirmation.commands` on load.
+- Removed budget enforcement hooks from MCP tools:
+  - `execute_command`
+  - `write_file`
+  - `delete_file`.
+- Removed Simulation tier from UI command matrix and agent-override editing.
+- Removed Advanced Policy simulation/budget cards from GUI.
+- Updated packaging/runtime defaults and tests for the simplified model.
+- Bumped package/dev surface version to `2.0.dev5`.
+
 ## 2026-03-20 (v2.0.dev4 Script Sentinel context modes + runtime hot-reload)
 - Added runtime policy hot-reload support in `config.py`:
   - tool entry points refresh effective policy when `policy.json` mtime changes

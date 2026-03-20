@@ -1,5 +1,4 @@
 import datetime
-import glob
 import hashlib
 import os
 import pathlib
@@ -404,73 +403,6 @@ def check_confirmation_tier(command: str) -> tuple[str, str] | None:
     return None
 
 
-def simulate_blast_radius(command: str, sim_commands: list[str]) -> dict:
-    affected: set[str] = set()
-    lower_ops = {op.lower() for op in sim_commands}
-    saw_wildcard = False
-    parse_error = False
-
-    segments = split_shell_segments(command)
-    for segment in segments:
-        segment = segment.strip()
-        if not segment:
-            continue
-        tokens, err = tokenize_shell_segment(segment)
-        if err:
-            parse_error = True
-            continue
-        if not tokens:
-            continue
-
-        op = tokens[0].lower()
-        if op not in lower_ops:
-            continue
-
-        for token in tokens[1:]:
-            if not any(ch in token for ch in ("*", "?", "[")):
-                continue
-            saw_wildcard = True
-            pattern = token if os.path.isabs(token) else os.path.join(WORKSPACE_ROOT, token)
-            for match in glob.glob(pattern):
-                resolved = str(pathlib.Path(match).resolve())
-                if os.path.exists(resolved) and is_within_workspace(resolved):
-                    affected.add(resolved)
-
-    return {"affected": sorted(affected), "saw_wildcard": saw_wildcard, "parse_error": parse_error}
-
-
-def check_simulation_tier(command: str, simulation: dict | None = None) -> tuple[str, str] | None:
-    sim = POLICY.get("requires_simulation", {})
-    sim_commands = sim.get("commands", [])
-    threshold = sim.get("bulk_file_threshold", 10)
-
-    if not sim_commands:
-        return None
-
-    if simulation is None:
-        simulation = simulate_blast_radius(command, sim_commands)
-    affected = simulation["affected"]
-    saw_wildcard = simulation["saw_wildcard"]
-    parse_error = simulation["parse_error"]
-
-    if saw_wildcard and (parse_error or not affected):
-        return (
-            "Bulk file operation blocked: wildcard pattern could not be safely simulated to concrete targets. Please specify exact filenames instead.",
-            "requires_simulation.wildcard_unresolved",
-        )
-
-    if len(affected) > threshold:
-        sample = ", ".join(affected[:3])
-        if len(affected) > 3:
-            sample += ", ..."
-        return (
-            f"Bulk file operation blocked: simulated blast radius is {len(affected)} path(s), which exceeds the policy threshold of {threshold}. Sample targets: {sample}",
-            "requires_simulation.bulk_file_threshold",
-        )
-
-    return None
-
-
 def log_policy_conflict(command: str, normalized: str, matching_tiers: list) -> None:
     tier_names = [tier for tier, _, _ in matching_tiers]
     winning_tier, _winning_reason, winning_matched_rule = matching_tiers[0]
@@ -493,7 +425,7 @@ def log_policy_conflict(command: str, normalized: str, matching_tiers: list) -> 
     append_log_entry(warning)
 
 
-def check_policy(command: str, simulation: dict | None = None) -> PolicyResult:
+def check_policy(command: str) -> PolicyResult:
     norm = normalize_command(command)
     matching_tiers: list[tuple[str, str, str]] = []
 
@@ -506,11 +438,6 @@ def check_policy(command: str, simulation: dict | None = None) -> PolicyResult:
     if confirmation_result:
         reason, matched_rule = confirmation_result
         matching_tiers.append(("requires_confirmation", reason, matched_rule))
-
-    simulation_result = check_simulation_tier(command, simulation=simulation)
-    if simulation_result:
-        reason, matched_rule = simulation_result
-        matching_tiers.append(("requires_simulation", reason, matched_rule))
 
     if len(matching_tiers) > 1:
         log_policy_conflict(command, norm, matching_tiers)

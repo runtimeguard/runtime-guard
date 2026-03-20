@@ -10,7 +10,6 @@ else:
 
 from audit import append_log_entry, build_log_entry
 from backup import backup_paths
-from budget import check_and_record_cumulative_budget
 from config import AGENT_ID, POLICY, WORKSPACE_ROOT, refresh_policy_if_changed
 from models import PolicyResult
 from policy_engine import check_path_policy, relative_depth
@@ -71,24 +70,7 @@ def write_file(path: str, content: str, ctx: Context | None = None) -> str:
         else:
             result = PolicyResult(allowed=True, reason="allowed", decision_tier="allowed", matched_rule=None)
 
-        budget_fields: dict = {}
-        if result.allowed:
-            budget_allowed, budget_reason, budget_rule, budget_fields = check_and_record_cumulative_budget(
-                tool="write_file",
-                command=None,
-                affected_paths=[path],
-                operation_count=1,
-                bytes_estimate=len(content.encode()),
-            )
-            if not budget_allowed:
-                result = PolicyResult(
-                    allowed=False,
-                    reason=budget_reason or "Cumulative blast-radius budget exceeded for current scope.",
-                    decision_tier="blocked",
-                    matched_rule=budget_rule or "requires_simulation.cumulative_budget_exceeded",
-                )
-
-        log_entry = build_log_entry("write_file", result, path=path, **budget_fields)
+        log_entry = build_log_entry("write_file", result, path=path)
         append_log_entry(log_entry)
         if not result.allowed:
             return f"[POLICY BLOCK] {result.reason}"
@@ -164,30 +146,7 @@ def delete_file(path: str, ctx: Context | None = None) -> str:
                     matched_rule=None,
                 )
 
-        budget_fields: dict = {}
-        if result.allowed:
-            bytes_est = 0
-            try:
-                if os.path.isfile(path):
-                    bytes_est = int(os.path.getsize(path))
-            except OSError:
-                bytes_est = 0
-            budget_allowed, budget_reason, budget_rule, budget_fields = check_and_record_cumulative_budget(
-                tool="delete_file",
-                command=None,
-                affected_paths=[path],
-                operation_count=1,
-                bytes_estimate=bytes_est,
-            )
-            if not budget_allowed:
-                result = PolicyResult(
-                    allowed=False,
-                    reason=budget_reason or "Cumulative blast-radius budget exceeded for current scope.",
-                    decision_tier="blocked",
-                    matched_rule=budget_rule or "requires_simulation.cumulative_budget_exceeded",
-                )
-
-        log_entry = build_log_entry("delete_file", result, path=path, **budget_fields)
+        log_entry = build_log_entry("delete_file", result, path=path)
         if not result.allowed:
             append_log_entry(log_entry)
             return f"[POLICY BLOCK] {result.reason}"

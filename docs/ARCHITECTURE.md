@@ -1,5 +1,7 @@
 # Architecture
 
+> v2.0.dev5 note: simulation-tier and cumulative-budget enforcement were removed from active runtime logic. Historical sections below may reference legacy behavior.
+
 ## System overview
 `ai-runtime-guard` is a Python MCP server (`FastMCP`) that places a policy decision layer in front of high-risk agent capabilities. The server exposes a small tool surface and funnels every tool call through deterministic checks before any filesystem or shell side effect.
 
@@ -7,14 +9,13 @@ Core design goals observed in code:
 - Enforce explicit safety policy from config (`policy.json`), not hardcoded allow/deny logic.
 - Keep an auditable trace for every call (allowed and blocked).
 - Preserve recoverability for destructive operations through automatic backups.
-- Bound risky operations with simulation and retry limits.
+- Bound risky operations with deterministic block/approval policy and retry limits.
 
 Primary runtime artifacts:
 - `server.py`: thin MCP entrypoint and tool registration only.
 - `config.py`: startup config load/normalize and shared runtime state.
-- `policy_engine.py`: tiered policy evaluation, command parsing/simulation, path checks.
+- `policy_engine.py`: tiered policy evaluation and path checks.
 - `approvals.py`: command/restore token lifecycle and approval failure throttling.
-- `budget.py`: cumulative budget accounting and scope/reset behavior.
 - `backup.py`: backup extraction, dedupe/hash logic, retention/version pruning.
 - `reports.py`: activity-log ingestion, reports SQLite schema, query aggregations, retention pruning.
 - `script_sentinel.py`: script-artifact flagging (`write_file`) and execute-time policy-intent continuity checks (`execute_command`).

@@ -6,7 +6,6 @@ from unittest.mock import patch
 import approvals
 import audit
 import backup
-import budget
 import config
 import executor
 import policy_engine
@@ -23,56 +22,6 @@ DEFAULT_TEST_POLICY = {
             "max_failed_attempts_per_token": 5,
             "failed_attempt_window_seconds": 600,
             "token_ttl_seconds": 600,
-        },
-    },
-    "requires_simulation": {
-        "commands": ["rm", "mv"],
-        "bulk_file_threshold": 2,
-        "max_retries": 2,
-        "cumulative_budget": {
-            "enabled": False,
-            "scope": "session",
-            "limits": {
-                "max_unique_paths": 50,
-                "max_total_operations": 100,
-                "max_total_bytes_estimate": 104857600,
-            },
-            "counting": {
-                "mode": "affected_paths",
-                "dedupe_paths": True,
-                "include_noop_attempts": False,
-                "commands_included": ["rm", "mv", "write_file", "delete_file"],
-            },
-            "reset": {
-                "mode": "sliding_window",
-                "window_seconds": 3600,
-                "idle_reset_seconds": 900,
-                "reset_on_server_restart": True,
-            },
-            "on_exceed": {
-                "decision_tier": "blocked",
-                "matched_rule": "requires_simulation.cumulative_budget_exceeded",
-                "message": "Cumulative blast-radius budget exceeded for current scope.",
-            },
-            "overrides": {
-                "enabled": True,
-                "require_confirmation_tool": "out_of_band_operator_approval",
-                "token_ttl_seconds": 300,
-                "max_override_actions": 1,
-                "audit_reason_required": True,
-                "allowed_roles": ["human-operator"],
-            },
-            "audit": {
-                "log_budget_state": True,
-                "fields": [
-                    "budget_scope",
-                    "budget_key",
-                    "cumulative_unique_paths",
-                    "cumulative_total_operations",
-                    "cumulative_total_bytes_estimate",
-                    "budget_remaining",
-                ],
-            },
         },
     },
     "allowed": {
@@ -126,7 +75,7 @@ def apply_test_environment(workspace: pathlib.Path, max_retries: int = 2) -> Exi
     approval_db = pathlib.Path(workspace / "approvals.db").resolve()
     stack = ExitStack()
 
-    for module in [config, audit, policy_engine, backup, budget, executor, command_tools, file_tools]:
+    for module in [config, audit, policy_engine, backup, executor, command_tools, file_tools]:
         if hasattr(module, "WORKSPACE_ROOT"):
             stack.enter_context(patch.object(module, "WORKSPACE_ROOT", ws))
     for module in [config, audit]:
@@ -166,4 +115,3 @@ def reset_runtime_state() -> None:
     approvals.reset_approval_state_for_tests()
     approvals.PENDING_RESTORE_CONFIRMATIONS.clear()
     policy_engine.SERVER_RETRY_COUNTS.clear()
-    budget.CUMULATIVE_BUDGET_STATE.clear()

@@ -44,60 +44,6 @@
     }
   },
 
-  "requires_simulation": {
-    "commands": [],
-    "bulk_file_threshold": 10,
-    "max_retries": 3,
-    "cumulative_budget": {
-      "enabled": false,
-      "scope": "session",
-      "limits": {
-        "max_unique_paths": 50,
-        "max_total_operations": 100,
-        "max_total_bytes_estimate": 104857600
-      },
-      "counting": {
-        "mode": "affected_paths",
-        "dedupe_paths": true,
-        "include_noop_attempts": false,
-        "commands_included": ["rm", "mv", "write_file", "delete_file"]
-      },
-      "reset": {
-        "mode": "sliding_window",
-        "window_seconds": 3600,
-        "idle_reset_seconds": 900,
-        "reset_on_server_restart": true
-      },
-      "on_exceed": {
-        "_comment": "Current runtime behavior blocks on budget exceed; decision_tier is kept for forward-compatibility metadata.",
-        "decision_tier": "blocked",
-        "matched_rule": "requires_simulation.cumulative_budget_exceeded",
-        "message": "Cumulative blast-radius budget exceeded for current scope."
-      },
-      "overrides": {
-        "_comment": "Budget override flow is currently disabled in runtime logic; keep for future redesign.",
-        "enabled": true,
-        "require_confirmation_tool": "out_of_band_operator_approval",
-        "token_ttl_seconds": 300,
-        "max_override_actions": 1,
-        "audit_reason_required": true,
-        "allowed_roles": ["human-operator"]
-      },
-      "audit": {
-        "_comment": "Budget audit visibility metadata; runtime currently emits a fixed budget field set.",
-        "log_budget_state": true,
-        "fields": [
-          "budget_scope",
-          "budget_key",
-          "cumulative_unique_paths",
-          "cumulative_total_operations",
-          "cumulative_total_bytes_estimate",
-          "budget_remaining"
-        ]
-      }
-    }
-  },
-
   "allowed": {
     "paths_whitelist": [],
     "max_files_per_operation": 10,
@@ -184,7 +130,7 @@
   },
 
   "agent_overrides": {
-    "_comment": "Optional per-agent policy overlay keyed by AIRG_AGENT_ID. Override sections supported: blocked, requires_confirmation, requires_simulation, allowed, network, execution.",
+    "_comment": "Optional per-agent policy overlay keyed by AIRG_AGENT_ID. Override sections supported: blocked, requires_confirmation, allowed, network, execution.",
     "example-agent-id": {
       "policy": {
         "requires_confirmation": {

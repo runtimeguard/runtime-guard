@@ -11,11 +11,10 @@ AI agents with filesystem and shell access can delete files, leak credentials, o
 ## What it does
 1. **Blocks dangerous operations**: `rm -rf`, sensitive file access, privilege escalation, and more are denied before execution.
 2. **Gates risky commands behind human approval (optional)**: configurable commands require explicit operator sign-off via a web GUI before the agent can proceed.
-3. **Simulates blast radius**: wildcard operations like `rm *.tmp` are evaluated against real files before running, and blocked if they exceed a safe threshold.
-4. **Controls network behavior**: configure command-level network policy with monitor-only mode, domain allowlist/denylist, and optional unknown-domain blocking.
-5. **Supports multi-agent policy isolation**: apply per-agent policy overrides keyed by `AIRG_AGENT_ID` while keeping shared runtime controls.
-6. **Backs up before it acts**: destructive or overwrite operations create automatic backups with full restore support.
-7. **Provides robust logging and reporting**: all allowed/blocked actions are logged to `activity.log` and indexed into `reports.db` for dashboard/log views.
+3. **Controls network behavior**: configure command-level network policy with monitor-only mode, domain allowlist/denylist, and optional unknown-domain blocking.
+4. **Supports multi-agent policy isolation**: apply per-agent policy overrides keyed by `AIRG_AGENT_ID` while keeping shared runtime controls.
+5. **Backs up before it acts**: destructive or overwrite operations create automatic backups with full restore support.
+6. **Provides robust logging and reporting**: all allowed/blocked actions are logged to `activity.log` and indexed into `reports.db` for dashboard/log views.
 
 ## Current state
 1. Policy management is available in the local GUI (commands, paths, extensions, network, advanced policy).
@@ -40,7 +39,6 @@ Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or 
 3. Core controls:
    - block high-risk destructive/exfiltration commands and paths
    - enforce workspace boundaries
-   - gate mass/wildcard actions with simulation and budget limits
    - optionally require human approval for selected risky actions
    - automatically back up destructive/overwrite targets before applying changes
    - log allowed/blocked actions and operator decisions to an audit trail
@@ -48,7 +46,7 @@ Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or 
 ## How it works
 - Python MCP server with policy-driven enforcement loaded from `policy.json`
 - Default profile is **basic protection**: severe actions blocked, everything else allowed
-- Advanced controls available for opt-in: simulation gating, human approval workflows, cumulative budget limits, and shell workspace containment modes (`off`/`monitor`/`enforce`)
+- Advanced controls available for opt-in: human approval workflows, script-sentinel policy-intent checks, and shell workspace containment modes (`off`/`monitor`/`enforce`)
 - Local web GUI for policy editing, approval management, and audit log review
 
 ## Requirements

@@ -1,6 +1,7 @@
 # AI Runtime Guard Manual
 
 This manual explains current runtime behavior as implemented today.
+As of `v2.0.dev5`, active policy tiers are `blocked`, `requires_confirmation`, and `allowed`.
 
 ## 0. Runtime prerequisites
 Python:
@@ -21,7 +22,6 @@ Python:
 3. Core controls:
    - block severe destructive/exfiltration actions by policy
    - enforce workspace/path boundaries
-   - gate mass/wildcard actions through simulation/budget controls
    - optionally require operator approval for selected risky commands
    - automatically create backups before destructive/overwrite operations
    - comprehensively audit allowed/blocked actions and operator decisions

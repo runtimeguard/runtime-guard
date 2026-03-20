@@ -24,15 +24,15 @@ class RetryClampTest(unittest.TestCase):
         counts = [
             policy_engine.register_retry(
                 "rm *.tmp",
-                "requires_simulation",
-                "requires_simulation.bulk_file_threshold",
+                "blocked",
+                "blocked.rm",
             )
             for _ in range(5)
         ]
         key = policy_engine.retry_key(
             "rm *.tmp",
-            "requires_simulation",
-            "requires_simulation.bulk_file_threshold",
+            "blocked",
+            "blocked.rm",
         )
 
         self.assertEqual(counts, [1, 2, 3, 3, 3])

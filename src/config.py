@@ -7,6 +7,8 @@ import platform
 import threading
 import uuid
 
+DEFAULT_MAX_RETRIES = 3
+
 
 def _module_base_dir() -> pathlib.Path:
     here = pathlib.Path(__file__).resolve().parent
@@ -104,6 +106,13 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
         section[key] = value
         return value
 
+    legacy_sim = policy.pop("requires_simulation", None)
+    legacy_sim_commands: list[str] = []
+    if isinstance(legacy_sim, dict):
+        raw_sim_commands = legacy_sim.get("commands", [])
+        if isinstance(raw_sim_commands, list):
+            legacy_sim_commands = [str(cmd).strip() for cmd in raw_sim_commands if str(cmd).strip()]
+
     blocked = _ensure_dict("blocked")
     _ensure_list(blocked, "commands")
     _ensure_list(blocked, "paths")
@@ -112,6 +121,8 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     conf = _ensure_dict("requires_confirmation")
     _ensure_list(conf, "commands")
     _ensure_list(conf, "paths")
+    if legacy_sim_commands:
+        conf["commands"] = sorted(set(list(conf["commands"]) + legacy_sim_commands))
     conf.setdefault("session_whitelist_enabled", True)
     if not isinstance(conf["session_whitelist_enabled"], bool):
         raise ValueError("requires_confirmation.session_whitelist_enabled must be boolean")
@@ -121,78 +132,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     sec.setdefault("max_failed_attempts_per_token", 5)
     sec.setdefault("failed_attempt_window_seconds", 600)
     sec.setdefault("token_ttl_seconds", 600)
-
-    sim = _ensure_dict("requires_simulation")
-    _ensure_list(sim, "commands")
-    sim.setdefault("bulk_file_threshold", 10)
-    sim.setdefault("max_retries", 3)
-    if int(sim["bulk_file_threshold"]) < 0:
-        raise ValueError("requires_simulation.bulk_file_threshold must be >= 0")
-    if int(sim["max_retries"]) < 1:
-        raise ValueError("requires_simulation.max_retries must be >= 1")
-    budget = sim.setdefault("cumulative_budget", {})
-    if not isinstance(budget, dict):
-        raise ValueError("requires_simulation.cumulative_budget must be an object")
-    budget.setdefault("enabled", False)
-    budget.setdefault("scope", "session")
-    budget.setdefault("limits", {})
-    budget.setdefault("counting", {})
-    budget.setdefault("reset", {})
-    budget.setdefault("on_exceed", {})
-    budget.setdefault("overrides", {})
-    budget.setdefault("audit", {})
-    limits = budget["limits"]
-    if not isinstance(limits, dict):
-        raise ValueError("requires_simulation.cumulative_budget.limits must be an object")
-    limits.setdefault("max_unique_paths", 50)
-    limits.setdefault("max_total_operations", 100)
-    limits.setdefault("max_total_bytes_estimate", 104857600)
-    counting = budget["counting"]
-    if not isinstance(counting, dict):
-        raise ValueError("requires_simulation.cumulative_budget.counting must be an object")
-    counting.setdefault("mode", "affected_paths")
-    counting.setdefault("dedupe_paths", True)
-    counting.setdefault("include_noop_attempts", False)
-    counting.setdefault("commands_included", ["rm", "mv", "write_file", "delete_file"])
-    if not isinstance(counting["commands_included"], list):
-        raise ValueError("requires_simulation.cumulative_budget.counting.commands_included must be an array")
-    reset = budget["reset"]
-    if not isinstance(reset, dict):
-        raise ValueError("requires_simulation.cumulative_budget.reset must be an object")
-    reset.setdefault("mode", "sliding_window")
-    reset.setdefault("window_seconds", 3600)
-    reset.setdefault("idle_reset_seconds", 900)
-    reset.setdefault("reset_on_server_restart", True)
-    on_exceed = budget["on_exceed"]
-    if not isinstance(on_exceed, dict):
-        raise ValueError("requires_simulation.cumulative_budget.on_exceed must be an object")
-    on_exceed.setdefault("decision_tier", "blocked")
-    on_exceed.setdefault("matched_rule", "requires_simulation.cumulative_budget_exceeded")
-    on_exceed.setdefault("message", "Cumulative blast-radius budget exceeded for current scope.")
-    overrides = budget["overrides"]
-    if not isinstance(overrides, dict):
-        raise ValueError("requires_simulation.cumulative_budget.overrides must be an object")
-    overrides.setdefault("enabled", True)
-    overrides.setdefault("require_confirmation_tool", "out_of_band_operator_approval")
-    overrides.setdefault("token_ttl_seconds", 300)
-    overrides.setdefault("max_override_actions", 1)
-    overrides.setdefault("audit_reason_required", True)
-    overrides.setdefault("allowed_roles", ["human-operator"])
-    audit_cfg = budget["audit"]
-    if not isinstance(audit_cfg, dict):
-        raise ValueError("requires_simulation.cumulative_budget.audit must be an object")
-    audit_cfg.setdefault("log_budget_state", True)
-    audit_cfg.setdefault(
-        "fields",
-        [
-            "budget_scope",
-            "budget_key",
-            "cumulative_unique_paths",
-            "cumulative_total_operations",
-            "cumulative_total_bytes_estimate",
-            "budget_remaining",
-        ],
-    )
 
     allowed = _ensure_dict("allowed")
     _ensure_list(allowed, "paths_whitelist")
@@ -301,7 +240,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     allowed_override_sections = {
         "blocked",
         "requires_confirmation",
-        "requires_simulation",
         "allowed",
         "network",
         "execution",
@@ -371,7 +309,7 @@ BACKUP_DIR = str(
     .expanduser()
     .resolve()
 )
-MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
+MAX_RETRIES: int = DEFAULT_MAX_RETRIES
 
 SESSION_ID: str = str(uuid.uuid4())
 _workspace_from_env = str(os.environ.get("AIRG_WORKSPACE", "") or "").strip()
@@ -398,7 +336,7 @@ def _apply_runtime_policy(effective_policy: dict) -> None:
         .expanduser()
         .resolve()
     )
-    MAX_RETRIES = int(POLICY.get("requires_simulation", {}).get("max_retries", 3))
+    MAX_RETRIES = DEFAULT_MAX_RETRIES
     APPROVAL_TTL_SECONDS = int(
         POLICY.get("requires_confirmation", {}).get("approval_security", {}).get("token_ttl_seconds", 600)
     )

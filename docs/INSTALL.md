@@ -107,7 +107,7 @@ Notes:
 Use this when you want:
 1. Easier policy edits (instead of editing `policy.json` manually).
 2. Human approval workflow when `requires_confirmation` is enabled.
-3. Policy pages for commands, paths, extensions, network controls, and global advanced simulation/budget settings.
+3. Policy pages for commands, paths, extensions, network controls, script sentinel, and advanced runtime/security settings.
 4. Reports dashboard/log pages sourced from `reports.db`.
 5. Prebuilt GUI assets are shipped in the repository and package. For normal installs, you can start `airg-ui` directly without rebuilding frontend assets.
 
@@ -193,24 +193,17 @@ Branch note:
 
 ## Policy change lifecycle
 1. Policy edits can be done by file edit or GUI Apply.
-2. Runtime enforcement updates only after full client/server restart.
-3. Restart rule:
-   - Quit AI app completely.
-   - Wait for full process exit.
-   - Start AI app again.
+2. Runtime enforcement hot-reloads policy changes automatically when `policy.json` changes.
+3. Full restart is only needed if your MCP client caches environment/process state aggressively.
 
 ## Clarifications and current limitations
 1. Web GUI is optional unless you need GUI-based approvals or easier policy editing.
-2. Per-command budget shown in GUI is metadata only today.
-3. Enforced budget is currently cumulative per session scope (policy-driven), not per-command.
-4. Approval is out-of-band via GUI/API; agent cannot self-approve through MCP tool surface.
-5. Blast-radius simulation, when configured, evaluates candidate targets relative to the current workspace context. Directory-depth/path checks are anchored from `AIRG_WORKSPACE`.
-6. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
+2. Approval is out-of-band via GUI/API; agent cannot self-approve through MCP tool surface.
+3. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
    - A sample MCP-only skill file is provided at `docs/mcp-only.md`.
    - Save it as `<workspace>/.claude/skills/mcp-only.md` to enforce MCP-only behavior in that workspace.
-7. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
-8. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, gate mass/wildcard operations, back up destructive/overwrite targets automatically, and keep full audit logs.
-9. Budget reset behavior is event-driven: counters are checked/reset when budgeted operations run (no background reset timer). With idle reset enabled, slow-drip patterns beyond `idle_reset_seconds` can avoid cumulative growth; budget controls are optimized for accidental burst-risk reduction during normal sessions.
+4. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
+5. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, require explicit approval for configured risky operations, back up destructive/overwrite targets automatically, and keep full audit logs.
 
 ### Known issue: native client tools bypass MCP policy
 1. AIRG enforces only MCP tool calls routed to AIRG.

@@ -19,7 +19,7 @@ Last updated: 2026-03-08 (v1.5 prep)
    - `airg-doctor` validates runtime paths, permissions, UI availability, and reports DB health.
 2. Policy and enforcement
    - default profile is accidental-safety-first basic protection.
-   - advanced controls include simulation, confirmation, cumulative budgets, network domain controls, and shell workspace containment.
+   - advanced controls include confirmation, script-sentinel policy-intent checks, network domain controls, and shell workspace containment.
 3. Reporting
    - reports ingest from `activity.log` into `reports.db`.
    - UI includes dashboard and log tabs with filtering and drill-down behavior.

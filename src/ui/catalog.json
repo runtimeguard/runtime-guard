@@ -83,10 +83,9 @@
       }
     }
   ],
-  "tiers": ["allowed", "requires_simulation", "requires_confirmation", "blocked"],
+  "tiers": ["allowed", "requires_confirmation", "blocked"],
   "tier_labels": {
     "allowed": "Allowed",
-    "requires_simulation": "Simulation",
     "requires_confirmation": "Requires Approval",
     "blocked": "Blocked"
   }

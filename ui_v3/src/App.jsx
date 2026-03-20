@@ -38,7 +38,6 @@ const DEFAULT_TABS = [{ id: 'all', label: 'All Commands' }]
 const COLUMN_DEFS = [
   { key: 'allowed', label: 'Allowed', group: 'basic' },
   { key: 'blocked', label: 'Blocked', group: 'basic' },
-  { key: 'requires_simulation', label: 'Simulation', group: 'advanced' },
   { key: 'requires_confirmation', label: 'Requires Approval', group: 'advanced' }
 ]
 
@@ -69,14 +68,12 @@ const REPORT_FILTER_FIELDS = [
 
 const STATUS_STYLE = {
   allowed: 'badge badge-allowed',
-  requires_simulation: 'badge badge-info',
   requires_confirmation: 'badge badge-pending',
   blocked: 'badge badge-blocked'
 }
 
 const STATUS_LABEL = {
   allowed: 'Allowed',
-  requires_simulation: 'Simulation',
   requires_confirmation: 'Requires Approval',
   blocked: 'Blocked'
 }
@@ -84,7 +81,6 @@ const STATUS_LABEL = {
 const AGENT_OVERRIDE_SECTIONS = [
   'blocked',
   'requires_confirmation',
-  'requires_simulation',
   'allowed',
   'network',
   'execution',
@@ -92,7 +88,6 @@ const AGENT_OVERRIDE_SECTIONS = [
 const AGENT_OVERRIDE_SECTION_LABELS = {
   blocked: 'Blocked',
   requires_confirmation: 'Require Confirmation',
-  requires_simulation: 'Require Simulation',
   allowed: 'Allowed',
   network: 'Network',
   execution: 'Execution',
@@ -226,7 +221,6 @@ function UiIcon({ kind, className = 'w-4 h-4 text-slate-700' }) {
 function tierFor(policy, cmd) {
   if ((policy?.blocked?.commands || []).includes(cmd)) return 'blocked'
   if ((policy?.requires_confirmation?.commands || []).includes(cmd)) return 'requires_confirmation'
-  if ((policy?.requires_simulation?.commands || []).includes(cmd)) return 'requires_simulation'
   return 'allowed'
 }
 
@@ -235,10 +229,8 @@ function setTier(policy, cmd, tier) {
   const remove = (arr = []) => arr.filter((x) => x !== cmd)
   next.blocked.commands = remove(next.blocked?.commands)
   next.requires_confirmation.commands = remove(next.requires_confirmation?.commands)
-  next.requires_simulation.commands = remove(next.requires_simulation?.commands)
   if (tier === 'blocked') next.blocked.commands.push(cmd)
   if (tier === 'requires_confirmation') next.requires_confirmation.commands.push(cmd)
-  if (tier === 'requires_simulation') next.requires_simulation.commands.push(cmd)
   return next
 }
 
@@ -320,7 +312,6 @@ export default function App() {
   const [newWhitelistDomain, setNewWhitelistDomain] = useState('')
   const [newBlocklistDomain, setNewBlocklistDomain] = useState('')
   const [showNetworkEditors, setShowNetworkEditors] = useState(false)
-  const [budgetBytesUnit, setBudgetBytesUnit] = useState('MB')
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
   const [reportsTab, setReportsTab] = useState('dashboard')
@@ -1116,10 +1107,8 @@ export default function App() {
       const remove = (arr = []) => arr.filter((x) => x !== original)
       next.blocked.commands = remove(next.blocked?.commands)
       next.requires_confirmation.commands = remove(next.requires_confirmation?.commands)
-      next.requires_simulation.commands = remove(next.requires_simulation?.commands)
       if (priorTier === 'blocked') next.blocked.commands = Array.from(new Set([...(next.blocked.commands || []), updated])).sort()
       if (priorTier === 'requires_confirmation') next.requires_confirmation.commands = Array.from(new Set([...(next.requires_confirmation.commands || []), updated])).sort()
-      if (priorTier === 'requires_simulation') next.requires_simulation.commands = Array.from(new Set([...(next.requires_simulation.commands || []), updated])).sort()
 
       next.ui_catalog = next.ui_catalog || {}
       next.ui_catalog.tabs = Array.isArray(next.ui_catalog.tabs) ? next.ui_catalog.tabs : []
@@ -1308,7 +1297,7 @@ export default function App() {
     const currentTier = tierFor(draftPolicy, cmd)
     const appliedTier = tierFor(appliedPolicy, cmd)
     const contextList = (contexts[cmd] || []).join(', ') || 'Uncategorized'
-    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px_90px' : ''}`.replaceAll('_', ' ')
+    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px' : ''}`.replaceAll('_', ' ')
 
     return (
       <div className="grid gap-2 items-center border-b border-slate-200 py-2 text-sm" style={{ gridTemplateColumns }}>
@@ -1348,7 +1337,7 @@ export default function App() {
         {showAdvanced && ADVANCED_TIER_COLUMNS.map((col) => (
           <label
             key={col.key}
-            className={`flex justify-center bg-blue-50 ${col.key === 'requires_simulation' ? 'border-l-2 border-slate-300 pl-4' : ''}`}
+            className="flex justify-center bg-blue-50"
           >
             <input
               type="radio"
@@ -1860,7 +1849,7 @@ export default function App() {
   }
 
   function CommandsPanel() {
-    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px_90px' : ''}`.replaceAll('_', ' ')
+    const gridTemplateColumns = `${BASIC_GRID_COLS}${showAdvanced ? '_90px' : ''}`.replaceAll('_', ' ')
     const nonAllTabs = tabDefs.filter((t) => t.id !== 'all')
     return (
       <>
@@ -1958,7 +1947,7 @@ export default function App() {
             <div />
             <div className="text-center col-span-2 rounded-md bg-white py-1 text-slate-700 border border-slate-200">Basic</div>
             {showAdvanced ? (
-              <div className="col-span-2 rounded-md bg-blue-50 py-1 text-slate-700 border-l-2 border-slate-300 pl-4 pr-2 flex items-center justify-between">
+              <div className="col-span-1 rounded-md bg-blue-50 py-1 text-slate-700 px-2 flex items-center justify-between">
                 <span className="font-semibold">Advanced</span>
                 <button
                   onClick={() => setShowAdvanced(false)}
@@ -1984,16 +1973,10 @@ export default function App() {
             <div className="text-center bg-white">Blocked</div>
             {showAdvanced && (
               <>
-                <div className="text-center bg-blue-50 border-l-2 border-slate-300 pl-4">Simulation</div>
                 <div className="text-center bg-blue-50">Requires Approval</div>
               </>
             )}
           </div>
-          {showAdvanced && (
-            <div className="text-xs text-slate-500 bg-blue-50 border border-blue-100 rounded-md px-2 py-1 mt-2 mb-1">
-              Additional simulation and budget settings are configured on the Advanced Policy page.
-            </div>
-          )}
           {commandRows.map((cmd) => <CommandRow key={cmd} cmd={cmd} />)}
         </div>
       </>
@@ -2425,11 +2408,6 @@ export default function App() {
   }
 
   function AdvancedPolicyPanel() {
-    const simulation = draftPolicy?.requires_simulation || {}
-    const cumulative = simulation?.cumulative_budget || {}
-    const limits = cumulative?.limits || {}
-    const counting = cumulative?.counting || {}
-    const reset = cumulative?.reset || {}
     const confirmation = draftPolicy?.requires_confirmation || {}
     const approvalSecurity = confirmation?.approval_security || {}
     const execution = draftPolicy?.execution || {}
@@ -2440,19 +2418,6 @@ export default function App() {
     const audit = draftPolicy?.audit || {}
     const reportsCfg = draftPolicy?.reports || {}
     const scriptSentinel = draftPolicy?.script_sentinel || {}
-    const bytesMultiplier = {
-      KB: 1024,
-      MB: 1024 * 1024,
-      GB: 1024 * 1024 * 1024,
-    }
-
-    const setSimulation = (patch) => {
-      setDraftPolicy((prev) => {
-        const next = deepClone(prev)
-        next.requires_simulation = { ...(next.requires_simulation || {}), ...patch }
-        return next
-      })
-    }
 
     const setConfirmationSecurity = (patch) => {
       setDraftPolicy((prev) => {
@@ -2534,217 +2499,11 @@ export default function App() {
       })
     }
 
-    const setCumulative = (patch) => {
-      setDraftPolicy((prev) => {
-        const next = deepClone(prev)
-        const rs = { ...(next.requires_simulation || {}) }
-        rs.cumulative_budget = { ...(rs.cumulative_budget || {}), ...patch }
-        next.requires_simulation = rs
-        return next
-      })
-    }
-
-    const setLimits = (key, value) => {
-      const parsed = value === '' ? undefined : Math.max(0, parseInt(value, 10) || 0)
-      const nextLimits = { ...(limits || {}) }
-      if (parsed === undefined) delete nextLimits[key]
-      else nextLimits[key] = parsed
-      setCumulative({ limits: nextLimits })
-    }
-
-    const bytesRaw = Number(limits.max_total_bytes_estimate || 0)
-    const bytesDisplay = bytesRaw
-      ? String(Math.round((bytesRaw / bytesMultiplier[budgetBytesUnit]) * 100) / 100)
-      : ''
-
-    const onBytesDisplayChange = (value) => {
-      const normalized = String(value || '').trim()
-      const nextLimits = { ...(limits || {}) }
-      if (!normalized) {
-        delete nextLimits.max_total_bytes_estimate
-      } else {
-        const parsed = Number(normalized)
-        if (!Number.isFinite(parsed) || parsed < 0) return
-        nextLimits.max_total_bytes_estimate = Math.round(parsed * bytesMultiplier[budgetBytesUnit])
-      }
-      setCumulative({ limits: nextLimits })
-    }
-
-    const setCounting = (patch) => {
-      setCumulative({ counting: { ...(counting || {}), ...patch } })
-    }
-    const setReset = (patch) => {
-      setCumulative({ reset: { ...(reset || {}), ...patch } })
-    }
-
-    const commandsIncluded = Array.isArray(counting.commands_included) ? counting.commands_included.join(', ') : ''
     const allowedToolsText = Array.isArray(backupAccess.allowed_tools) ? backupAccess.allowed_tools.join(', ') : ''
     const redactPatternsText = Array.isArray(audit.redact_patterns) ? audit.redact_patterns.join('\n') : ''
 
     return (
       <div className="space-y-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-[10px] p-3 text-xs text-blue-800">
-          These settings are global/session-level controls for simulation and cumulative budget, not per-command controls.
-          Check the manual for exact enforcement semantics and examples.
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Cumulative Budget</div>
-          <div className="flex items-center gap-3 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(cumulative.enabled)}
-                onChange={(e) => setCumulative({ enabled: e.target.checked })}
-              />
-              Enabled
-            </label>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="text-xs text-slate-600">
-              Max total operations
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={limits.max_total_operations ?? ''}
-                onChange={(e) => setLimits('max_total_operations', e.target.value)}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max unique paths
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={limits.max_unique_paths ?? ''}
-                onChange={(e) => setLimits('max_unique_paths', e.target.value)}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Max total bytes estimate
-              <div className="mt-1 grid grid-cols-[1fr_auto] gap-2">
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className="w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                  value={bytesDisplay}
-                  onChange={(e) => onBytesDisplayChange(e.target.value)}
-                />
-                <select
-                  className="border border-slate-300 rounded-[10px] px-2 py-2 text-sm"
-                  value={budgetBytesUnit}
-                  onChange={(e) => setBudgetBytesUnit(e.target.value)}
-                >
-                  <option value="KB">KB</option>
-                  <option value="MB">MB</option>
-                  <option value="GB">GB</option>
-                </select>
-              </div>
-              <div className="mt-1 text-[11px] text-slate-500">
-                Stored in policy as raw bytes (auto-converted from selected unit).
-              </div>
-            </label>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3">
-            <label className="text-xs text-slate-600">
-              Commands included (comma-separated)
-              <input
-                type="text"
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm font-mono"
-                value={commandsIncluded}
-                onChange={(e) => {
-                  const values = e.target.value
-                    .split(',')
-                    .map((v) => normalizeListToken(v))
-                    .filter(Boolean)
-                  setCounting({ commands_included: values })
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(counting.dedupe_paths)}
-                onChange={(e) => setCounting({ dedupe_paths: e.target.checked })}
-              />
-              Dedupe paths
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={Boolean(counting.include_noop_attempts)}
-                onChange={(e) => setCounting({ include_noop_attempts: e.target.checked })}
-              />
-              Include noop attempts
-            </label>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Cumulative Budget Reset</div>
-          <div className="text-[11px] text-slate-500">
-            Operations older than the configured window are removed from budget calculation.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Sliding window (seconds)
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reset.window_seconds ?? 3600}
-                onChange={(e) => setReset({ window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Idle reset (seconds)
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={reset.idle_reset_seconds ?? 900}
-                onChange={(e) => setReset({ idle_reset_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Command Simulation Controls</div>
-          <div className="text-[11px] text-slate-500">
-            Configures retry and blast-radius thresholds for commands under simulation policy.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Max retries
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={simulation.max_retries ?? 0}
-                onChange={(e) => setSimulation({ max_retries: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Bulk file threshold
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[10px] px-3 py-2 text-sm"
-                value={simulation.bulk_file_threshold ?? 0}
-                onChange={(e) => setSimulation({ bulk_file_threshold: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-          </div>
-        </div>
-
         <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Backup & Restore</div>
           <div className="flex flex-wrap gap-4 text-sm">
@@ -2890,7 +2649,7 @@ export default function App() {
         <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Whitelisted Commands Limits</div>
           <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[10px] p-2">
-            Applies to commands not explicitly configured as blocked, simulation-gated, or approval-gated.
+            Applies to commands not explicitly configured as blocked or approval-gated.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label className="text-xs text-slate-600">
@@ -3237,12 +2996,6 @@ export default function App() {
       addListLine('Requires confirmation commands', listDelta(confirmBase.commands, confirmEff.commands))
       addListLine('Requires confirmation paths', listDelta(confirmBase.paths, confirmEff.paths))
 
-      const simBase = draftPolicy?.requires_simulation || {}
-      const simEff = sectionValue('requires_simulation')
-      addListLine('Requires simulation commands', listDelta(simBase.commands, simEff.commands))
-      addScalarLine('Bulk file threshold', simBase.bulk_file_threshold, simEff.bulk_file_threshold)
-      addScalarLine('Simulation max retries', simBase.max_retries, simEff.max_retries)
-
       const allowedBase = draftPolicy?.allowed || {}
       const allowedEff = sectionValue('allowed')
       addListLine('Allowed paths whitelist', listDelta(allowedBase.paths_whitelist, allowedEff.paths_whitelist))
@@ -3278,7 +3031,7 @@ export default function App() {
         <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
           <div className="text-sm font-semibold text-slate-800">Agent Overrides</div>
           <div className="text-xs text-slate-600">
-            Baseline policy remains global. Agent overrides apply only to: <span className="font-mono">blocked, requires_confirmation, requires_simulation, allowed, network, execution</span>.
+            Baseline policy remains global. Agent overrides apply only to: <span className="font-mono">blocked, requires_confirmation, allowed, network, execution</span>.
             Workspace remains controlled by MCP env (<span className="font-mono">AIRG_WORKSPACE</span>), not policy overrides.
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
@@ -3418,19 +3171,6 @@ export default function App() {
                           <div className="flex flex-wrap gap-1">{((sectionData?.[field]) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField(section, field, item)} className="text-red-600">×</button></span>)}</div>
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {expanded && section === 'requires_simulation' && (
-                    <div className="space-y-3">
-                      <div className="border border-slate-200 rounded-[10px] p-2 space-y-2">
-                        <div className="text-xs font-semibold text-slate-700">commands</div>
-                        <div className="flex gap-2"><input value={overrideListInputs['requires_simulation.commands'] || ''} onChange={(e) => setOverrideListInputs((p) => ({ ...p, 'requires_simulation.commands': e.target.value }))} className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs font-mono" /><button onClick={() => updateListField('requires_simulation', 'commands')} className="px-2 py-1 rounded bg-[#0055ff] text-white text-xs">Add</button></div>
-                        <div className="flex flex-wrap gap-1">{((sectionData?.commands) || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('requires_simulation', 'commands', item)} className="text-red-600">×</button></span>)}</div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        <label className="text-xs">Bulk file threshold<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.bulk_file_threshold ?? 0} onChange={(e) => setSectionValue('requires_simulation', { ...sectionData, bulk_file_threshold: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
-                        <label className="text-xs">Max retries<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_retries ?? 0} onChange={(e) => setSectionValue('requires_simulation', { ...sectionData, max_retries: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
-                      </div>
                     </div>
                   )}
                   {expanded && section === 'network' && (

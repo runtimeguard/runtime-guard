@@ -37,27 +37,6 @@ class AttackerTestSuite(unittest.TestCase):
         target.write_text(content)
         return target
 
-    def test_simulation_blocks_when_blast_radius_exceeds_threshold(self):
-        self._write("a.log")
-        self._write("b.log")
-        self._write("c.log")
-
-        result = policy_engine.check_policy("rm *.log")
-        self.assertFalse(result.allowed)
-        self.assertEqual(result.decision_tier, "requires_simulation")
-        self.assertIn("blast radius is 3", result.reason)
-
-    def test_simulation_allows_when_within_threshold(self):
-        self._write("a.log")
-        result = policy_engine.check_policy("rm *.log")
-        self.assertTrue(result.allowed)
-
-    def test_simulation_blocks_when_wildcard_unresolved(self):
-        result = policy_engine.check_policy("rm *.somethingrandom")
-        self.assertFalse(result.allowed)
-        self.assertEqual(result.decision_tier, "requires_simulation")
-        self.assertIn("could not be safely simulated", result.reason)
-
     def test_destructive_find_blocked_via_policy_command_pattern(self):
         policy_engine.POLICY["blocked"]["commands"] = ["find -delete"]
         blocked = execute_command("find . -type f -delete")
@@ -81,28 +60,24 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertIn("[POLICY BLOCK]", blocked)
         self.assertIn("do rm", blocked.lower())
 
-    def test_confirmation_response_includes_simulation_context_for_threshold(self):
+    def test_confirmation_response_includes_token_for_threshold_case(self):
         self._write("c1.tmp")
         self._write("c2.tmp")
         self._write("c3.tmp")
         policy_engine.POLICY["requires_confirmation"]["commands"] = ["rm"]
-        policy_engine.POLICY["requires_simulation"]["bulk_file_threshold"] = 2
 
         blocked = execute_command("rm *.tmp")
         self.assertIn("[POLICY BLOCK]", blocked)
         self.assertIn("explicit confirmation handshake", blocked)
-        self.assertIn("Simulation context:", blocked)
-        self.assertIn("blast radius is 3", blocked)
+        self.assertIn("approval_token=", blocked)
 
-    def test_confirmation_response_includes_simulation_context_for_unresolved_wildcard(self):
+    def test_confirmation_response_for_unresolved_wildcard(self):
         policy_engine.POLICY["requires_confirmation"]["commands"] = ["rm"]
-        policy_engine.POLICY["requires_simulation"]["bulk_file_threshold"] = 2
 
         blocked = execute_command("rm *.definitelymissing")
         self.assertIn("[POLICY BLOCK]", blocked)
         self.assertIn("explicit confirmation handshake", blocked)
-        self.assertIn("Simulation context:", blocked)
-        self.assertIn("could not be safely simulated", blocked)
+        self.assertIn("approval_token=", blocked)
 
     def test_confirmation_handshake_via_out_of_band_approval(self):
         self._write("safe.txt", "hello")
