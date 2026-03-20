@@ -290,9 +290,6 @@ export default function App() {
   const [newCommand, setNewCommand] = useState('')
   const [newComment, setNewComment] = useState('')
   const [newNetworkCommand, setNewNetworkCommand] = useState('')
-  const [newWhitelistDomain, setNewWhitelistDomain] = useState('')
-  const [newBlocklistDomain, setNewBlocklistDomain] = useState('')
-  const [showNetworkEditors, setShowNetworkEditors] = useState(false)
   const [removing, setRemoving] = useState({})
   const [loaded, setLoaded] = useState(false)
   const [reportsTab, setReportsTab] = useState('dashboard')
@@ -2407,8 +2404,6 @@ export default function App() {
     const commands = (network.commands || []).slice().sort()
     const allowedDomains = (network.allowed_domains || []).slice().sort()
     const blockedDomains = (network.blocked_domains || []).slice().sort()
-    const hasWhitelist = allowedDomains.length > 0
-    const hasBlocklist = blockedDomains.length > 0
 
     const updateNetwork = (patch) => {
       setDraftPolicy((prev) => {
@@ -2418,60 +2413,289 @@ export default function App() {
       })
     }
 
-    const addNetworkCommand = () => {
-      const cmd = normalizeListToken(newNetworkCommand)
+    const addNetworkCommand = (rawValue = newNetworkCommand) => {
+      const cmd = normalizeListToken(rawValue)
       if (!cmd) {
         setMessage('Network command is required')
-        return
+        return false
       }
       updateNetwork({ commands: Array.from(new Set([...(network.commands || []), cmd])).sort() })
       setNewNetworkCommand('')
       setMessage(`Network command "${cmd}" added`)
+      return true
     }
 
-    const addDomain = (type) => {
-      const raw = type === 'allow' ? newWhitelistDomain : newBlocklistDomain
-      const domain = normalizeDomain(raw)
+    const removeNetworkCommand = (cmd) => {
+      updateNetwork({ commands: (network.commands || []).filter((c) => c !== cmd) })
+    }
+
+    const addAllowedDomain = (rawValue) => {
+      const domain = normalizeDomain(rawValue)
       if (!domain) {
         setMessage('Domain value is required')
-        return
+        return false
       }
-      if (type === 'allow') {
-        updateNetwork({ allowed_domains: Array.from(new Set([...(network.allowed_domains || []), domain])).sort() })
-        setNewWhitelistDomain('')
-        setMessage(`Domain "${domain}" added to whitelist`)
-      } else {
-        updateNetwork({ blocked_domains: Array.from(new Set([...(network.blocked_domains || []), domain])).sort() })
-        setNewBlocklistDomain('')
-        setMessage(`Domain "${domain}" added to blocklist`)
+      updateNetwork({ allowed_domains: Array.from(new Set([...(network.allowed_domains || []), domain])).sort() })
+      setMessage(`Domain "${domain}" added to allowlist`)
+      return true
+    }
+
+    const removeAllowedDomain = (domain) => {
+      updateNetwork({ allowed_domains: (network.allowed_domains || []).filter((x) => x !== domain) })
+    }
+
+    const addBlockedDomain = (rawValue) => {
+      const domain = normalizeDomain(rawValue)
+      if (!domain) {
+        setMessage('Domain value is required')
+        return false
       }
+      updateNetwork({ blocked_domains: Array.from(new Set([...(network.blocked_domains || []), domain])).sort() })
+      setMessage(`Domain "${domain}" added to blocklist`)
+      return true
+    }
+
+    const removeBlockedDomain = (domain) => {
+      updateNetwork({ blocked_domains: (network.blocked_domains || []).filter((x) => x !== domain) })
+    }
+
+    const codeStyle = {
+      fontFamily: 'monospace',
+      fontSize: 11,
+      background: 'rgba(3,105,161,0.1)',
+      padding: '0 4px',
+      borderRadius: 3,
+    }
+
+    function DomainRow({ domain, onRemove }) {
+      const [hovered, setHovered] = useState(false)
+      return (
+        <div
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '7px 12px',
+            borderBottom: '1px solid #f9fafb',
+            fontSize: 12,
+            fontFamily: 'monospace',
+            color: '#374151',
+            background: hovered ? '#fafafa' : 'white',
+          }}
+        >
+          <span style={{ flex: 1 }}>{domain}</span>
+          <button
+            onClick={onRemove}
+            style={{
+              width: 20,
+              height: 20,
+              border: 'none',
+              borderRadius: 3,
+              background: hovered ? '#fee2e2' : 'transparent',
+              color: hovered ? '#dc2626' : '#9ca3af',
+              cursor: 'pointer',
+              fontSize: 13,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: hovered ? 1 : 0,
+              transition: 'all 0.15s',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )
+    }
+
+    function DomainColumn({
+      title,
+      titleColor,
+      placeholder,
+      domains,
+      onAdd,
+      onRemove,
+      emptyText,
+      addButtonStyle,
+    }) {
+      const [input, setInput] = useState('')
+      const handleAdd = () => {
+        const val = input.trim().toLowerCase()
+        if (!val) return
+        if (onAdd(val)) setInput('')
+      }
+      return (
+        <div
+          style={{
+            border: '1px solid #e5e7eb',
+            borderRadius: 7,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '9px 12px',
+              background: '#fafafa',
+              borderBottom: '1px solid #f0f0f0',
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 600, color: titleColor }}>
+              {title}
+            </span>
+            <span style={{ fontSize: 10, color: '#9ca3af' }}>
+              {domains.length} domain{domains.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: 6,
+              padding: '8px 10px',
+              borderBottom: '1px solid #f0f0f0',
+            }}
+          >
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              placeholder={placeholder}
+              style={{
+                flex: 1,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                padding: '5px 8px',
+                borderRadius: 5,
+                border: '1px solid #d1d5db',
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={handleAdd}
+              style={{
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 500,
+                borderRadius: 5,
+                cursor: 'pointer',
+                ...addButtonStyle,
+              }}
+            >
+              Add
+            </button>
+          </div>
+
+          <div style={{ minHeight: 80 }}>
+            {domains.length === 0 ? (
+              <div
+                style={{
+                  padding: '16px 12px',
+                  fontSize: 11,
+                  color: '#9ca3af',
+                  fontStyle: 'italic',
+                }}
+              >
+                {emptyText}
+              </div>
+            ) : (
+              domains.map((domain) => (
+                <DomainRow
+                  key={domain}
+                  domain={domain}
+                  onRemove={() => onRemove(domain)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      )
     }
 
     return (
       <div className="space-y-3">
-        <div className="bg-white border border-red-200 rounded-[10px] p-3 shadow-sm">
-          <div className="text-sm text-red-700">
-            Network policy applies to commands listed under <span className="font-mono">network.commands</span>. In <span className="font-mono">off</span> mode no checks are enforced.
-            In <span className="font-mono">monitor</span> mode checks are logged but commands are allowed. In <span className="font-mono">enforce</span> mode domain allow/block rules are enforced.
+        <div style={{
+          background: '#f0f9ff',
+          border: '1px solid #bae6fd',
+          borderRadius: 7,
+          padding: '12px 14px',
+          marginBottom: 12,
+        }}>
+          <div style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#0369a1',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            marginBottom: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <circle cx="7" cy="7" r="6" />
+              <line x1="7" y1="5" x2="7" y2="5.5" />
+              <line x1="7" y1="7" x2="7" y2="10" />
+            </svg>
+            Domain matching behaviour
           </div>
+          <ul style={{ paddingLeft: 16 }}>
+            {[
+              <>Subdomains are matched — a rule for <span style={codeStyle}>example.com</span> also applies to <span style={codeStyle}>api.example.com</span></>,
+              'Policy checks hostnames found in command arguments and URLs only',
+              'Redirect chains and short-link expansion are not followed — checks apply to the visible domain',
+              'Referral and tracking query parameters do not affect domain matching',
+            ].map((item, i) => (
+              <li key={i} style={{ fontSize: 11, color: '#0369a1', lineHeight: 1.7 }}>{item}</li>
+            ))}
+          </ul>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-[10px] p-3 shadow-sm">
-          <div className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Runtime Domain Matching Notes</div>
-          <div className="text-xs text-blue-900 space-y-1">
-            <div>Subdomains are matched: a rule for <span className="font-mono">example.com</span> also applies to <span className="font-mono">api.example.com</span>.</div>
-            <div>Policy checks the hostnames found in command arguments/URLs only.</div>
-            <div>Redirect chains and short-link expansion are not followed; checks apply to the visible domain in the command.</div>
-            <div>Referral/tracking query params do not affect domain matching.</div>
+        <div style={{
+          background: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          marginBottom: 12,
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid #f3f4f6',
+            display: 'flex',
+            alignItems: 'center',
+          }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#6b7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}>
+              Enforcement
+            </span>
           </div>
-        </div>
 
-        <div className="card space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Enforcement Mode</div>
-          <div className="flex items-center justify-end">
-            <button onClick={() => setShowNetworkEditors((v) => !v)} className="btn btn-ghost">{showNetworkEditors ? 'Hide Network Editors' : '+ Show Network Editors'}</button>
-          </div>
-          <div style={{ maxWidth: 280 }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            padding: '11px 16px',
+            borderBottom: '1px solid #f9fafb',
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                Enforcement mode
+              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                Off: no checks · Monitor: log violations, allow execution · Enforce: block domain rule violations
+              </div>
+            </div>
             <SegControl
               value={network.enforcement_mode || 'off'}
               onChange={(mode) => updateNetwork({ enforcement_mode: mode })}
@@ -2482,108 +2706,197 @@ export default function App() {
               ]}
             />
           </div>
-          {(network.enforcement_mode || 'off') === 'enforce' && (
-            <label className="mt-1 inline-flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={Boolean(network.block_unknown_domains)}
-                onChange={(e) => updateNetwork({ block_unknown_domains: e.target.checked })}
-              />
-              Block domains not present in whitelist or blocklist
-            </label>
-          )}
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            padding: '11px 16px',
+          }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>
+                Block unknown domains
+              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+                Block domains not present in either the allowed or blocked list (default-deny mode)
+              </div>
+            </div>
+            <SegControl
+              value={network.block_unknown_domains ? 'yes' : 'no'}
+              onChange={(v) => updateNetwork({ block_unknown_domains: v === 'yes' })}
+              options={[
+                { label: 'Yes', value: 'yes', activeClass: 'yn-yes' },
+                { label: 'No', value: 'no', activeClass: 'yn-no' },
+              ]}
+            />
+          </div>
         </div>
 
-        {showNetworkEditors && (
-        <div className="card space-y-2">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Network Commands</div>
-          <div className="text-xs text-slate-500">These commands are used to trigger network policy evaluation. Listing a command here does not block it by itself.</div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
-            <input
-              value={newNetworkCommand}
-              onChange={(e) => setNewNetworkCommand(e.target.value)}
-              className="mono-input"
-              placeholder="curl"
-            />
-            <button onClick={addNetworkCommand} className="btn btn-primary">Add command</button>
+        <div style={{
+          background: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          marginBottom: 12,
+          overflow: 'hidden',
+        }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #f3f4f6' }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#6b7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}>
+              Network commands
+            </span>
           </div>
-          <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2">
-            <div className="flex flex-wrap gap-2">
+          <div style={{ padding: '14px 16px' }}>
+            <p style={{ fontSize: 11, color: '#9ca3af', marginBottom: 10, lineHeight: 1.5 }}>
+              Commands that trigger network policy evaluation. Listing a command here does not block it — it determines whether domain rules are checked when the command runs.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                value={newNetworkCommand}
+                onChange={(e) => setNewNetworkCommand(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addNetworkCommand()}
+                placeholder="Add command (e.g. curl)"
+                style={{
+                  flex: 1,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  padding: '6px 10px',
+                  borderRadius: 5,
+                  border: '1px solid #d1d5db',
+                  outline: 'none',
+                }}
+              />
+              <button
+                onClick={() => addNetworkCommand()}
+                style={{
+                  background: '#4f46e5',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 5,
+                  padding: '6px 14px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                Add
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {commands.map((cmd) => (
-                <span key={cmd} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-white text-xs font-mono">
+                <div key={cmd} style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '3px 8px',
+                  borderRadius: 5,
+                  border: '1px solid #e5e7eb',
+                  background: '#fafafa',
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  color: '#374151',
+                }}>
                   {cmd}
                   <button
-                    className="text-red-600"
-                    onClick={() => updateNetwork({ commands: (network.commands || []).filter((c) => c !== cmd) })}
-                    title="Remove"
+                    onClick={() => removeNetworkCommand(cmd)}
+                    style={{
+                      width: 14,
+                      height: 14,
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      color: '#9ca3af',
+                      fontSize: 13,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 3,
+                      padding: 0,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#dc2626'
+                      e.currentTarget.style.background = '#fee2e2'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#9ca3af'
+                      e.currentTarget.style.background = 'none'
+                    }}
                   >
                     ×
                   </button>
-                </span>
+                </div>
               ))}
-              {!commands.length && <span className="text-xs text-slate-400">No network commands configured</span>}
             </div>
           </div>
         </div>
-        )}
 
-        {showNetworkEditors && (
-        <div className="card">
-          <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Domain Rules</div>
-          <div className="text-xs text-slate-600 mb-3">
-            {(network.enforcement_mode || 'off') !== 'enforce' && 'Network policy is not blocking in current mode; switch to enforce for hard blocking.'}
-            {(network.enforcement_mode || 'off') === 'enforce' && hasWhitelist && !hasBlocklist && !network.block_unknown_domains && 'Whitelist is advisory only: listed domains are explicitly allowed, and other domains are also allowed unless blocked.'}
-            {(network.enforcement_mode || 'off') === 'enforce' && !hasWhitelist && hasBlocklist && 'Blocklist is active: listed domains are denied; all others are allowed.'}
-            {(network.enforcement_mode || 'off') === 'enforce' && hasWhitelist && hasBlocklist && !network.block_unknown_domains && 'Blocklist takes precedence on overlap. Whitelisted domains are allowed unless also blocked. Domains in neither list are allowed.'}
-            {(network.enforcement_mode || 'off') === 'enforce' && network.block_unknown_domains && 'Default-deny is active: domains in blocklist are denied, and domains not present in whitelist are denied.'}
-            {(network.enforcement_mode || 'off') === 'enforce' && !hasWhitelist && !hasBlocklist && !network.block_unknown_domains && 'No domain rules configured: domains are unrestricted unless enforcement is handled elsewhere.'}
+        <div style={{
+          background: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          marginBottom: 12,
+          overflow: 'hidden',
+        }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #f3f4f6' }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#6b7280',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}>
+              Domain rules
+            </span>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="border-r-0 lg:border-r lg:pr-4 border-slate-200 space-y-2">
-              <div className="text-sm font-semibold text-slate-700">Domain Whitelist</div>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <input
-                  value={newWhitelistDomain}
-                  onChange={(e) => setNewWhitelistDomain(e.target.value)}
-                  className="mono-input"
-                  placeholder="api.github.com"
-                />
-                <button onClick={() => addDomain('allow')} className="btn btn-primary">Add</button>
-              </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2 flex flex-wrap gap-2 min-h-[52px]">
-                {allowedDomains.map((d) => (
-                  <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-green-300 bg-green-50 text-xs font-mono">
-                    {d}
-                    <button className="text-red-600" onClick={() => updateNetwork({ allowed_domains: (network.allowed_domains || []).filter((x) => x !== d) })}>×</button>
-                  </span>
-                ))}
-                {!allowedDomains.length && <span className="text-xs text-slate-400">No whitelisted domains</span>}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-slate-700">Domain Blocklist</div>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <input
-                  value={newBlocklistDomain}
-                  onChange={(e) => setNewBlocklistDomain(e.target.value)}
-                  className="mono-input"
-                  placeholder="malicious.example"
-                />
-                <button onClick={() => addDomain('block')} className="btn btn-danger">Add</button>
-              </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-[10px] p-2 flex flex-wrap gap-2 min-h-[52px]">
-                {blockedDomains.map((d) => (
-                  <span key={d} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-red-300 bg-red-50 text-xs font-mono">
-                    {d}
-                    <button className="text-red-600" onClick={() => updateNetwork({ blocked_domains: (network.blocked_domains || []).filter((x) => x !== d) })}>×</button>
-                  </span>
-                ))}
-                {!blockedDomains.length && <span className="text-xs text-slate-400">No blocked domains</span>}
-              </div>
-            </div>
+          <div style={{
+            padding: '8px 16px 10px',
+            fontSize: 11,
+            color: '#9ca3af',
+            borderBottom: '1px solid #f3f4f6',
+          }}>
+            Blocklist takes precedence over allowlist when a domain appears in both.
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 12,
+            padding: '12px 16px',
+          }}>
+            <DomainColumn
+              title="Allowed domains"
+              titleColor="#15803d"
+              placeholder="api.github.com"
+              domains={allowedDomains}
+              onAdd={addAllowedDomain}
+              onRemove={removeAllowedDomain}
+              emptyText="No allowed domains — all domains permitted by default"
+              addButtonStyle={{ background: '#4f46e5', color: 'white', border: 'none' }}
+            />
+
+            <DomainColumn
+              title="Blocked domains"
+              titleColor="#dc2626"
+              placeholder="malicious.example.com"
+              domains={blockedDomains}
+              onAdd={addBlockedDomain}
+              onRemove={removeBlockedDomain}
+              emptyText="No blocked domains"
+              addButtonStyle={{
+                background: 'white',
+                color: '#dc2626',
+                border: '1px solid #fecaca',
+              }}
+            />
           </div>
         </div>
-        )}
       </div>
     )
   }
@@ -3594,10 +3907,40 @@ export default function App() {
         {activePolicyTab === 'network' && NetworkPanel()}
         {activePolicyTab === 'agent_overrides' && AgentOverridesPanel()}
         {activePolicyTab === 'advanced' && AdvancedPolicyPanel()}
-        <div className="mt-4 bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
-          <button onClick={() => setJsonOpen((x) => !x)} className="text-sm font-medium text-slate-700">
-            {jsonOpen ? '▾' : '▸'} Advanced JSON
-          </button>
+        <div className="mt-4">
+          <div
+            onClick={() => setJsonOpen((x) => !x)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '10px 16px',
+              cursor: 'pointer',
+              userSelect: 'none',
+              background: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#fafafa' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'white' }}
+          >
+            <svg
+              style={{
+                width: 12,
+                height: 12,
+                color: '#9ca3af',
+                transform: jsonOpen ? 'rotate(90deg)' : 'none',
+                transition: 'transform 0.2s',
+              }}
+              viewBox="0 0 10 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M3 2l3 3-3 3" />
+            </svg>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>Advanced JSON</span>
+          </div>
           {jsonOpen && (
             <textarea
               value={jsonText}
