@@ -259,11 +259,15 @@ function relativeTime(iso) {
 function ensureScriptSentinelPolicy(policy) {
   const next = deepClone(policy || {})
   const current = isPlainObject(next.script_sentinel) ? next.script_sentinel : {}
+  const scanMode = ['exec_context', 'exec_context_plus_mentions'].includes(String(current.scan_mode || '').trim())
+    ? String(current.scan_mode).trim()
+    : 'exec_context'
   next.script_sentinel = {
     enabled: Boolean(current.enabled),
     mode: ['match_original', 'block', 'requires_confirmation'].includes(String(current.mode || '').trim())
       ? String(current.mode).trim()
       : 'match_original',
+    scan_mode: scanMode,
     max_scan_bytes: Math.max(1024, Number.parseInt(String(current.max_scan_bytes ?? '1048576'), 10) || 1048576),
     include_wrappers: current.include_wrappers === undefined ? true : Boolean(current.include_wrappers),
   }
@@ -3059,6 +3063,28 @@ export default function App() {
               ))}
             </div>
           </div>
+          <div className="space-y-2">
+            <div className="text-xs text-slate-600">Scan Mode</div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {[
+                { id: 'exec_context', label: 'exec_context (default)' },
+                { id: 'exec_context_plus_mentions', label: 'exec_context_plus_mentions' },
+              ].map((scanMode) => (
+                <label key={scanMode.id} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="script-sentinel-scan-mode"
+                    checked={(scriptSentinel.scan_mode || 'exec_context') === scanMode.id}
+                    onChange={() => setScriptSentinel({ scan_mode: scanMode.id })}
+                  />
+                  <span className="font-mono">{scanMode.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              <span className="font-mono">exec_context</span> flags executable usage patterns only. <span className="font-mono">exec_context_plus_mentions</span> also records mention-only hits for audit visibility.
+            </div>
+          </div>
           <label className="text-xs text-slate-600 block">
             Max scan bytes per write
             <input
@@ -4156,6 +4182,7 @@ export default function App() {
                 <tr className="text-left text-slate-500 border-b border-slate-200">
                   <th className="py-2 pr-2">Path</th>
                   <th className="py-2 px-2">Hash</th>
+                  <th className="py-2 px-2">Execution Context</th>
                   <th className="py-2 px-2">Matched Signatures</th>
                   <th className="py-2 px-2">Last Seen</th>
                   <th className="py-2 px-2 text-center">Actions</th>
@@ -4167,8 +4194,19 @@ export default function App() {
                   const onceKey = `once:${hash}`
                   const trustKey = `persistent:${hash}`
                   const signatures = Array.isArray(item.matched_signatures) ? item.matched_signatures : []
+                  const hasExecContext = signatures.some((sig) => {
+                    if (sig?.match_context === 'exec_context') return true
+                    if (sig?.enforceable === true) return true
+                    if (sig?.type === 'policy_command' && sig?.enforceable === undefined && !sig?.match_context) return true
+                    return false
+                  })
                   const signaturePreview = signatures
-                    .map((sig) => String(sig?.pattern || sig?.normalized_pattern || ''))
+                    .map((sig) => {
+                      const base = String(sig?.pattern || sig?.normalized_pattern || '')
+                      const ctx = String(sig?.match_context || '')
+                      if (!ctx) return base
+                      return `${base} [${ctx}]`
+                    })
                     .filter(Boolean)
                     .slice(0, 4)
                     .join(', ')
@@ -4176,6 +4214,11 @@ export default function App() {
                     <tr key={`${item.path}:${hash}`} className="border-b border-slate-100">
                       <td className="py-2 pr-2 font-mono break-all">{item.path}</td>
                       <td className="py-2 px-2 font-mono break-all">{hash}</td>
+                      <td className="py-2 px-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] ${hasExecContext ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-300 text-slate-600'}`}>
+                          {hasExecContext ? 'Yes' : 'No'}
+                        </span>
+                      </td>
                       <td className="py-2 px-2 text-slate-600">{signaturePreview || '-'}</td>
                       <td className="py-2 px-2 text-slate-600">{relativeTime(item.path_last_seen_ts || item.last_seen_ts || '')}</td>
                       <td className="py-2 px-2">

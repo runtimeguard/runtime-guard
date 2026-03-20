@@ -22,6 +22,7 @@ WRAPPER_SIGNATURES: tuple[tuple[str, str], ...] = (
 
 INTERPRETER_COMMANDS = {"python", "python3", "node", "bash", "sh", "ruby", "perl"}
 SOURCE_COMMANDS = {"source", "."}
+SCAN_MODES = {"exec_context", "exec_context_plus_mentions"}
 
 _SCAN_MATCHER_CACHE: dict[str, dict[str, Any]] = {}
 
@@ -122,9 +123,13 @@ def _config() -> dict[str, Any]:
     sentinel = config.POLICY.get("script_sentinel", {})
     if not isinstance(sentinel, dict):
         sentinel = {}
+    scan_mode = str(sentinel.get("scan_mode", "exec_context")).strip().lower()
+    if scan_mode not in SCAN_MODES:
+        scan_mode = "exec_context"
     return {
         "enabled": bool(sentinel.get("enabled", False)),
         "mode": str(sentinel.get("mode", "match_original")).strip().lower(),
+        "scan_mode": scan_mode,
         "max_scan_bytes": max(1024, int(sentinel.get("max_scan_bytes", 1_048_576))),
         "include_wrappers": bool(sentinel.get("include_wrappers", True)),
     }
@@ -225,6 +230,62 @@ def _scan_matchers() -> dict[str, Any]:
     return matcher
 
 
+def _line_bounds(content: str, index: int) -> tuple[int, int]:
+    start = content.rfind("\n", 0, index) + 1
+    end = content.find("\n", index)
+    if end == -1:
+        end = len(content)
+    return start, end
+
+
+def _classify_match_context(
+    content: str,
+    *,
+    start: int,
+    end: int,
+    wrapper_line_spans: list[tuple[int, int]],
+) -> str:
+    line_start, line_end = _line_bounds(content, start)
+    line = content[line_start:line_end]
+    local_start = max(0, start - line_start)
+    before = line[:local_start]
+    before_trimmed = before.rstrip()
+    line_lstripped = line.lstrip()
+
+    # Explicit comment lines remain mention-only by default.
+    if line_lstripped.startswith("#") or line_lstripped.startswith("//"):
+        return "mention_only"
+
+    # If wrapper signature appears on same line, this is executable context.
+    for ws, we in wrapper_line_spans:
+        if ws == line_start and we == line_end:
+            return "exec_context"
+
+    # Pattern at command position on a line.
+    if before_trimmed == "":
+        return "exec_context"
+    if before_trimmed in {"$", ">", "%"}:
+        return "exec_context"
+
+    # Shell chaining/flow wrappers before command token.
+    if re.search(r"(\&\&|\|\||[;|({`])\s*$", before_trimmed):
+        return "exec_context"
+    if re.search(r"\b(do|then|elif|else|sudo|env|time)\s*$", before_trimmed):
+        return "exec_context"
+
+    # Command substitution context.
+    before_window = content[max(0, start - 4):start]
+    if "$(" in before_window or "`" in before_window:
+        return "exec_context"
+
+    # Chaining operators immediately after match token.
+    after_window = content[end:end + 3]
+    if re.match(r"\s*(\&\&|\|\||[;|)])", after_window):
+        return "exec_context"
+
+    return "mention_only"
+
+
 def _hash_text(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()
 
@@ -281,30 +342,65 @@ def scan_and_record_write(path: str, content: str, *, writer_agent_id: str | Non
 
     matchers = _scan_matchers()
     matches: list[dict[str, Any]] = []
+    wrapper_matches: list[dict[str, Any]] = []
+    wrapper_line_spans: list[tuple[int, int]] = []
+    seen_wrapper_names: set[str] = set()
+    seen_signature_keys: set[tuple[str, str, str]] = set()
+
+    for item in matchers["wrappers"]:
+        for wrapper_hit in item["regex"].finditer(content):
+            line_start, line_end = _line_bounds(content, wrapper_hit.start())
+            wrapper_matches.append(
+                {
+                    "type": "wrapper_signature",
+                    "pattern": item["name"],
+                    "normalized_pattern": item["name"],
+                    "source_tier": "n/a",
+                    "match_context": "exec_context",
+                    "enforceable": False,
+                }
+            )
+            wrapper_line_spans.append((line_start, line_end))
 
     for item in matchers["policy"]:
-        if item["regex"].search(content):
+        for pattern_hit in item["regex"].finditer(content):
+            context = _classify_match_context(
+                content,
+                start=pattern_hit.start(),
+                end=pattern_hit.end(),
+                wrapper_line_spans=wrapper_line_spans,
+            )
+            if cfg["scan_mode"] == "exec_context" and context != "exec_context":
+                continue
+            key = (item["normalized"], item["tier"], context)
+            if key in seen_signature_keys:
+                continue
+            seen_signature_keys.add(key)
             matches.append(
                 {
                     "type": "policy_command",
                     "pattern": item["pattern"],
                     "normalized_pattern": item["normalized"],
                     "source_tier": item["tier"],
+                    "match_context": context,
+                    "enforceable": context == "exec_context",
                 }
             )
-    for item in matchers["wrappers"]:
-        if item["regex"].search(content):
-            matches.append(
-                {
-                    "type": "wrapper_signature",
-                    "pattern": item["name"],
-                    "normalized_pattern": item["name"],
-                    "source_tier": "n/a",
-                }
-            )
+            if context == "exec_context":
+                for wrapper in wrapper_matches:
+                    name = str(wrapper.get("pattern", ""))
+                    if not name or name in seen_wrapper_names:
+                        continue
+                    seen_wrapper_names.add(name)
+                    matches.append(wrapper)
 
     if not matches:
-        return {"enabled": True, "flagged": False, "path": resolved_path}
+        return {
+            "enabled": True,
+            "flagged": False,
+            "path": resolved_path,
+            "scan_mode": cfg["scan_mode"],
+        }
 
     content_hash = _hash_text(content)
     now_iso = _iso_now()
@@ -341,6 +437,7 @@ def scan_and_record_write(path: str, content: str, *, writer_agent_id: str | Non
         "flagged": True,
         "content_hash": content_hash,
         "path": resolved_path,
+        "scan_mode": cfg["scan_mode"],
         "matched_signatures": matches,
     }
 
@@ -477,9 +574,14 @@ def _mode_decision(signatures: list[dict[str, Any]], mode: str) -> tuple[str, li
     resolved_tiers: list[dict[str, str]] = []
     has_blocked = False
     has_confirmation = False
+    enforceable_hits = 0
     for item in signatures:
         sig_type = str(item.get("type", ""))
         normalized_pattern = str(item.get("normalized_pattern", ""))
+        enforceable = bool(item.get("enforceable", sig_type == "policy_command"))
+        if not enforceable:
+            continue
+        enforceable_hits += 1
         if sig_type == "policy_command":
             tier = _executor_tier(normalized_pattern)
             if tier:
@@ -489,9 +591,9 @@ def _mode_decision(signatures: list[dict[str, Any]], mode: str) -> tuple[str, li
                 elif tier == "requires_confirmation":
                     has_confirmation = True
 
-    if mode == "block":
+    if mode == "block" and enforceable_hits > 0:
         return "blocked", resolved_tiers
-    if mode == "requires_confirmation":
+    if mode == "requires_confirmation" and enforceable_hits > 0:
         return "requires_confirmation", resolved_tiers
     if has_blocked:
         return "blocked", resolved_tiers

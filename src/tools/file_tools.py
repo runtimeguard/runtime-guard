@@ -123,6 +123,7 @@ def write_file(path: str, content: str, ctx: Context | None = None) -> str:
                     "content_hash": sentinel_scan.get("content_hash", ""),
                     "matched_signatures": sentinel_scan.get("matched_signatures", []),
                     "script_sentinel_mode": POLICY.get("script_sentinel", {}).get("mode", "match_original"),
+                    "script_sentinel_scan_mode": sentinel_scan.get("scan_mode", POLICY.get("script_sentinel", {}).get("scan_mode", "exec_context")),
                 }
             )
 

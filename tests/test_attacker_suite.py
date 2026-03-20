@@ -290,6 +290,40 @@ class AttackerTestSuite(unittest.TestCase):
         blocked = execute_command("bash sentinel/union.sh")
         self.assertIn("[POLICY BLOCK]", blocked)
 
+    def test_script_sentinel_exec_context_mode_ignores_mention_only_matches(self):
+        policy_engine.POLICY["script_sentinel"]["enabled"] = True
+        policy_engine.POLICY["script_sentinel"]["mode"] = "match_original"
+        policy_engine.POLICY["script_sentinel"]["scan_mode"] = "exec_context"
+        policy_engine.POLICY["blocked"]["commands"] = ["mv"]
+        (self.workspace / "sentinel").mkdir(parents=True, exist_ok=True)
+
+        write_result = write_file("sentinel/notes.txt", "This document mentions mv in prose.\n")
+        self.assertNotIn("Script Sentinel flagged content", write_result)
+
+        artifacts = script_sentinel.list_flagged_artifacts(limit=20, offset=0)
+        paths = {item.get("path", "") for item in artifacts.get("items", [])}
+        self.assertNotIn(str((self.workspace / "sentinel" / "notes.txt").resolve()), paths)
+
+    def test_script_sentinel_mentions_mode_flags_but_does_not_enforce_mentions(self):
+        policy_engine.POLICY["script_sentinel"]["enabled"] = True
+        policy_engine.POLICY["script_sentinel"]["mode"] = "match_original"
+        policy_engine.POLICY["script_sentinel"]["scan_mode"] = "exec_context_plus_mentions"
+        policy_engine.POLICY["blocked"]["commands"] = ["mv"]
+        (self.workspace / "sentinel").mkdir(parents=True, exist_ok=True)
+
+        write_result = write_file("sentinel/mention.py", "# note: mv appears in text only\nprint('ok')\n")
+        self.assertIn("Script Sentinel flagged content", write_result)
+
+        artifacts = script_sentinel.list_flagged_artifacts(limit=20, offset=0)
+        target = next((item for item in artifacts.get("items", []) if item.get("path", "").endswith("/sentinel/mention.py")), None)
+        self.assertIsNotNone(target)
+        signatures = target.get("matched_signatures", [])
+        self.assertTrue(any(sig.get("match_context") == "mention_only" for sig in signatures))
+        self.assertFalse(any(bool(sig.get("enforceable")) for sig in signatures if sig.get("type") == "policy_command"))
+
+        allowed = execute_command("python3 sentinel/mention.py")
+        self.assertNotIn("[POLICY BLOCK]", allowed)
+
     def test_script_sentinel_stale_hash_not_enforced_after_external_overwrite(self):
         policy_engine.POLICY["script_sentinel"]["enabled"] = True
         policy_engine.POLICY["script_sentinel"]["mode"] = "match_original"

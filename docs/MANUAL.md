@@ -104,7 +104,7 @@ Runtime supports optional per-agent overlays keyed by `AIRG_AGENT_ID`:
 
 Notes:
 1. If no override exists for current `AIRG_AGENT_ID`, base policy behavior remains unchanged.
-2. Effective policy is resolved at startup, so restart MCP server after editing override entries.
+2. Effective policy is hot-reloaded on subsequent tool calls after policy apply/write; restart is not required for normal policy updates.
 3. This feature enables per-agent guardrails without maintaining separate policy files.
 4. UI authoring path is available under `Policy -> Agent Overrides` with section-based editors and baseline info cards.
 5. Saved overrides are diff-style overlays, not full copies of baseline sections.
@@ -124,16 +124,22 @@ Capabilities:
 8. Claude hook/cfg posture help is available via copy-assist snippets in the same panel.
 9. Script Sentinel (when enabled) preserves policy intent across direct and indirect execution:
    - scripts written via `write_file` are scanned and hash-tagged on blocked/approval-gated pattern matches
+   - scan modes:
+     - `exec_context` (default): tags only executable-context matches
+     - `exec_context_plus_mentions`: also records mention-only matches for audit visibility
    - script execution via `execute_command` applies tier continuity (`match_original`, `block`, or `requires_confirmation`)
+   - mention-only matches are audit signals by default; enforcement decisions are based on executable-context signatures
    - `Settings -> Agents` includes Script Sentinel artifact visibility and per-hash trust/dismiss actions.
+   - tagging/enforcement is content-hash based (not extension based): if a file is flagged as `.txt` and later renamed/copied to `.py` with identical bytes, Script Sentinel still enforces on execute.
 
 Caveats:
-1. Runtime policy reload is startup-based; after policy changes, restart MCP server (and usually reconnect agent client).
+1. Runtime policy is hot-reloaded by tool entry points when `policy.json` mtime changes; after `Validate` + `Apply`, changes are picked up on the next tool call.
 2. “Basic/Advanced” are policy conventions rather than hard runtime modes.
 3. Redaction and obfuscation defenses are pattern-based and not exhaustive.
 4. Some blast-radius/target inference for complex shell patterns is heuristic.
 5. Cumulative budget efficacy depends on threshold tuning.
 6. Script Sentinel coverage is scoped to artifacts written through AIRG `write_file`; it is not a generic host-wide script execution guardrail.
+7. Extension/type changes alone do not clear Script Sentinel state; only content changes (new hash) or explicit trust/dismiss controls alter enforcement outcomes.
 
 ### Packaged UI/runtime path behavior
 For package installs (PyPI/TestPyPI):

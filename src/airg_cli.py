@@ -148,6 +148,7 @@ def _policy_template() -> dict[str, Any]:
         "script_sentinel": {
             "enabled": False,
             "mode": "match_original",
+            "scan_mode": "exec_context",
             "max_scan_bytes": 1048576,
             "include_wrappers": True,
         },

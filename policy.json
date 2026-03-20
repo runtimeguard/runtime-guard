@@ -178,6 +178,7 @@
     "_comment": "Policy-intent continuity for script-mediated execution paths. When enabled, script artifacts written through write_file are flagged and checked during execute_command.",
     "enabled": false,
     "mode": "match_original",
+    "scan_mode": "exec_context",
     "max_scan_bytes": 1048576,
     "include_wrappers": true
   },

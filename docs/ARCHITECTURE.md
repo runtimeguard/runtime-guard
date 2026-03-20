@@ -31,11 +31,12 @@ Primary runtime artifacts:
 - `agent_configs.py`: profile registry and MCP config generation engine for `Settings -> Agents`.
 
 ## Effective policy resolution
-Policy is resolved in two stages at startup:
+Policy resolution uses base+override merge and runtime hot-reload:
 1. Load and normalize base `policy.json`.
 2. If `policy.agent_overrides.<AIRG_AGENT_ID>` exists:
    - deep-merge optional `policy` overlay onto base policy
    - normalize merged document as effective policy used by runtime modules
+3. On tool entry, runtime checks `policy.json` mtime and refreshes in-memory effective policy when changed.
 
 Merge behavior:
 - dictionary fields merge recursively
@@ -69,14 +70,22 @@ If multiple tiers match one command, highest-priority tier wins and a `policy_co
 ## Script Sentinel (policy-intent continuity)
 `Script Sentinel` extends command-tier intent to common indirect execution paths:
 1. `flag-at-write`: files written via `write_file` are scanned for blocked/approval-gated command patterns and tagged by `content_hash`.
+   - `scan_mode=exec_context` (default): tags executable-context matches only.
+   - `scan_mode=exec_context_plus_mentions`: also records mention-only matches for audit.
 2. `check-at-execute`: `execute_command` resolves common script invocation targets and checks hashes against tagged artifacts.
 3. Enforcement decisions are executor-agent scoped:
    - artifact tags are global hash records
    - final tier enforcement is computed from the executing agent's effective policy.
-4. Decision modes:
+4. Extension/type renames do not bypass sentinel:
+   - enforcement is keyed by content hash
+   - a flagged artifact renamed from `.txt` to `.py` with unchanged bytes remains enforceable.
+5. Decision modes:
    - `match_original` (default): blocked stays blocked, requires_confirmation stays requires_confirmation
    - `block`: any script sentinel hit blocks
    - `requires_confirmation`: any script sentinel hit requires approval.
+6. Enforcement boundary:
+   - execution decisions are applied from executable-context signatures
+   - mention-only signatures are retained as audit metadata and do not enforce by default.
 5. Scope boundary:
    - coverage is intentionally limited to artifacts written through AIRG `write_file`
    - this is policy-enforcement-evasion detection, not malicious-intent classification.

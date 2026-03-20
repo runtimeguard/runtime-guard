@@ -2,6 +2,32 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-20 (v2.0.dev4 Script Sentinel context modes + runtime hot-reload)
+- Added runtime policy hot-reload support in `config.py`:
+  - tool entry points refresh effective policy when `policy.json` mtime changes
+  - Script Sentinel and tier changes take effect without server restart after apply.
+- Tightened Script Sentinel write-time matching in `src/script_sentinel.py`:
+  - added `script_sentinel.scan_mode`:
+    - `exec_context` (default)
+    - `exec_context_plus_mentions`
+  - policy-command hits are now context-classified (`exec_context` vs `mention_only`)
+  - mention-only hits can be recorded for audit mode without becoming enforceable by default.
+- Updated Script Sentinel enforcement behavior:
+  - execute-time decisions now consider `enforceable` signatures only
+  - mention-only signatures remain audit metadata and do not trigger block/approval by default.
+- Added Advanced Policy GUI controls for Script Sentinel:
+  - `enabled`, `mode`, `scan_mode`, `max_scan_bytes`, `include_wrappers`.
+- Updated `Settings -> Agents -> Script Sentinel` table:
+  - added `Execution Context` visibility column
+  - signature preview includes per-signature context tag.
+- Updated policy/config defaults and validation:
+  - `script_sentinel.scan_mode` added to defaults in `policy.json` and `airg_cli.py`
+  - validation accepts `exec_context|exec_context_plus_mentions`.
+- Added/updated tests:
+  - mention-only behavior in default scan mode is ignored
+  - mention-only behavior in extended scan mode is flagged but not enforced.
+- Bumped package/dev surface version to `2.0.dev4`.
+
 ## 2026-03-19 (v2.0.dev3 Script Sentinel policy-intent continuity)
 - Added Script Sentinel runtime module (`src/script_sentinel.py`) with:
   - `flag-at-write` detection for files written through `write_file`
