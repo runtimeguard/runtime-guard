@@ -323,6 +323,8 @@ export default function App() {
   const [scriptSentinelError, setScriptSentinelError] = useState('')
   const [scriptSentinelActionLoading, setScriptSentinelActionLoading] = useState({})
   const [agentConfigActionLoading, setAgentConfigActionLoading] = useState({})
+  const [advancedBackupOpen, setAdvancedBackupOpen] = useState(true)
+  const [advancedReportsOpen, setAdvancedReportsOpen] = useState(true)
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
     agent_session_id: '',
@@ -2591,7 +2593,6 @@ export default function App() {
     const approvalSecurity = confirmation?.approval_security || {}
     const execution = draftPolicy?.execution || {}
     const shellContainment = execution?.shell_workspace_containment || {}
-    const allowed = draftPolicy?.allowed || {}
     const backupAccess = draftPolicy?.backup_access || {}
     const restore = draftPolicy?.restore || {}
     const audit = draftPolicy?.audit || {}
@@ -2626,14 +2627,6 @@ export default function App() {
           ...(next.execution.shell_workspace_containment || {}),
           ...patch,
         }
-        return next
-      })
-    }
-
-    const setAllowed = (patch) => {
-      setDraftPolicy((prev) => {
-        const next = deepClone(prev)
-        next.allowed = { ...(next.allowed || {}), ...patch }
         return next
       })
     }
@@ -2678,10 +2671,6 @@ export default function App() {
       })
     }
 
-    const [backupAdvancedOpen, setBackupAdvancedOpen] = useState(true)
-    const [reportsAdvancedOpen, setReportsAdvancedOpen] = useState(true)
-
-    const allowedToolsText = Array.isArray(backupAccess.allowed_tools) ? backupAccess.allowed_tools.join(', ') : ''
     const redactPatternsText = Array.isArray(audit.redact_patterns) ? audit.redact_patterns.join('\n') : ''
     const scanSizeMb = Math.max(1, Math.round((scriptSentinel.max_scan_bytes ?? 1048576) / 1048576))
     const scanModeValue = scriptSentinel.scan_mode || 'exec_context'
@@ -2785,9 +2774,9 @@ export default function App() {
             </label>
           </div>
 
-          <AdvancedToggle open={backupAdvancedOpen} onToggle={() => setBackupAdvancedOpen((v) => !v)} />
+          <AdvancedToggle open={advancedBackupOpen} onToggle={() => setAdvancedBackupOpen((v) => !v)} />
 
-          {backupAdvancedOpen && (
+          {advancedBackupOpen && (
             <>
               <div className={rowClass}>
                 <div>
@@ -2803,6 +2792,19 @@ export default function App() {
                   />
                   <span className="text-xs text-slate-400">versions</span>
                 </label>
+              </div>
+
+              <div className={rowClass}>
+                <div>
+                  <div className={titleClass}>Backup root</div>
+                  <div className={helpClass}>Runtime backup directory for snapshots and restore operations</div>
+                </div>
+                <input
+                  type="text"
+                  className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm font-mono"
+                  value={audit.backup_root ?? ''}
+                  onChange={(e) => setAudit({ backup_root: e.target.value })}
+                />
               </div>
 
               <div className={rowClass}>
@@ -3140,9 +3142,9 @@ export default function App() {
             </label>
           </div>
 
-          <AdvancedToggle open={reportsAdvancedOpen} onToggle={() => setReportsAdvancedOpen((v) => !v)} />
+          <AdvancedToggle open={advancedReportsOpen} onToggle={() => setAdvancedReportsOpen((v) => !v)} />
 
-          {reportsAdvancedOpen && (
+          {advancedReportsOpen && (
             <>
               <div className={rowClass}>
                 <div>
@@ -3224,57 +3226,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
-          <div className="px-4 py-2 border-b border-slate-200 bg-slate-50/60 text-xs font-semibold tracking-[0.06em] text-slate-400 uppercase">
-            Additional controls
-          </div>
-          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600">
-              Backup root
-              <input
-                type="text"
-                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm font-mono"
-                value={audit.backup_root ?? ''}
-                onChange={(e) => setAudit({ backup_root: e.target.value })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Backup allowed tools (comma-separated)
-              <input
-                type="text"
-                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm font-mono"
-                value={allowedToolsText}
-                onChange={(e) => {
-                  const values = e.target.value
-                    .split(',')
-                    .map((v) => normalizeListToken(v))
-                    .filter(Boolean)
-                  setBackupAccess({ allowed_tools: values })
-                }}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Allowed max file size (MB)
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm"
-                value={allowed.max_file_size_mb ?? 10}
-                onChange={(e) => setAllowed({ max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-            <label className="text-xs text-slate-600">
-              Allowed max files per operation
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm"
-                value={allowed.max_files_per_operation ?? 10}
-                onChange={(e) => setAllowed({ max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-              />
-            </label>
-          </div>
-        </div>
       </div>
     )
   }
@@ -3398,8 +3349,6 @@ export default function App() {
       const allowedBase = draftPolicy?.allowed || {}
       const allowedEff = sectionValue('allowed')
       addListLine('Allowed paths whitelist', listDelta(allowedBase.paths_whitelist, allowedEff.paths_whitelist))
-      addScalarLine('Allowed max files/operation', allowedBase.max_files_per_operation, allowedEff.max_files_per_operation)
-      addScalarLine('Allowed max file size MB', allowedBase.max_file_size_mb, allowedEff.max_file_size_mb)
       addScalarLine('Allowed max directory depth', allowedBase.max_directory_depth, allowedEff.max_directory_depth)
 
       const netBase = draftPolicy?.network || {}
@@ -3554,9 +3503,7 @@ export default function App() {
                           {(sectionData?.paths_whitelist || []).map((item) => <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded border border-slate-300 bg-slate-50 text-xs font-mono">{item}<button onClick={() => removeListField('allowed', 'paths_whitelist', item)} className="text-red-600">×</button></span>)}
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                        <label className="text-xs">Max files per operation<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_files_per_operation ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_files_per_operation: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
-                        <label className="text-xs">Max file size MB<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_file_size_mb ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_file_size_mb: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
+                      <div className="grid grid-cols-1 gap-2">
                         <label className="text-xs">Max directory depth<input type="number" min={0} className="mt-1 w-full border border-slate-300 rounded px-2 py-1 text-xs" value={sectionData?.max_directory_depth ?? 0} onChange={(e) => setSectionValue('allowed', { ...sectionData, max_directory_depth: Math.max(0, parseInt(e.target.value, 10) || 0) })} /></label>
                       </div>
                     </div>

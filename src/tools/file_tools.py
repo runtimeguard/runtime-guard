@@ -29,20 +29,6 @@ def read_file(path: str, ctx: Context | None = None) -> str:
         else:
             result = PolicyResult(allowed=True, reason="allowed", decision_tier="allowed", matched_rule=None)
 
-        if result.allowed:
-            max_mb = POLICY.get("allowed", {}).get("max_file_size_mb", 10)
-            try:
-                size_mb = os.path.getsize(path) / (1024 * 1024)
-                if size_mb > max_mb:
-                    result = PolicyResult(
-                        allowed=False,
-                        reason=f"File size {size_mb:.1f} MB exceeds the policy limit of {max_mb} MB (allowed.max_file_size_mb)",
-                        decision_tier="blocked",
-                        matched_rule="allowed.max_file_size_mb",
-                    )
-            except (FileNotFoundError, OSError):
-                pass
-
         append_log_entry(build_log_entry("read_file", result, path=path))
         if not result.allowed:
             return f"[POLICY BLOCK] {result.reason}"

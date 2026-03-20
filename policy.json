@@ -46,8 +46,6 @@
 
   "allowed": {
     "paths_whitelist": [],
-    "max_files_per_operation": 10,
-    "max_file_size_mb": 10,
     "_comment": "max_directory_depth is optional hardening for tight project-folder access control; keep high for normal workflows.",
     "max_directory_depth": 100
   },
@@ -85,8 +83,7 @@
 
   "backup_access": {
     "_comment": "Protect backup storage from regular agent file tools; restore_backup remains the controlled path",
-    "block_agent_tools": true,
-    "allowed_tools": ["restore_backup"]
+    "block_agent_tools": true
   },
 
   "restore": {

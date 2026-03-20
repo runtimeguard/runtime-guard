@@ -289,8 +289,6 @@ Current status:
 - Not enforced by runtime yet.
 
 ## 9.1 Allowed limits semantics
-- `allowed.max_file_size_mb` is enforced per file, not cumulatively across all files in one operation.
-- `allowed.max_files_per_operation` is enforced for default-allowed multi-target operations (safety cap).
 - `allowed.max_directory_depth` is measured relative to the deepest matching allowed root (workspace root or a whitelisted root), not from filesystem `/`.
   - Example: if allowed root is `/home/user/airg-workspace` and max depth is `5`, then `/home/user/airg-workspace/a/b/c/d/e` is allowed depth, while adding one more segment exceeds it.
   - This is why the default stays high for normal workflows and is mainly for tight-access deployments.

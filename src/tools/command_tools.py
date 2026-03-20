@@ -1,4 +1,3 @@
-import pathlib
 import subprocess
 from typing import Any, TYPE_CHECKING
 
@@ -23,7 +22,6 @@ from policy_engine import (
     register_retry,
     shell_workspace_containment_check,
     truncate_output,
-    is_within_workspace,
 )
 from runtime_context import activate_runtime_context, current_agent_session_id, reset_runtime_context
 import script_sentinel
@@ -138,33 +136,6 @@ def execute_command(command: str, retry_count: int = 0, ctx: Context | None = No
 
         if result.allowed:
             affected_paths = extract_paths(command)
-
-            # Allowed-tier safety cap for default-allowed multi-target operations.
-            resolved_unique: list[str] = []
-            seen: set[str] = set()
-            for candidate in affected_paths:
-                try:
-                    resolved = str(pathlib.Path(candidate).resolve())
-                except OSError:
-                    continue
-                if not is_within_workspace(resolved):
-                    continue
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-                resolved_unique.append(resolved)
-
-            max_files = int(POLICY.get("allowed", {}).get("max_files_per_operation", 10))
-            if max_files >= 0 and len(resolved_unique) > max_files:
-                result = PolicyResult(
-                    allowed=False,
-                    reason=(
-                        f"Operation targets {len(resolved_unique)} file/path entries, "
-                        f"which exceeds allowed.max_files_per_operation={max_files}"
-                    ),
-                    decision_tier="blocked",
-                    matched_rule="allowed.max_files_per_operation",
-                )
 
         server_retry_count = 0
         final_block = False

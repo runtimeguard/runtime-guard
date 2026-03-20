@@ -135,8 +135,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
 
     allowed = _ensure_dict("allowed")
     _ensure_list(allowed, "paths_whitelist")
-    allowed.setdefault("max_files_per_operation", 10)
-    allowed.setdefault("max_file_size_mb", 10)
     allowed.setdefault("max_directory_depth", 100)
 
     network = _ensure_dict("network")
@@ -172,7 +170,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
 
     backup_access = _ensure_dict("backup_access")
     backup_access.setdefault("block_agent_tools", True)
-    _ensure_list(backup_access, "allowed_tools")
     if not isinstance(backup_access["block_agent_tools"], bool):
         raise ValueError("backup_access.block_agent_tools must be boolean")
 

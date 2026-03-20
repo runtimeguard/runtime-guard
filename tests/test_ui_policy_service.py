@@ -20,7 +20,7 @@ class UIPolicyServiceTests(unittest.TestCase):
                 "session_whitelist_enabled": True,
                 "approval_security": {"max_failed_attempts_per_token": 5, "failed_attempt_window_seconds": 600, "token_ttl_seconds": 600},
             },
-            "allowed": {"paths_whitelist": [], "max_files_per_operation": 10, "max_file_size_mb": 10, "max_directory_depth": 5},
+            "allowed": {"paths_whitelist": [], "max_directory_depth": 5},
             "network": {
                 "enforcement_mode": "off",
                 "commands": [],
@@ -29,7 +29,7 @@ class UIPolicyServiceTests(unittest.TestCase):
                 "block_unknown_domains": False,
             },
             "execution": {"max_command_timeout_seconds": 30, "max_output_chars": 200000},
-            "backup_access": {"block_agent_tools": True, "allowed_tools": ["restore_backup"]},
+            "backup_access": {"block_agent_tools": True},
             "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
             "audit": {"backup_enabled": True, "backup_on_content_change_only": True, "max_versions_per_file": 5, "backup_root": str(self.base / "backups"), "backup_retention_days": 30, "log_level": "verbose", "redact_patterns": []},
             "script_sentinel": {

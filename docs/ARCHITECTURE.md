@@ -122,8 +122,6 @@ Current default profile:
 If no higher tier matched, the command/path is allowed, still logged, and then executed/read/written/deleted/listed subject to path boundary and size/depth limits for file tools.
 
 Allowed-tier limits currently enforced in runtime:
-- `allowed.max_file_size_mb` for `read_file`
-- `allowed.max_files_per_operation` for default-allowed multi-target `execute_command` flows (resolved path targets)
 - `allowed.max_directory_depth` for `list_directory`
 
 ## Retry logic

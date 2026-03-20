@@ -116,7 +116,7 @@ def _policy_template() -> dict[str, Any]:
             "extensions": [".pem", ".key"],
         },
         "requires_confirmation": {"commands": [], "paths": [], "session_whitelist_enabled": True, "approval_security": {"max_failed_attempts_per_token": 5, "failed_attempt_window_seconds": 600, "token_ttl_seconds": 600}},
-        "allowed": {"paths_whitelist": [], "max_files_per_operation": 10, "max_file_size_mb": 10, "max_directory_depth": 100},
+        "allowed": {"paths_whitelist": [], "max_directory_depth": 100},
         "network": {
             "enforcement_mode": "off",
             "commands": [],
@@ -133,7 +133,7 @@ def _policy_template() -> dict[str, Any]:
                 "log_paths": True,
             },
         },
-        "backup_access": {"block_agent_tools": True, "allowed_tools": ["restore_backup"]},
+        "backup_access": {"block_agent_tools": True},
         "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
         "audit": {"backup_enabled": True, "backup_on_content_change_only": True, "max_versions_per_file": 5, "backup_retention_days": 30, "log_level": "verbose", "redact_patterns": []},
         "reports": {

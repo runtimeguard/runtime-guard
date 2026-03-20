@@ -538,9 +538,8 @@ def check_path_policy(path: str, tool: str | None = None) -> tuple[str, str] | N
 
     backup_access = POLICY.get("backup_access", {})
     if backup_access.get("block_agent_tools", True) and is_backup_path(path):
-        allowed_tools = {str(t).lower() for t in backup_access.get("allowed_tools", ["restore_backup"])}
         tool_name = (tool or "").lower()
-        if tool_name not in allowed_tools:
+        if tool_name != "restore_backup":
             return (
                 f"Path '{path}' is inside protected backup storage and is not accessible via {tool or 'this tool'}",
                 "backup_storage_protected",

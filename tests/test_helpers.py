@@ -26,8 +26,6 @@ DEFAULT_TEST_POLICY = {
     },
     "allowed": {
         "paths_whitelist": [],
-        "max_files_per_operation": 10,
-        "max_file_size_mb": 10,
         "max_directory_depth": 20,
     },
     "network": {
@@ -46,7 +44,7 @@ DEFAULT_TEST_POLICY = {
             "log_paths": True,
         },
     },
-    "backup_access": {"block_agent_tools": True, "allowed_tools": ["restore_backup"]},
+    "backup_access": {"block_agent_tools": True},
     "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
     "audit": {
         "backup_enabled": True,
