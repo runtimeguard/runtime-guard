@@ -5979,7 +5979,25 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div style={{ borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Workspace</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#111827', wordBreak: 'break-all' }}>
+                      {selectedProfile.workspace || '-'}
+                    </div>
+                    <button
+                      title="Edit workspace"
+                      style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer' }}
+                      onClick={() => {
+                        const next = window.prompt('Workspace', String(selectedProfile.workspace || runtimePaths.AIRG_WORKSPACE || ''))
+                        if (next === null) return
+                        updateProfile(selectedProfile.profile_id, { workspace: next })
+                      }}
+                    >
+                      ✎
+                    </button>
+                  </div>
+
+                  <div style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <button
                       type="button"
                       onClick={() => {
@@ -6046,46 +6064,41 @@ export default function App() {
                     )}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', alignItems: 'center' }}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Workspace</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#111827', wordBreak: 'break-all' }}>
-                      {selectedProfile.workspace || '-'}
-                    </div>
-                    <button
-                      title="Edit workspace"
-                      style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer' }}
-                      onClick={() => {
-                        const next = window.prompt('Workspace', String(selectedProfile.workspace || runtimePaths.AIRG_WORKSPACE || ''))
-                        if (next === null) return
-                        updateProfile(selectedProfile.profile_id, { workspace: next })
-                      }}
-                    >
-                      ✎
-                    </button>
-                  </div>
-
                   <div style={{ padding: '12px 14px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {(() => {
+                      const actionsDisabled = settingsLoading || !selectedHasSavedProfile || selectedDirty || !String(selectedProfile?.agent_id || '').trim() || !String(selectedProfile?.workspace || '').trim()
+                      const ghostBtn = actionsDisabled
+                        ? 'px-3 py-2 border border-slate-300 rounded-[10px] bg-slate-100 text-slate-400 text-sm font-semibold cursor-not-allowed'
+                        : 'px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm font-semibold'
+                      const blueBtn = actionsDisabled
+                        ? 'px-3 py-2 border border-blue-200 text-blue-300 rounded-[10px] bg-blue-50 text-sm font-semibold cursor-not-allowed'
+                        : 'px-3 py-2 border border-blue-300 text-blue-700 rounded-[10px] bg-blue-50 hover:bg-blue-100 text-sm font-semibold'
+                      return (
+                        <>
                     <button
                       onClick={() => copyJson(selectedProfile)}
-                      className="px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm font-semibold"
-                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
+                      className={ghostBtn}
+                      disabled={actionsDisabled}
                     >
                       Copy MCP JSON
                     </button>
                     <button
                       onClick={() => copyCli(selectedProfile)}
-                      className="px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm font-semibold"
-                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
+                      className={ghostBtn}
+                      disabled={actionsDisabled}
                     >
                       Copy CLI command
                     </button>
                     <button
                       onClick={() => startApplyMcp(selectedProfile)}
-                      className="px-3 py-2 border border-blue-300 text-blue-700 rounded-[10px] bg-blue-50 hover:bg-blue-100 text-sm font-semibold"
-                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
+                      className={blueBtn}
+                      disabled={actionsDisabled}
                     >
                       Apply MCP Config
                     </button>
+                        </>
+                      )
+                    })()}
                     <button
                       onClick={() => openDeleteFlow(selectedProfile)}
                       className="px-3 py-2 border border-red-300 text-red-700 rounded-[10px] bg-red-50 hover:bg-red-100 text-sm"
