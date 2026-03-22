@@ -242,6 +242,46 @@ def _normalize_claude_hardening_options(profile: dict[str, Any], options: dict[s
     }
 
 
+def _resolve_airg_hook_command() -> str:
+    explicit = str(os.environ.get("AIRG_HOOK_COMMAND", "")).strip()
+    if explicit:
+        parts = shlex.split(explicit)
+        if parts:
+            cmd = parts[0]
+            if os.path.isabs(cmd):
+                return cmd
+            resolved = shutil.which(cmd)
+            if resolved:
+                return str(pathlib.Path(resolved).resolve())
+            return cmd
+        return explicit
+
+    venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
+    if venv:
+        candidate = pathlib.Path(venv) / "bin" / "airg-hook"
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate.resolve())
+
+    exe_dir = pathlib.Path(sys.executable).resolve().parent
+    candidate = exe_dir / "airg-hook"
+    if candidate.exists() and os.access(candidate, os.X_OK):
+        return str(candidate.resolve())
+
+    resolved = shutil.which("airg-hook")
+    if resolved:
+        return str(pathlib.Path(resolved).resolve())
+    return "airg-hook"
+
+
+def _is_airg_hook_command(value: Any) -> bool:
+    cmd = str(value or "").strip()
+    if not cmd:
+        return False
+    if cmd == "airg-hook":
+        return True
+    return pathlib.Path(cmd).name == "airg-hook"
+
+
 def _set_deny_tools(settings: dict[str, Any], *, enabled: bool, tools: list[str]) -> None:
     permissions = settings.get("permissions")
     if not isinstance(permissions, dict):
@@ -266,6 +306,7 @@ def _set_deny_tools(settings: dict[str, Any], *, enabled: bool, tools: list[str]
 
 
 def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
+    hook_command = _resolve_airg_hook_command()
     hooks_payload = settings.get("hooks")
     hooks = hooks_payload if isinstance(hooks_payload, dict) else {}
     pre = hooks.get("PreToolUse")
@@ -279,13 +320,16 @@ def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
             if not isinstance(hook_list, list):
                 continue
             for hook in hook_list:
-                if isinstance(hook, dict) and str(hook.get("command", "")).strip() == "airg-hook":
+                if isinstance(hook, dict) and _is_airg_hook_command(hook.get("command")):
+                    if str(hook.get("command", "")).strip() != hook_command:
+                        hook["type"] = "command"
+                        hook["command"] = hook_command
                     settings["hooks"] = hooks
                     return
         pre_list.append(
             {
                 "matcher": "*",
-                "hooks": [{"type": "command", "command": "airg-hook"}],
+                "hooks": [{"type": "command", "command": hook_command}],
             }
         )
         hooks["PreToolUse"] = pre_list
@@ -302,7 +346,7 @@ def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
         filtered_hooks = [
             hook
             for hook in hook_list
-            if not (isinstance(hook, dict) and str(hook.get("command", "")).strip() == "airg-hook")
+            if not (isinstance(hook, dict) and _is_airg_hook_command(hook.get("command")))
         ]
         if filtered_hooks:
             next_matcher = dict(matcher)

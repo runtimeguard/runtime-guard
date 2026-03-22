@@ -69,7 +69,7 @@ def _hook_is_active(effective: dict[str, Any]) -> bool:
             if not isinstance(hook, dict):
                 continue
             cmd = str(hook.get("command", "")).strip()
-            if cmd == "airg-hook":
+            if cmd == "airg-hook" or pathlib.Path(cmd).name == "airg-hook":
                 return True
     return False
 
