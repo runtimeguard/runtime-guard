@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import platform
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -28,19 +29,88 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _hook_log_path() -> pathlib.Path:
-    explicit = str(os.environ.get("AIRG_HOOK_LOG_PATH", "")).strip()
+def _default_activity_log_path() -> pathlib.Path:
+    explicit = str(os.environ.get("AIRG_LOG_PATH", "")).strip()
     if explicit:
         return pathlib.Path(explicit).expanduser().resolve()
-    log_path = str(os.environ.get("AIRG_LOG_PATH", "")).strip()
-    if log_path:
-        return pathlib.Path(log_path).expanduser().resolve().with_name("hook_activity.log")
-    return (pathlib.Path.home() / ".local" / "state" / "ai-runtime-guard" / "hook_activity.log").resolve()
+    if os.name == "nt":
+        appdata = str(os.environ.get("APPDATA", "")).strip()
+        if appdata:
+            return (pathlib.Path(appdata).expanduser().resolve() / "ai-runtime-guard" / "activity.log").resolve()
+    if platform.system() == "Darwin":
+        return (pathlib.Path.home() / "Library" / "Application Support" / "ai-runtime-guard" / "activity.log").resolve()
+    xdg = str(os.environ.get("XDG_STATE_HOME", "")).strip()
+    if xdg:
+        return (pathlib.Path(xdg).expanduser().resolve() / "ai-runtime-guard" / "activity.log").resolve()
+    return (pathlib.Path.home() / ".local" / "state" / "ai-runtime-guard" / "activity.log").resolve()
+
+
+def _extract_session_id(payload: dict[str, Any]) -> str:
+    env_session = str(os.environ.get("AIRG_AGENT_SESSION_ID", "")).strip()
+    if env_session:
+        return env_session
+    for key in ("agent_session_id", "session_id"):
+        raw = str(payload.get(key, "")).strip()
+        if raw:
+            return raw
+    session = payload.get("session")
+    if isinstance(session, dict):
+        for key in ("mcp_session_id", "session_id", "id"):
+            raw = str(session.get(key, "")).strip()
+            if raw:
+                return raw
+    return "unknown"
+
+
+def _extract_agent_id(payload: dict[str, Any]) -> str:
+    env_agent = str(os.environ.get("AIRG_AGENT_ID", "")).strip()
+    if env_agent:
+        return env_agent
+    raw = str(payload.get("agent_id", "")).strip()
+    if raw:
+        return raw
+    return "unknown"
+
+
+def _extract_workspace(payload: dict[str, Any]) -> str:
+    env_workspace = str(os.environ.get("AIRG_WORKSPACE", "")).strip()
+    if env_workspace:
+        return env_workspace
+    raw = str(payload.get("workspace", "")).strip()
+    if raw:
+        return raw
+    return ""
+
+
+def _build_activity_entry(
+    *,
+    payload: dict[str, Any],
+    tool_name: str,
+    allowed: bool,
+    event: str = "hook_pretooluse_checked",
+    **extra: Any,
+) -> dict[str, Any]:
+    session_id = _extract_session_id(payload)
+    entry: dict[str, Any] = {
+        "timestamp": _utc_now(),
+        "source": "airg-hook",
+        "agent_id": _extract_agent_id(payload),
+        "session_id": session_id,
+        "agent_session_id": session_id,
+        "tool": tool_name,
+        "workspace": _extract_workspace(payload),
+        "policy_decision": "allowed" if allowed else "blocked",
+        "decision_tier": "allowed" if allowed else "blocked",
+        "event": event,
+    }
+    entry.update(extra)
+    entry["hook_version"] = HOOK_VERSION
+    return entry
 
 
 def _append_log(entry: dict[str, Any]) -> None:
     try:
-        path = _hook_log_path()
+        path = _default_activity_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
@@ -68,16 +138,6 @@ def _extract_detail(tool_name: str, tool_input: dict[str, Any]) -> str:
     return str(tool_input.get("file_path", "")).strip()
 
 
-def _common_log_fields(tool_name: str) -> dict[str, Any]:
-    return {
-        "timestamp": _utc_now(),
-        "source": "airg-hook",
-        "hook_version": HOOK_VERSION,
-        "agent_id": str(os.environ.get("AIRG_AGENT_ID", "")).strip() or "unknown",
-        "tool_name": tool_name,
-    }
-
-
 def _is_sensitive_read(tool_input: dict[str, Any]) -> bool:
     path = str(tool_input.get("file_path", "")).strip().lower()
     if not path:
@@ -94,6 +154,8 @@ def _allow() -> int:
 
 
 def main() -> int:
+    payload: dict[str, Any] = {}
+    tool_name = "unknown"
     try:
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw else {}
@@ -106,7 +168,14 @@ def main() -> int:
 
         # Always allow AIRG MCP tool calls.
         if tool_name.startswith("mcp__ai-runtime-guard__"):
-            _append_log({**_common_log_fields(tool_name), "decision": "allow", "reason": "airg_mcp_tool"})
+            _append_log(
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name=tool_name,
+                    allowed=True,
+                    hook_reason="airg_mcp_tool",
+                )
+            )
             return _allow()
 
         # Allow general read-only tools except sensitive read targets.
@@ -114,15 +183,23 @@ def main() -> int:
             if tool_name == "Read" and _is_sensitive_read(tool_input):
                 reason = "AIRG policy: sensitive native Read target restricted. Use mcp__ai-runtime-guard__read_file instead."
                 _append_log(
-                    {
-                        **_common_log_fields(tool_name),
-                        "decision": "deny",
-                        "reason": reason,
-                        "detail": _extract_detail(tool_name, tool_input),
-                    }
+                    _build_activity_entry(
+                        payload=payload,
+                        tool_name=tool_name,
+                        allowed=False,
+                        hook_reason=reason,
+                        hook_detail=_extract_detail(tool_name, tool_input),
+                    )
                 )
                 return _emit_deny(reason)
-            _append_log({**_common_log_fields(tool_name), "decision": "allow", "reason": "read_only_tool"})
+            _append_log(
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name=tool_name,
+                    allowed=True,
+                    hook_reason="read_only_tool",
+                )
+            )
             return _allow()
 
         if tool_name in REDIRECTS:
@@ -135,25 +212,36 @@ def main() -> int:
             if detail:
                 reason = f"{reason}\nDetail: '{detail}'"
             _append_log(
-                {
-                    **_common_log_fields(tool_name),
-                    "decision": "deny",
-                    "reason": reason,
-                    "detail": detail,
-                    "redirect_tool": target,
-                }
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name=tool_name,
+                    allowed=False,
+                    hook_reason=reason,
+                    hook_detail=detail,
+                    hook_redirect_tool=target,
+                )
             )
             return _emit_deny(reason)
 
-        _append_log({**_common_log_fields(tool_name), "decision": "allow", "reason": "unmapped_tool"})
+        _append_log(
+            _build_activity_entry(
+                payload=payload,
+                tool_name=tool_name,
+                allowed=True,
+                hook_reason="unmapped_tool",
+            )
+        )
         return _allow()
     except Exception as exc:
         _append_log(
-            {
-                **_common_log_fields("unknown"),
-                "decision": "allow",
-                "reason": f"fail_open:{type(exc).__name__}",
-            }
+            _build_activity_entry(
+                payload=payload,
+                tool_name=tool_name,
+                allowed=True,
+                event="hook_fail_open",
+                hook_reason=f"fail_open:{type(exc).__name__}",
+                hook_error_type=type(exc).__name__,
+            )
         )
         return _allow()
 

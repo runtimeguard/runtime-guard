@@ -2,6 +2,14 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-22 (hook audit stream unified into activity.log)
+- Updated `airg-hook` logging to append directly into `activity.log` instead of creating `hook_activity.log`.
+- Hook audit events now follow the runtime-compatible base schema:
+  - `timestamp`, `source`, `agent_id`, `session_id`, `agent_session_id`, `tool`, `workspace`, `policy_decision`, `decision_tier`, `event`
+  - hook-specific metadata is appended as optional fields (`hook_reason`, `hook_redirect_tool`, `hook_detail`, `hook_version`, etc.).
+- Removed hook-log path split behavior so hook events flow into the same ingest pipeline used by reports.
+- Preserved fail-open hook behavior (logging failures do not block tool execution).
+
 ## 2026-03-20 (v2.0.dev5 policy model simplification)
 - Removed simulation tier and cumulative budget logic from runtime enforcement.
 - Simplified runtime decision model to:

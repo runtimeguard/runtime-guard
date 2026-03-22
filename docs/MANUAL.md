@@ -158,7 +158,7 @@ For package installs (PyPI/TestPyPI):
    - allows AIRG MCP tool calls and read-only tools.
    - blocks sensitive native `Read` targets (`.env`, `.key`, `.pem`, `/secrets/` paths).
    - fail-open on runtime/parsing errors to avoid bricking sessions.
-5. Hook logging is written to `hook_activity.log` next to AIRG log path (or default runtime state location).
+5. Hook logging is appended to `activity.log` (same runtime audit stream, `source: "airg-hook"`).
 6. Dev2 config-writer behavior:
    - supported write targets:
      - Claude: `<workspace>/.claude/settings.local.json`
