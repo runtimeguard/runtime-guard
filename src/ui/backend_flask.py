@@ -12,6 +12,7 @@ import agent_configs
 import agent_configurator
 import agent_posture
 import config
+import mcp_config_manager
 import reports
 import script_sentinel
 from audit import append_log_entry, build_operator_log_entry
@@ -549,12 +550,26 @@ def settings_agents_delete():
         return ("", 204)
     payload = request.get_json(silent=True) or {}
     profile_id = str(payload.get("profile_id", "")).strip()
+    remove_mode = str(payload.get("remove_mode", "agent_only") or "agent_only").strip().lower()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
     paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    if remove_mode == "everything":
+        removed = mcp_config_manager.remove_applied_mcp(paths, profile)
+        if not removed.get("ok"):
+            return jsonify(removed), 400
+    elif remove_mode not in {"agent_only", "everything"}:
+        return jsonify({"ok": False, "errors": ["Invalid remove_mode"]}), 400
+
     result = agent_configs.delete_profile(paths, profile_id)
     if not result.get("ok"):
         return jsonify(result), 404
+    if remove_mode == "everything":
+        result["cleanup"] = removed
     return jsonify(result)
 
 
@@ -620,6 +635,40 @@ def settings_agents_reconfigure_runtime():
             "message": "Runtime env updated. Restart airg-ui service to apply changes.",
         }
     )
+
+
+@app.route("/settings/agents/mcp-apply", methods=["POST", "OPTIONS"])
+def settings_agents_mcp_apply():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    dry_run = bool(payload.get("dry_run", False))
+    remove_previous = payload.get("remove_previous", None)
+    if remove_previous is not None:
+        remove_previous = bool(remove_previous)
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+
+    result = mcp_config_manager.apply_mcp_config(
+        paths,
+        profile,
+        remove_previous=remove_previous,
+        dry_run=dry_run,
+    )
+    if not result.get("ok"):
+        status = 409 if result.get("requires_previous_choice") else 400
+        return jsonify(result), status
+
+    current_profiles = result.get("profiles", profiles)
+    result["posture"] = _posture_summary_with_state(current_profiles, paths)
+    return jsonify(result)
 
 
 @app.route("/settings/agents/config-apply", methods=["POST", "OPTIONS"])

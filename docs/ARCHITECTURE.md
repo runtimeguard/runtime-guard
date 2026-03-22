@@ -1,6 +1,6 @@
 # Architecture
 
-> v2.0.dev5 note: simulation-tier and cumulative-budget enforcement were removed from active runtime logic. Historical sections below may reference legacy behavior.
+> v2.0.dev6 note: simulation-tier and cumulative-budget enforcement were removed from active runtime logic. Historical sections below may reference legacy behavior.
 
 ## System overview
 `ai-runtime-guard` is a Python MCP server (`FastMCP`) that places a policy decision layer in front of high-risk agent capabilities. The server exposes a small tool surface and funnels every tool call through deterministic checks before any filesystem or shell side effect.
@@ -221,8 +221,14 @@ Backup behavior:
 Settings agent management persists runtime-scoped profile metadata and generated config artifacts:
 1. Registry path: `<state_dir>/mcp-configs/agents.json`
 2. Generated artifacts: `<state_dir>/mcp-configs/*.json` and instruction files
-3. Shared runtime paths (`policy/db/log/reports`) are common across profiles; profile-specific values are `agent_id` and `workspace`.
-4. Server command generation is deterministic:
+3. Profile metadata includes `last_applied` (scope/file path/timestamp/workspace/agent_id/created_by_airg) used for safe MCP cleanup on scope/workspace changes and delete flows.
+4. MCP file-write backups are centralized under `<state_dir>/mcp-configs/backups/` (not next to user config files).
+5. Claude MCP scope mapping:
+   - `project` (default): `<workspace>/.mcp.json`
+   - `local`: `~/.claude.json` at `projects.<workspace>.mcpServers`
+   - `user`: `~/.claude.json` at `mcpServers`
+6. Shared runtime paths (`policy/db/log/reports`) are common across profiles; profile-specific values are `agent_id` and `workspace`.
+7. Server command generation is deterministic:
    - explicit `AIRG_SERVER_COMMAND` if valid/resolvable
    - venv/sibling `airg-server`
    - fallback `<python> -m airg_cli server`

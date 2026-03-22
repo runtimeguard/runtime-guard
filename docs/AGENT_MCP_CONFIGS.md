@@ -106,17 +106,35 @@ Notes:
 
 ## Claude Code
 ### CLI/file setup
-Claude Code MCP registration is CLI-based:
+Claude Code MCP registration is CLI-based.
+AIRG defaults to `project` scope in the GUI (writes to `<workspace>/.mcp.json` when applied).
+
+CLI example:
 ```bash
 claude mcp add ai-runtime-guard \
-  -e AIRG_AGENT_ID=my-agent \
-  -e AIRG_WORKSPACE=/absolute/path/to/airg-workspace \
+  --scope project \
+  --env AIRG_AGENT_ID=my-agent \
+  --env AIRG_WORKSPACE=/absolute/path/to/airg-workspace \
   -- /absolute/path/to/airg-server
 ```
 
 Useful commands:
 1. `claude mcp list`
 2. `claude mcp remove ai-runtime-guard`
+
+Scope-to-file mapping used by AIRG apply flow:
+1. `project`: `<workspace>/.mcp.json` (created by AIRG if missing)
+2. `local`: `~/.claude.json` at `projects.<workspace>.mcpServers`
+3. `user`: `~/.claude.json` at `mcpServers`
+
+Notes:
+1. AIRG backups MCP file changes under `<state_dir>/mcp-configs/backups/` before writes/removals.
+2. AIRG stores last applied MCP location in profile metadata (`last_applied`) for safe scope/workspace cleanup.
+3. For `project` scope (`<workspace>/.mcp.json`), `claude mcp list` may not show AIRG until Claude Code is started in that workspace. On startup, Claude prompts to enable/use MCP servers found in `.mcp.json`.
+4. AIRG apply flow also updates `<workspace>/.claude/settings.local.json` to:
+   - include `ai-runtime-guard` in `enabledMcpjsonServers`
+   - allow AIRG MCP tools under `permissions.allow` (`mcp__ai-runtime-guard__*`).
+5. AIRG remove-everything flow removes those AIRG-specific entries from `<workspace>/.claude/settings.local.json` and leaves unrelated settings unchanged.
 
 ### Client-behavior mitigation (recommended)
 Claude Code includes a native Bash tool outside MCP. To reduce bypass risk, add workspace instructions:

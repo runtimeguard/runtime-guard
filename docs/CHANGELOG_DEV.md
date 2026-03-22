@@ -2,6 +2,45 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-22 (v2.0.dev6 agent MCP config manager + Settings apply flow)
+- Added dedicated MCP config manager runtime module: `src/mcp_config_manager.py`.
+- Added Claude MCP apply/remove runtime logic with strict scope targets:
+  - `project` (default): `<workspace>/.mcp.json` (create if missing)
+  - `local`: `~/.claude.json` at `projects.<workspace>.mcpServers`
+  - `user`: `~/.claude.json` at `mcpServers`.
+- Added pre-write safety and integrity checks:
+  - strict JSON parsing with explicit invalid JSON errors
+  - post-write re-read verification
+  - centralized backups under `<state_dir>/mcp-configs/backups/`.
+- Added profile `last_applied` metadata persistence in registry (`agents.json`) to track last applied scope/path/timestamp and support safe cleanup.
+- Added new backend endpoint: `POST /settings/agents/mcp-apply`:
+  - dry-run planning
+  - required/optional previous-config removal decisions
+  - apply result + posture refresh payload.
+- Updated delete endpoint behavior: `POST /settings/agents/delete` now supports `remove_mode`:
+  - `agent_only`
+  - `everything` (attempt MCP cleanup first, abort delete on cleanup failure).
+- Updated Settings -> Agents UI flow:
+  - Claude default scope changed to `project`
+  - top actions now use `Save` + `Revert`
+  - `Copy MCP JSON` / `Copy CLI command` require saved, clean profile state
+  - added `Apply MCP Config` modal flow (confirm/applying/result)
+  - added delete modal with `Remove Everything` vs `Remove Agent Only` paths and shared-workspace warning
+  - auto-copy behavior added to copy modals when clipboard API is available.
+- Polished Settings -> Agents UX:
+  - save-on-change now triggers posture refresh so MCP/hardening state is re-evaluated immediately
+  - MCP re-apply warning now uses an action modal (`Apply Config` / `Understood`) instead of close-only notice
+  - Apply MCP success result now explicitly reminds user to restart the AI agent for changes to take effect
+  - Agent scope moved under collapsed `Advanced Options` in agent configuration panel.
+- Expanded Claude apply/remove behavior:
+  - Apply MCP now also syncs `<workspace>/.claude/settings.local.json` with AIRG entries:
+    - adds `ai-runtime-guard` to `enabledMcpjsonServers`
+    - adds `mcp__ai-runtime-guard__*` entries to `permissions.allow`
+  - Remove-everything now removes AIRG-specific `settings.local.json` entries while preserving unrelated settings.
+- Updated runtime build metadata exposure:
+  - `server_info` build now resolves from package version (`v<package-version>`) with optional `AIRG_SERVER_BUILD` override, replacing stale hardcoded build string.
+- Added packaging metadata for new module and bumped package/dev version to `2.0.dev6`.
+
 ## 2026-03-22 (hook audit stream unified into activity.log)
 - Updated `airg-hook` logging to append directly into `activity.log` instead of creating `hook_activity.log`.
 - Hook audit events now follow the runtime-compatible base schema:

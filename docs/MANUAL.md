@@ -1,7 +1,7 @@
 # AI Runtime Guard Manual
 
 This manual explains current runtime behavior as implemented today.
-As of `v2.0.dev5`, active policy tiers are `blocked`, `requires_confirmation`, and `allowed`.
+As of `v2.0.dev6`, active policy tiers are `blocked`, `requires_confirmation`, and `allowed`.
 
 ## 0. Runtime prerequisites
 Python:
@@ -147,7 +147,7 @@ For package installs (PyPI/TestPyPI):
 2. Default workspace fallback (when `AIRG_WORKSPACE` is unset) is `~/airg-workspace`.
 3. `airg-doctor` should not report workspace under `site-packages`; if it does, treat it as misconfiguration/regression.
 
-### Agent posture + hook (v2.0.dev2 scope)
+### Agent posture + hook (v2.0.dev6 scope)
 1. Posture panel shows traffic-light status and supports safe apply/undo hardening actions for supported agents.
 2. Posture scoring intent:
    - Claude can reach green when AIRG MCP + native deny + hook + hardened sandbox are detected.
@@ -159,13 +159,20 @@ For package installs (PyPI/TestPyPI):
    - blocks sensitive native `Read` targets (`.env`, `.key`, `.pem`, `/secrets/` paths).
    - fail-open on runtime/parsing errors to avoid bricking sessions.
 5. Hook logging is appended to `activity.log` (same runtime audit stream, `source: "airg-hook"`).
-6. Dev2 config-writer behavior:
-   - supported write targets:
-     - Claude: `<workspace>/.claude/settings.local.json`
-     - Cursor: `<workspace>/.cursor/mcp.json`
-   - Claude preflight checks AIRG MCP presence before applying native-tool deny rules.
-   - each apply stores backup artifacts under `.airg-backup` next to modified files.
-   - undo restores from AIRG backup state for the last apply action per profile.
+6. MCP config manager behavior (Settings -> Agents -> Apply MCP Config):
+   - Claude scopes:
+     - `project` (default): `<workspace>/.mcp.json` (created if missing)
+     - `local`: `~/.claude.json` at `projects.<workspace>.mcpServers` (file must exist)
+     - `user`: `~/.claude.json` at `mcpServers` (file must exist)
+   - for `project` scope, Claude may not show AIRG in `claude mcp list` until Claude is started in that workspace and the user accepts the MCP prompt.
+   - apply also syncs `<workspace>/.claude/settings.local.json` with AIRG entries:
+     - `enabledMcpjsonServers` includes `ai-runtime-guard`
+     - `permissions.allow` includes AIRG MCP tools (`mcp__ai-runtime-guard__*`)
+   - remove-everything cleanup removes only AIRG-specific settings-local entries and preserves unrelated Claude settings.
+   - every MCP write/remove operation creates a backup under `<state_dir>/mcp-configs/backups/`.
+   - profile metadata tracks `last_applied` scope/path/timestamp for safe cleanup on scope/workspace changes and delete.
+   - apply supports dry-run planning and explicit previous-config removal confirmation when workspace/agent changes move target location.
+7. Hardening write/undo remains separate from MCP apply flow.
 
 ## 2. Policy tier order (most important)
 Command checks run in strict precedence:

@@ -21,8 +21,8 @@ _ALLOWED_AGENT_TYPES = {item["id"] for item in AGENT_TYPES}
 _AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SCOPE_OPTIONS: dict[str, list[dict[str, str]]] = {
     "claude_code": [
-        {"id": "local", "label": "Local"},
         {"id": "project", "label": "Project"},
+        {"id": "local", "label": "Local"},
         {"id": "user", "label": "User"},
     ],
     "codex": [
@@ -31,7 +31,7 @@ _SCOPE_OPTIONS: dict[str, list[dict[str, str]]] = {
     ],
 }
 _DEFAULT_SCOPE_BY_AGENT = {
-    "claude_code": "local",
+    "claude_code": "project",
     "codex": "global",
 }
 
@@ -74,6 +74,27 @@ def _normalize_scope(agent_type: str, raw_scope: Any) -> str:
     return _default_scope_for(agent_type)
 
 
+def _normalize_last_applied(raw_last_applied: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_last_applied, dict):
+        return None
+    scope = str(raw_last_applied.get("scope") or "").strip().lower()
+    file_path = str(raw_last_applied.get("file_path") or "").strip()
+    timestamp = str(raw_last_applied.get("timestamp") or "").strip()
+    workspace = str(raw_last_applied.get("workspace") or "").strip()
+    agent_id = str(raw_last_applied.get("agent_id") or "").strip()
+    created_by_airg = bool(raw_last_applied.get("created_by_airg", False))
+    if not (scope and file_path and timestamp):
+        return None
+    return {
+        "scope": scope,
+        "file_path": file_path,
+        "timestamp": timestamp,
+        "workspace": workspace,
+        "agent_id": agent_id,
+        "created_by_airg": created_by_airg,
+    }
+
+
 def _state_dir(paths: dict[str, pathlib.Path]) -> pathlib.Path:
     return paths["approval_db_path"].expanduser().resolve().parent
 
@@ -106,6 +127,7 @@ def _write_json(path: pathlib.Path, payload: Any) -> None:
 
 def _normalize_profile(profile: dict[str, Any]) -> dict[str, Any]:
     agent_type = str(profile.get("agent_type") or "claude_code").strip().lower()
+    normalized_last_applied = _normalize_last_applied(profile.get("last_applied"))
     return {
         "profile_id": str(profile.get("profile_id") or uuid.uuid4()),
         "name": str(profile.get("name") or "").strip(),
@@ -116,6 +138,7 @@ def _normalize_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "last_generated_at": str(profile.get("last_generated_at") or ""),
         "last_saved_path": str(profile.get("last_saved_path") or ""),
         "last_saved_instructions_path": str(profile.get("last_saved_instructions_path") or ""),
+        "last_applied": normalized_last_applied,
     }
 
 
@@ -357,6 +380,15 @@ def upsert_profile(paths: dict[str, pathlib.Path], profile: dict[str, Any], *, c
     normalized["workspace"] = str(workspace_path.resolve())
 
     replaced = False
+    existing_for_id: dict[str, Any] | None = None
+    for item in profiles:
+        cur = _normalize_profile(item)
+        if cur["profile_id"] == normalized["profile_id"]:
+            existing_for_id = cur
+            break
+    if normalized.get("last_applied") is None and isinstance(existing_for_id, dict):
+        normalized["last_applied"] = existing_for_id.get("last_applied")
+
     next_profiles: list[dict[str, Any]] = []
     for item in profiles:
         cur = _normalize_profile(item)
@@ -382,6 +414,30 @@ def delete_profile(paths: dict[str, pathlib.Path], profile_id: str) -> dict[str,
     registry["profiles"] = next_profiles
     save_registry(paths, registry)
     return {"ok": True, "profiles": next_profiles}
+
+
+def set_last_applied(
+    paths: dict[str, pathlib.Path],
+    profile_id: str,
+    last_applied: dict[str, Any] | None,
+) -> dict[str, Any]:
+    registry = load_registry(paths)
+    profiles = [_normalize_profile(p) for p in registry.get("profiles", [])]
+    next_profiles: list[dict[str, Any]] = []
+    updated: dict[str, Any] | None = None
+    for profile in profiles:
+        if profile["profile_id"] != profile_id:
+            next_profiles.append(profile)
+            continue
+        next_profile = dict(profile)
+        next_profile["last_applied"] = _normalize_last_applied(last_applied)
+        updated = next_profile
+        next_profiles.append(next_profile)
+    if updated is None:
+        return {"ok": False, "errors": ["Profile not found"]}
+    registry["profiles"] = next_profiles
+    save_registry(paths, registry)
+    return {"ok": True, "profile": updated, "profiles": next_profiles}
 
 
 def generate_config(paths: dict[str, pathlib.Path], profile_id: str, *, save_to_file: bool = False) -> dict[str, Any]:

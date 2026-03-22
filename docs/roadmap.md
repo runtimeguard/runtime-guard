@@ -105,3 +105,4 @@ Goal: deliver reliable container deployment and transport parity while preservin
 4. Improve `execute_command` affected-path counting coverage for shell-expanded/wrapper command forms so `affected_paths_count` and budget telemetry reflect real path impact more accurately.
 5. Agent-specific configuration adapters and hooks orchestration (`v2.0+`).
 6. Agent process isolation (`airg run <agent> --user <restricted_user>`, `v2.1+`).
+7. Settings -> Agents follow-up: optional “trust AIRG MCP tools” write path for supported clients (for example Claude) to reduce first MCP tool-use approval prompts; include clear UX warning and explicit user consent before writing trusted-tool settings.

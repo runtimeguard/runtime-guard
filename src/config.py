@@ -6,6 +6,7 @@ import pathlib
 import platform
 import threading
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 
 DEFAULT_MAX_RETRIES = 3
 
@@ -312,7 +313,19 @@ SESSION_ID: str = str(uuid.uuid4())
 _workspace_from_env = str(os.environ.get("AIRG_WORKSPACE", "") or "").strip()
 _workspace_selected = _workspace_from_env or str(_default_workspace_root())
 WORKSPACE_ROOT: str = str(pathlib.Path(_workspace_selected).expanduser().resolve())
-SERVER_BUILD = "2026-02-23T22:10Z-simfix-check"
+
+
+def _resolve_server_build() -> str:
+    env_override = str(os.environ.get("AIRG_SERVER_BUILD", "")).strip()
+    if env_override:
+        return env_override
+    try:
+        return f"v{version('ai-runtime-guard')}"
+    except PackageNotFoundError:
+        return "dev"
+
+
+SERVER_BUILD = _resolve_server_build()
 
 APPROVAL_TTL_SECONDS: int = POLICY.get("requires_confirmation", {}).get(
     "approval_security", {}

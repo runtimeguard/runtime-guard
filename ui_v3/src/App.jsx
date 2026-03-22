@@ -323,6 +323,7 @@ export default function App() {
   const [selectedSettingsProfileId, setSelectedSettingsProfileId] = useState('')
   const [settingsSavedProfiles, setSettingsSavedProfiles] = useState({})
   const [settingsNeedsReconfigure, setSettingsNeedsReconfigure] = useState({})
+  const [settingsAdvancedOpenByProfile, setSettingsAdvancedOpenByProfile] = useState({})
   const [generatedCliByProfile, setGeneratedCliByProfile] = useState({})
   const [hardeningPanelOpenByProfile, setHardeningPanelOpenByProfile] = useState({})
   const [hardeningOptionsByProfile, setHardeningOptionsByProfile] = useState({})
@@ -362,10 +363,31 @@ export default function App() {
     title: '',
     content: '',
   })
+  const [applyMcpModal, setApplyMcpModal] = useState({
+    open: false,
+    phase: 'confirm',
+    profile_id: '',
+    profile_name: '',
+    plan: null,
+    remove_previous_choice: null,
+    result_ok: false,
+    result_message: '',
+  })
+  const [deleteAgentModal, setDeleteAgentModal] = useState({
+    open: false,
+    profile: null,
+    stage: 'choose',
+  })
   const [settingsInfoModal, setSettingsInfoModal] = useState({
     open: false,
     title: '',
     content: '',
+  })
+  const [mcpReapplyModal, setMcpReapplyModal] = useState({
+    open: false,
+    profile_id: '',
+    title: '',
+    message: '',
   })
   const [rulesWhitelistOpen, setRulesWhitelistOpen] = useState(false)
   const pollRef = useRef(null)
@@ -484,6 +506,21 @@ export default function App() {
   }, [agentProfiles, agentScopeOptions])
 
   useEffect(() => {
+    setSettingsAdvancedOpenByProfile((prev) => {
+      const next = { ...prev }
+      const activeIds = new Set(
+        (agentProfiles || [])
+          .map((profile) => String(profile?.profile_id || '').trim())
+          .filter(Boolean)
+      )
+      Object.keys(next).forEach((profileId) => {
+        if (!activeIds.has(profileId)) delete next[profileId]
+      })
+      return next
+    })
+  }, [agentProfiles])
+
+  useEffect(() => {
     return () => {
       if (validateTimerRef.current) clearTimeout(validateTimerRef.current)
       if (applyTimerRef.current) clearTimeout(applyTimerRef.current)
@@ -549,18 +586,19 @@ export default function App() {
       profile_id: `profile-${Date.now()}`,
       name: '',
       agent_type: 'claude_code',
-      agent_scope: 'local',
+      agent_scope: 'project',
       workspace: '',
       agent_id: '',
       last_generated_at: '',
       last_saved_path: '',
       last_saved_instructions_path: '',
+      last_applied: null,
     }
   }
 
   function defaultScopeForAgentType(agentType) {
     const normalized = String(agentType || '').trim().toLowerCase()
-    if (normalized === 'claude_code') return 'local'
+    if (normalized === 'claude_code') return 'project'
     if (normalized === 'codex') return 'global'
     return 'default'
   }
@@ -571,8 +609,8 @@ export default function App() {
     if (configured.length) return configured
     if (normalized === 'claude_code') {
       return [
-        { id: 'local', label: 'Local' },
         { id: 'project', label: 'Project' },
+        { id: 'local', label: 'Local' },
         { id: 'user', label: 'User' },
       ]
     }
@@ -691,11 +729,11 @@ export default function App() {
     return payload
   }
 
-  async function deleteSettingsProfile(profileId) {
+  async function deleteSettingsProfile(profileId, removeMode = 'agent_only') {
     const res = await fetch(`${API_BASE}/settings/agents/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile_id: profileId }),
+      body: JSON.stringify({ profile_id: profileId, remove_mode: removeMode }),
     })
     const payload = await res.json()
     if (!res.ok || !payload.ok) {
@@ -703,6 +741,37 @@ export default function App() {
     }
     setAgentProfiles(payload.profiles || [])
     setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
+    return payload
+  }
+
+  async function applyMcpConfig(profileId, { dryRun = false, removePrevious = null } = {}) {
+    const res = await fetch(`${API_BASE}/settings/agents/mcp-apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: profileId,
+        dry_run: Boolean(dryRun),
+        remove_previous: removePrevious,
+      }),
+    })
+    const payload = await res.json().catch(() => ({}))
+    if (!res.ok || !payload.ok) {
+      const err = new Error((payload.errors || ['Apply MCP config failed']).join('; '))
+      err.payload = payload
+      err.status = res.status
+      throw err
+    }
+    if (Array.isArray(payload.profiles)) {
+      setAgentProfiles(payload.profiles || [])
+      setSettingsSavedProfiles(profileSnapshotMap(payload.profiles || []))
+    }
+    if (payload.posture) {
+      setAgentPosture({
+        profiles: payload.posture.profiles || [],
+        discovered_unregistered: payload.posture.discovered_unregistered || [],
+        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+      })
+    }
     return payload
   }
 
@@ -853,6 +922,165 @@ export default function App() {
       })
     }
     return payload
+  }
+
+  function closeApplyMcp() {
+    setApplyMcpModal({
+      open: false,
+      phase: 'confirm',
+      profile_id: '',
+      profile_name: '',
+      plan: null,
+      remove_previous_choice: null,
+      result_ok: false,
+      result_message: '',
+    })
+  }
+
+  async function triggerApplyMcpFromReapplyModal() {
+    const profileId = String(mcpReapplyModal?.profile_id || '').trim()
+    if (!profileId) {
+      setMcpReapplyModal({ open: false, profile_id: '', title: '', message: '' })
+      return
+    }
+    setSettingsLoading(true)
+    setSettingsError('')
+    try {
+      const payload = await applyMcpConfig(profileId, { dryRun: true })
+      setMcpReapplyModal({ open: false, profile_id: '', title: '', message: '' })
+      setApplyMcpModal({
+        open: true,
+        phase: 'confirm',
+        profile_id: profileId,
+        profile_name: '',
+        plan: payload?.plan || null,
+        remove_previous_choice: payload?.plan?.must_remove_previous ? true : null,
+        result_ok: false,
+        result_message: '',
+      })
+    } catch (err) {
+      setSettingsError(String(err.message || err))
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  async function confirmApplyMcp() {
+    const profileId = String(applyMcpModal?.profile_id || '').trim()
+    if (!profileId) return
+    setApplyMcpModal((prev) => ({ ...prev, phase: 'applying', result_message: '' }))
+    try {
+      const removePrevious = applyMcpModal.plan?.requires_previous_choice
+        ? Boolean(applyMcpModal.remove_previous_choice)
+        : null
+      const result = await applyMcpConfig(profileId, { dryRun: false, removePrevious })
+      setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: false }))
+      setApplyMcpModal((prev) => ({
+        ...prev,
+        phase: 'result',
+        result_ok: true,
+        result_message: `MCP configuration applied successfully to ${result?.applied?.target_path || result?.plan?.target_path || 'target file'}.\nRestart your AI agent for changes to take effect.`,
+        plan: result?.plan || prev.plan,
+      }))
+    } catch (err) {
+      const payload = err?.payload || {}
+      if (payload?.requires_previous_choice) {
+        setApplyMcpModal((prev) => ({
+          ...prev,
+          phase: 'confirm',
+          plan: payload.plan || prev.plan,
+          result_message: '',
+        }))
+        return
+      }
+      setApplyMcpModal((prev) => ({
+        ...prev,
+        phase: 'result',
+        result_ok: false,
+        result_message: String(err.message || err),
+      }))
+    }
+  }
+
+  async function deleteProfileWithMode(profile, mode = 'agent_only') {
+    const profileId = String(profile?.profile_id || '').trim()
+    if (!profileId) return
+    const isUnsavedLocalRow =
+      !String(profile?.name || '').trim() &&
+      !String(profile?.agent_id || '').trim() &&
+      !String(profile?.workspace || '').trim() &&
+      !String(profile?.last_generated_at || '').trim() &&
+      !String(profile?.last_saved_path || '').trim()
+    if (isUnsavedLocalRow) {
+      setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profileId))
+      setMessage('Unsaved profile removed')
+      return
+    }
+    setSettingsLoading(true)
+    setSettingsError('')
+    try {
+      await deleteSettingsProfile(profileId, mode)
+      setSettingsNeedsReconfigure((prev) => {
+        const out = { ...prev }
+        delete out[profileId]
+        return out
+      })
+      setGeneratedCliByProfile((prev) => {
+        const out = { ...prev }
+        delete out[profileId]
+        return out
+      })
+      setHardeningOptionsByProfile((prev) => {
+        const out = { ...prev }
+        delete out[profileId]
+        return out
+      })
+      setHardeningPanelOpenByProfile((prev) => {
+        const out = { ...prev }
+        delete out[profileId]
+        return out
+      })
+      setSelectedSettingsProfileId((prev) => (prev === profileId ? '' : prev))
+      setMessage('Profile deleted')
+    } catch (err) {
+      const msg = String(err.message || err)
+      if (msg.toLowerCase().includes('profile not found')) {
+        setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profileId))
+        setGeneratedCliByProfile((prev) => {
+          const out = { ...prev }
+          delete out[profileId]
+          return out
+        })
+        setSelectedSettingsProfileId((prev) => (prev === profileId ? '' : prev))
+        setMessage('Profile removed')
+      } else {
+        setSettingsError(msg)
+      }
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
+  function closeDeleteFlow() {
+    setDeleteAgentModal({ open: false, profile: null, stage: 'choose' })
+  }
+
+  async function executeDeleteFlow(mode) {
+    const profile = deleteAgentModal?.profile
+    if (!profile) return
+    if (mode === 'everything') {
+      setDeleteAgentModal((prev) => ({ ...prev, stage: 'confirm_everything' }))
+      return
+    }
+    await deleteProfileWithMode(profile, 'agent_only')
+    closeDeleteFlow()
+  }
+
+  async function confirmDeleteEverything() {
+    const profile = deleteAgentModal?.profile
+    if (!profile) return
+    await deleteProfileWithMode(profile, 'everything')
+    closeDeleteFlow()
   }
 
   function buildReportQuery(extra = {}) {
@@ -5141,6 +5369,40 @@ export default function App() {
       return duplicate ? currentId : ''
     }
 
+    const hasPersistedProfile = (profile) => Boolean(settingsSavedProfiles[String(profile?.profile_id || '').trim()])
+
+    const openCopyAssist = (title, content) => {
+      const text = String(content || '')
+      setCopyAssistModal({ open: true, title, content: text })
+      if (navigator?.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          if (text.trim()) setMessage('Copied to clipboard')
+        }).catch(() => {
+          // Ignore clipboard errors and keep manual copy fallback.
+        })
+      }
+    }
+
+    const openMcpReapplyModal = (profileId) => {
+      const profileLabel = String(profileId || '').trim()
+      setMcpReapplyModal({
+        open: true,
+        profile_id: profileLabel,
+        title: 'MCP Re-apply Required',
+        message: 'MCP configuration changed for this profile. Apply MCP Config now, or reconfigure manually. Restart your AI agent after applying MCP changes.',
+      })
+    }
+
+    const revertRow = (profile) => {
+      const profileId = String(profile?.profile_id || '').trim()
+      if (!profileId) return
+      const saved = settingsSavedProfiles[profileId]
+      if (!saved) return
+      updateProfile(profileId, saved)
+      setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: false }))
+      setMessage('Reverted unsaved changes')
+    }
+
     const saveRow = async (profile) => {
       setSettingsLoading(true)
       setSettingsError('')
@@ -5152,7 +5414,7 @@ export default function App() {
       }
       const profileId = String(profile?.profile_id || '')
       const dirtyBeforeSave = isProfileDirty(profile)
-      const hadSavedConfig = Boolean(profile?.last_saved_path)
+      const hadLastApplied = Boolean(profile?.last_applied && profile.last_applied.file_path)
       try {
         await upsertSettingsProfile(profile)
         const generated = await generateAgentConfig(profile.profile_id, true)
@@ -5169,9 +5431,11 @@ export default function App() {
             setSettingsError('Runtime defaults updated. Restart airg-ui service and reconfigure MCP for affected agents.')
           }
         }
-        if (hadSavedConfig && dirtyBeforeSave) {
+        if (hadLastApplied && dirtyBeforeSave) {
           setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: true }))
+          openMcpReapplyModal(profileId)
         }
+        await fetchAgentPosture()
         setMessage('Profile saved and config generated')
       } catch (err) {
         const payload = err?.payload
@@ -5194,9 +5458,11 @@ export default function App() {
                   setSettingsError('Runtime defaults updated. Restart airg-ui service and reconfigure MCP for affected agents.')
                 }
               }
-              if (hadSavedConfig && dirtyBeforeSave) {
+              if (hadLastApplied && dirtyBeforeSave) {
                 setSettingsNeedsReconfigure((prev) => ({ ...prev, [profileId]: true }))
+                openMcpReapplyModal(profileId)
               }
+              await fetchAgentPosture()
               setMessage('Profile saved, workspace created, and config generated')
               setSettingsError('')
             } catch (innerErr) {
@@ -5214,16 +5480,17 @@ export default function App() {
     }
 
     const copyJson = async (profile) => {
-      setSettingsLoading(true)
-      setSettingsError('')
-      const duplicateId = duplicateAgentIdForProfile(profile)
-      if (duplicateId) {
-        setSettingsError(`Duplicate agent_id: ${duplicateId}. Agent IDs must be unique.`)
-        setSettingsLoading(false)
+      if (!hasPersistedProfile(profile)) {
+        setSettingsError('Save this profile first, then use Copy MCP JSON.')
         return
       }
+      if (isProfileDirty(profile)) {
+        setSettingsError('You have unsaved changes. Save or Revert before copying MCP config.')
+        return
+      }
+      setSettingsLoading(true)
+      setSettingsError('')
       try {
-        await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
         setGeneratedCliByProfile((prev) => ({
           ...prev,
@@ -5232,11 +5499,7 @@ export default function App() {
             remove: String(payload?.generated?.remove_command || '').trim(),
           },
         }))
-        setCopyAssistModal({
-          open: true,
-          title: 'Copy JSON Configuration',
-          content: JSON.stringify(payload.generated?.file_json || {}, null, 2),
-        })
+        openCopyAssist('Copy MCP JSON', JSON.stringify(payload.generated?.file_json || {}, null, 2))
       } catch (err) {
         setSettingsError(String(err.message || err))
       } finally {
@@ -5245,16 +5508,17 @@ export default function App() {
     }
 
     const copyCli = async (profile) => {
-      setSettingsLoading(true)
-      setSettingsError('')
-      const duplicateId = duplicateAgentIdForProfile(profile)
-      if (duplicateId) {
-        setSettingsError(`Duplicate agent_id: ${duplicateId}. Agent IDs must be unique.`)
-        setSettingsLoading(false)
+      if (!hasPersistedProfile(profile)) {
+        setSettingsError('Save this profile first, then use Copy CLI command.')
         return
       }
+      if (isProfileDirty(profile)) {
+        setSettingsError('You have unsaved changes. Save or Revert before copying CLI command.')
+        return
+      }
+      setSettingsLoading(true)
+      setSettingsError('')
       try {
-        await upsertSettingsProfile(profile)
         const payload = await generateAgentConfig(profile.profile_id, false)
         setGeneratedCliByProfile((prev) => ({
           ...prev,
@@ -5263,11 +5527,7 @@ export default function App() {
             remove: String(payload?.generated?.remove_command || '').trim(),
           },
         }))
-        setCopyAssistModal({
-          open: true,
-          title: 'Copy CLI Command',
-          content: String(payload.generated?.command_text || ''),
-        })
+        openCopyAssist('Copy CLI Command', String(payload.generated?.command_text || ''))
       } catch (err) {
         setSettingsError(String(err.message || err))
       } finally {
@@ -5275,87 +5535,38 @@ export default function App() {
       }
     }
 
-    const openConfig = async (profile) => {
-      setSettingsLoading(true)
-      setSettingsError('')
-      try {
-        const opened = await openSavedConfigFile(profile.profile_id)
-        const blob = new Blob([opened.file_content || ''], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const win = window.open(url, '_blank', 'noopener,noreferrer')
-        if (!win) {
-          const a = document.createElement('a')
-          a.href = url
-          a.download = opened.file_path.split('/').pop() || 'airg-mcp-config.json'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        }
-        setTimeout(() => URL.revokeObjectURL(url), 5000)
-        setMessage('Opened configuration file')
-      } catch (err) {
-        setSettingsError(String(err.message || err))
-      } finally {
-        setSettingsLoading(false)
+    const startApplyMcp = async (profile) => {
+      if (!hasPersistedProfile(profile)) {
+        setSettingsError('Save this profile first, then apply MCP config.')
+        return
       }
-    }
-
-    const deleteRow = async (profile) => {
-      if (!window.confirm(`Delete profile "${profile.name || profile.agent_id || profile.profile_id}"?`)) return
-      const isUnsavedLocalRow =
-        !String(profile.name || '').trim() &&
-        !String(profile.agent_id || '').trim() &&
-        !String(profile.workspace || '').trim() &&
-        !String(profile.last_generated_at || '').trim() &&
-        !String(profile.last_saved_path || '').trim()
-      if (isUnsavedLocalRow) {
-        setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profile.profile_id))
-        setMessage('Unsaved profile removed')
+      if (isProfileDirty(profile)) {
+        setSettingsError('You have unsaved changes. Save or Revert before applying MCP config.')
         return
       }
       setSettingsLoading(true)
       setSettingsError('')
       try {
-        await deleteSettingsProfile(profile.profile_id)
-        setSettingsNeedsReconfigure((prev) => {
-          const out = { ...prev }
-          delete out[profile.profile_id]
-          return out
+        const payload = await applyMcpConfig(profile.profile_id, { dryRun: true })
+        setApplyMcpModal({
+          open: true,
+          phase: 'confirm',
+          profile_id: String(profile?.profile_id || ''),
+          profile_name: profile?.name || profile?.agent_id || profile?.profile_id || '',
+          plan: payload?.plan || null,
+          remove_previous_choice: payload?.plan?.must_remove_previous ? true : null,
+          result_ok: false,
+          result_message: '',
         })
-        setGeneratedCliByProfile((prev) => {
-          const out = { ...prev }
-          delete out[profile.profile_id]
-          return out
-        })
-        setHardeningOptionsByProfile((prev) => {
-          const out = { ...prev }
-          delete out[profile.profile_id]
-          return out
-        })
-        setHardeningPanelOpenByProfile((prev) => {
-          const out = { ...prev }
-          delete out[profile.profile_id]
-          return out
-        })
-        setSelectedSettingsProfileId((prev) => (prev === profile.profile_id ? '' : prev))
-        setMessage('Profile deleted')
       } catch (err) {
-        const msg = String(err.message || err)
-        if (msg.toLowerCase().includes('profile not found')) {
-          setAgentProfiles((prev) => prev.filter((item) => item.profile_id !== profile.profile_id))
-          setGeneratedCliByProfile((prev) => {
-            const out = { ...prev }
-            delete out[profile.profile_id]
-            return out
-          })
-          setSelectedSettingsProfileId((prev) => (prev === profile.profile_id ? '' : prev))
-          setMessage('Profile removed')
-        } else {
-          setSettingsError(msg)
-        }
+        setSettingsError(String(err.message || err))
       } finally {
         setSettingsLoading(false)
       }
+    }
+
+    const openDeleteFlow = (profile) => {
+      setDeleteAgentModal({ open: true, profile, stage: 'choose' })
     }
 
     const setProfileActionLoading = (profileId, value) => {
@@ -5524,7 +5735,7 @@ export default function App() {
 
     const signalRows = [
       { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in project/local/user/managed MCP config scopes' },
-      { key: 'hook_active', label: 'airg-hook PreToolUse registered', failText: 'No hook entry in settings.local.json' },
+      { key: 'hook_active', label: 'airg-hook PreToolUse registered', failText: 'No hook entry detected in configured settings scopes' },
       { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
       { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
       { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
@@ -5554,10 +5765,11 @@ export default function App() {
       return { ...row, state, detail }
     })
 
+    const selectedDirty = selectedProfile ? isProfileDirty(selectedProfile) : false
+    const selectedHasSavedProfile = selectedProfile ? hasPersistedProfile(selectedProfile) : false
     const canApplyHardening = Boolean(selectedProfile)
       && selectedAgentType === 'claude_code'
-
-    const selectedDirty = selectedProfile ? isProfileDirty(selectedProfile) : false
+      && selectedHasSavedProfile
     const selectedNeedsReconfigure = selectedProfile ? Boolean(settingsNeedsReconfigure[selectedProfile.profile_id]) : false
 
     const typeLabelFor = (profile) => {
@@ -5699,6 +5911,11 @@ export default function App() {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', lineHeight: 1.2 }}>
                           {selectedProfile.name || selectedProfile.agent_id || selectedProfile.profile_id}
+                          {selectedDirty && (
+                            <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: '#b45309' }}>
+                              Unsaved Changes
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>
                           {typeLabelFor(selectedProfile)} · {selectedProfile.workspace || '-'}
@@ -5707,18 +5924,18 @@ export default function App() {
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <button
-                        onClick={() => fetchAgentPosture()}
+                        onClick={() => revertRow(selectedProfile)}
                         className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-xs bg-white hover:bg-slate-50"
-                        disabled={agentPostureLoading}
+                        disabled={settingsLoading || !selectedHasSavedProfile || !selectedDirty}
                       >
-                        {agentPostureLoading ? 'Refreshing…' : 'Refresh'}
+                        Revert
                       </button>
                       <button
                         onClick={() => saveRow(selectedProfile)}
                         className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-sm bg-white hover:bg-slate-50 font-semibold"
                         disabled={settingsLoading}
                       >
-                        {settingsLoading ? 'Working…' : 'Regenerate'}
+                        {settingsLoading ? 'Working…' : 'Save'}
                       </button>
                     </div>
                   </div>
@@ -5745,45 +5962,6 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Agent scope</div>
-                    <select
-                      value={selectedScopeValue}
-                      onChange={(e) => updateProfile(selectedProfile.profile_id, { agent_scope: e.target.value })}
-                      style={{ maxWidth: 240, fontSize: 12 }}
-                    >
-                      {selectedScopeOptions.map((opt) => (
-                        <option key={opt.id} value={opt.id}>{opt.label}</option>
-                      ))}
-                    </select>
-                    <button
-                      title="Scope info"
-                      style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', fontSize: 12 }}
-                      onClick={() => setSettingsInfoModal({
-                        open: true,
-                        title: 'Agent Scope',
-                        content: [
-                          'Scope controls where MCP and hardening settings are written.',
-                          '',
-                          'Claude Code:',
-                          '- Project: .mcp.json and/or .claude/settings.json in workspace',
-                          '- Local (default): ~/.claude.json project entry + .claude/settings.local.json',
-                          '- User: ~/.claude.json mcpServers + ~/.claude/settings.json',
-                          '',
-                          'Codex:',
-                          '- Global (default): ~/.codex/config.toml',
-                          '- Project: .codex/config.toml in project',
-                          '',
-                          'Official docs:',
-                          '- Claude settings/hooks/sandbox: https://docs.anthropic.com/en/docs/claude-code',
-                          '- Codex MCP: https://platform.openai.com/docs/codex',
-                        ].join('\n'),
-                      })}
-                    >
-                      i
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
                     <div style={{ fontSize: 12, color: '#94a3b8' }}>Agent ID</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#111827', wordBreak: 'break-all' }}>
                       {selectedProfile.agent_id || '-'}
@@ -5799,6 +5977,73 @@ export default function App() {
                     >
                       ✎
                     </button>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pid = String(selectedProfile?.profile_id || '').trim()
+                        if (!pid) return
+                        setSettingsAdvancedOpenByProfile((prev) => ({ ...prev, [pid]: !prev[pid] }))
+                      }}
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        background: '#fafafa',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: '#94a3b8' }}>Advanced Options</span>
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                        {settingsAdvancedOpenByProfile[selectedProfileId] ? '▾' : '▸'}
+                      </span>
+                    </button>
+
+                    {Boolean(settingsAdvancedOpenByProfile[selectedProfileId]) && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', borderTop: '1px solid #f1f5f9', alignItems: 'center' }}>
+                        <div style={{ fontSize: 12, color: '#94a3b8' }}>Agent scope</div>
+                        <select
+                          value={selectedScopeValue}
+                          onChange={(e) => updateProfile(selectedProfile.profile_id, { agent_scope: e.target.value })}
+                          style={{ maxWidth: 240, fontSize: 12 }}
+                        >
+                          {selectedScopeOptions.map((opt) => (
+                            <option key={opt.id} value={opt.id}>{opt.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          title="Scope info"
+                          style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', cursor: 'pointer', fontSize: 12 }}
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Agent Scope',
+                            content: [
+                              'Scope controls where MCP and hardening settings are written.',
+                              '',
+                              'Claude Code:',
+                              '- Project (default): <workspace>/.mcp.json',
+                              '- Local: ~/.claude.json at projects.<workspace>.mcpServers',
+                              '- User: ~/.claude.json at mcpServers',
+                              '',
+                              'Codex:',
+                              '- Global (default): ~/.codex/config.toml',
+                              '- Project: .codex/config.toml in project',
+                              '',
+                              'Official docs:',
+                              '- Claude Code MCP: https://docs.anthropic.com/en/docs/claude-code/mcp',
+                              '- Codex MCP: https://openai.com/index/introducing-codex/',
+                            ].join('\n'),
+                          })}
+                        >
+                          i
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '170px minmax(0,1fr) 36px', gap: 8, padding: '10px 14px', alignItems: 'center' }}>
@@ -5823,26 +6068,26 @@ export default function App() {
                     <button
                       onClick={() => copyJson(selectedProfile)}
                       className="px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm font-semibold"
-                      disabled={settingsLoading}
+                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
                     >
                       Copy MCP JSON
                     </button>
                     <button
                       onClick={() => copyCli(selectedProfile)}
                       className="px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm font-semibold"
-                      disabled={settingsLoading}
+                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
                     >
                       Copy CLI command
                     </button>
                     <button
-                      onClick={() => openConfig(selectedProfile)}
-                      className="px-3 py-2 border border-slate-300 rounded-[10px] bg-white hover:bg-slate-50 text-sm"
-                      disabled={!selectedProfile.last_saved_path || settingsLoading}
+                      onClick={() => startApplyMcp(selectedProfile)}
+                      className="px-3 py-2 border border-blue-300 text-blue-700 rounded-[10px] bg-blue-50 hover:bg-blue-100 text-sm font-semibold"
+                      disabled={settingsLoading || !selectedHasSavedProfile || selectedDirty}
                     >
-                      Open config
+                      Apply MCP Config
                     </button>
                     <button
-                      onClick={() => deleteRow(selectedProfile)}
+                      onClick={() => openDeleteFlow(selectedProfile)}
                       className="px-3 py-2 border border-red-300 text-red-700 rounded-[10px] bg-red-50 hover:bg-red-100 text-sm"
                       disabled={settingsLoading}
                     >
@@ -5900,7 +6145,7 @@ export default function App() {
                             applyHardeningForProfile(selectedPosture || selectedProfile)
                           }}
                           className="px-3 py-2 rounded-[10px] bg-white border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
-                          disabled={Boolean(agentConfigActionLoading[selectedProfile.profile_id])}
+                          disabled={Boolean(agentConfigActionLoading[selectedProfile.profile_id]) || selectedDirty}
                         >
                           {agentConfigActionLoading[selectedProfile.profile_id]
                             ? 'Applying…'
@@ -6327,6 +6572,215 @@ export default function App() {
     )
   }
 
+  function McpReapplyModal() {
+    if (!mcpReapplyModal.open) return null
+    return (
+      <div
+        className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4"
+        onClick={() => setMcpReapplyModal({ open: false, profile_id: '', title: '', message: '' })}
+      >
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div className="font-semibold text-slate-800">{mcpReapplyModal.title || 'MCP Re-apply Required'}</div>
+            <button className="text-slate-500 hover:text-slate-700" onClick={() => setMcpReapplyModal({ open: false, profile_id: '', title: '', message: '' })}>✕</button>
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="text-sm text-slate-700 whitespace-pre-wrap">
+              {mcpReapplyModal.message || 'MCP configuration has changed for this profile.'}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-3 py-1.5 rounded-[10px] border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 text-sm font-semibold"
+                onClick={() => triggerApplyMcpFromReapplyModal()}
+              >
+                Apply Config
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-sm"
+                onClick={() => setMcpReapplyModal({ open: false, profile_id: '', title: '', message: '' })}
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function ApplyMcpModal() {
+    if (!applyMcpModal.open) return null
+    const plan = applyMcpModal.plan || {}
+    const requiresChoice = Boolean(plan.requires_previous_choice)
+    const canApply = !requiresChoice || applyMcpModal.remove_previous_choice !== null
+    return (
+      <div
+        className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4"
+        onClick={() => {
+          if (applyMcpModal.phase !== 'applying') closeApplyMcp()
+        }}
+      >
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div className="font-semibold text-slate-800">Apply MCP Config</div>
+            <button
+              className="text-slate-500 hover:text-slate-700"
+              disabled={applyMcpModal.phase === 'applying'}
+              onClick={() => closeApplyMcp()}
+            >
+              ✕
+            </button>
+          </div>
+          {applyMcpModal.phase === 'confirm' && (
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-slate-700">
+                Apply MCP config to <span className="font-mono break-all">{String(plan.target_path || '-')}</span>?
+              </div>
+              {Boolean(plan.must_remove_previous) && plan.previous?.file_path && (
+                <div className="text-xs rounded-[8px] border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2">
+                  Scope changed from <span className="font-semibold">{String(plan.previous?.scope || 'unknown')}</span> to <span className="font-semibold">{String(plan.scope || 'unknown')}</span>. Previous config at <span className="font-mono break-all">{String(plan.previous.file_path)}</span> will be removed first.
+                </div>
+              )}
+              {requiresChoice && plan.previous?.file_path && (
+                <div className="text-xs rounded-[8px] border border-amber-200 bg-amber-50 text-amber-800 px-3 py-2 space-y-2">
+                  <div>
+                    Previous MCP configuration was applied to <span className="font-mono break-all">{String(plan.previous.file_path)}</span>. Remove it before applying new config?
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className={`px-3 py-1.5 rounded-[8px] border text-xs ${applyMcpModal.remove_previous_choice === true ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700'}`}
+                      onClick={() => setApplyMcpModal((prev) => ({ ...prev, remove_previous_choice: true }))}
+                    >
+                      Yes, remove previous config
+                    </button>
+                    <button
+                      className={`px-3 py-1.5 rounded-[8px] border text-xs ${applyMcpModal.remove_previous_choice === false ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-700'}`}
+                      onClick={() => setApplyMcpModal((prev) => ({ ...prev, remove_previous_choice: false }))}
+                    >
+                      No, keep previous config
+                    </button>
+                  </div>
+                </div>
+              )}
+              <details className="rounded-[8px] border border-slate-200 bg-slate-50">
+                <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700">Preview JSON</summary>
+                <pre className="px-3 pb-3 text-[11px] font-mono whitespace-pre-wrap break-all text-slate-700">
+                  {JSON.stringify(plan.preview_json || {}, null, 2)}
+                </pre>
+              </details>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700"
+                  onClick={() => closeApplyMcp()}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-[10px] bg-[#0055ff] text-white disabled:opacity-50"
+                  disabled={!canApply}
+                  onClick={() => confirmApplyMcp()}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+          {applyMcpModal.phase === 'applying' && (
+            <div className="p-8 text-center text-sm text-slate-700">Applying MCP configuration...</div>
+          )}
+          {applyMcpModal.phase === 'result' && (
+            <div className="p-4 space-y-3">
+              <div className={`text-sm ${applyMcpModal.result_ok ? 'text-green-700' : 'text-red-700'}`}>
+                {applyMcpModal.result_ok ? 'Success' : 'Failed'}
+              </div>
+              <div className="text-xs text-slate-700 whitespace-pre-wrap break-words">
+                {applyMcpModal.result_message || 'No details available.'}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  className="px-3 py-1.5 rounded-[10px] bg-[#0055ff] text-white"
+                  onClick={() => closeApplyMcp()}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  function DeleteAgentModal() {
+    if (!deleteAgentModal.open || !deleteAgentModal.profile) return null
+    const profile = deleteAgentModal.profile
+    return (
+      <div
+        className="fixed inset-0 z-30 bg-slate-900/40 flex items-center justify-center p-4"
+        onClick={() => closeDeleteFlow()}
+      >
+        <div className="bg-white rounded-[10px] border border-slate-200 shadow-lg w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div className="font-semibold text-slate-800">Delete Agent</div>
+            <button className="text-slate-500 hover:text-slate-700" onClick={() => closeDeleteFlow()}>✕</button>
+          </div>
+          {deleteAgentModal.stage === 'choose' && (
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-slate-700">
+                How would you like to remove <span className="font-semibold">{profile.name || profile.agent_id || profile.profile_id}</span>?
+              </div>
+              <div className="text-xs text-slate-600 space-y-1">
+                <div><span className="font-semibold">Remove Agent Only</span>: removes only this AIRG profile from Settings. Existing MCP/client files are left unchanged.</div>
+                <div><span className="font-semibold">Remove Everything</span>: removes this AIRG profile and also removes AIRG MCP/client entries previously applied by AIRG for this profile.</div>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 text-sm"
+                  onClick={() => executeDeleteFlow('everything')}
+                >
+                  Remove Profile + Config
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-sm"
+                  onClick={() => executeDeleteFlow('agent_only')}
+                >
+                  Remove Agent Only
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700"
+                  onClick={() => closeDeleteFlow()}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {deleteAgentModal.stage === 'confirm_everything' && (
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-red-700">
+                Warning: If multiple instances of the same agent use the same workspace, this change will affect all of them due to limitations in STDIO MCP.
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700"
+                  onClick={() => closeDeleteFlow()}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-[10px] border border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                  onClick={() => confirmDeleteEverything()}
+                >
+                  Proceed
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   function OverrideDiffModal() {
     if (!overrideDiffModal.open) return null
     return (
@@ -6596,6 +7050,9 @@ export default function App() {
       {ValidationErrorModal()}
       {CopyAssistModal()}
       {SettingsInfoModal()}
+      {McpReapplyModal()}
+      {ApplyMcpModal()}
+      {DeleteAgentModal()}
       {OverrideDiffModal()}
       {OverrideBaselineModal()}
     </div>
