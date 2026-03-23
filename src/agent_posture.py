@@ -1,6 +1,8 @@
 import json
+import os
 import platform
 import pathlib
+import re
 from typing import Any
 
 
@@ -15,6 +17,7 @@ CLAUDE_SIGNAL_LABELS = {
 CLAUDE_NATIVE_TOOLS = {"Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER1_TOOLS = {"Bash", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER2_TOOLS = {"Read", "Glob", "Grep"}
+_CODEX_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
 
 def _read_json(path: pathlib.Path) -> dict[str, Any]:
@@ -253,6 +256,73 @@ def _claude_mcp_probe_paths(workspace: pathlib.Path) -> list[pathlib.Path]:
     ]
 
 
+def _claude_desktop_config_path() -> pathlib.Path:
+    if platform.system().lower() == "darwin":
+        return _home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    if platform.system().lower() == "windows":
+        appdata = str(os.environ.get("APPDATA", "")).strip()
+        if appdata:
+            return pathlib.Path(appdata).expanduser().resolve() / "Claude" / "claude_desktop_config.json"
+        return _home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
+    return _home() / ".config" / "Claude" / "claude_desktop_config.json"
+
+
+def _codex_paths(workspace: pathlib.Path) -> list[pathlib.Path]:
+    home = _home()
+    return [
+        home / ".codex" / "config.toml",
+        workspace / ".codex" / "config.toml",
+    ]
+
+
+def _codex_has_airg_mcp(path: pathlib.Path) -> bool:
+    try:
+        if not path.exists() or not path.is_file():
+            return False
+        for line in path.read_text().splitlines():
+            m = _CODEX_SECTION_RE.match(line)
+            if not m:
+                continue
+            if str(m.group(1)).strip() == "mcp_servers.ai-runtime-guard":
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _build_claude_desktop_posture(profile: dict[str, Any]) -> dict[str, Any]:
+    config_path = _claude_desktop_config_path()
+    payload = _read_json(config_path)
+    has_mcp = _contains_airg_mcp(payload)
+    status = "green" if has_mcp else "gray"
+    rationale = (
+        "AIRG MCP is configured in Claude Desktop. MCP-layer enforcement is active."
+        if has_mcp
+        else "No AIRG MCP server configuration detected in Claude Desktop config."
+    )
+    detected_scopes = ["desktop"] if has_mcp else []
+    signals = {"airg_mcp_present": has_mcp}
+    return {
+        "status": status,
+        "rationale": rationale,
+        "signals": signals,
+        "signal_scopes": {"airg_mcp_present": detected_scopes},
+        "mcp_detected_scopes": detected_scopes,
+        "mcp_detected_locations": ([{"scope": "desktop", "path": str(config_path)}] if has_mcp else []),
+        "mcp_expected_scope": "desktop",
+        "mcp_scope_match": has_mcp,
+        "native_tools_denied": [],
+        "missing_controls": [] if has_mcp else ["AIRG MCP configured"],
+        "recommended_actions": (
+            ["Claude Desktop is MCP-layer protected."]
+            if has_mcp
+            else ["Add ai-runtime-guard MCP server to Claude Desktop config."]
+        ),
+        "paths_checked": [str(config_path)],
+        "existing_paths": [str(config_path)] if config_path.exists() else [],
+    }
+
+
 def _detect_claude_mcp_locations(workspace: pathlib.Path) -> list[dict[str, str]]:
     home = _home()
     found: list[dict[str, str]] = []
@@ -369,6 +439,44 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
+    workspace = _workspace_from_profile(profile)
+    paths = _codex_paths(workspace)
+    has_global = _codex_has_airg_mcp(paths[0])
+    has_project = _codex_has_airg_mcp(paths[1])
+    has_mcp = has_global or has_project
+    status, rationale = _score_cursor(has_mcp=has_mcp)
+    detected_scopes: list[str] = []
+    if has_global:
+        detected_scopes.append("global")
+    if has_project:
+        detected_scopes.append("project")
+    expected_scope = str(profile.get("agent_scope", "")).strip().lower() or "global"
+    locations = []
+    if has_global:
+        locations.append({"scope": "global", "path": str(paths[0])})
+    if has_project:
+        locations.append({"scope": "project", "path": str(paths[1])})
+    return {
+        "status": status,
+        "rationale": rationale,
+        "signals": {"airg_mcp_present": has_mcp},
+        "signal_scopes": {"airg_mcp_present": detected_scopes},
+        "mcp_detected_scopes": detected_scopes,
+        "mcp_detected_locations": locations,
+        "mcp_expected_scope": expected_scope,
+        "mcp_scope_match": (expected_scope in detected_scopes) if has_mcp else False,
+        "missing_controls": [] if has_mcp else ["AIRG MCP configured"],
+        "recommended_actions": (
+            ["Codex is MCP-layer protected; client-native hardening controls are limited."]
+            if has_mcp
+            else ["Add ai-runtime-guard MCP server to Codex config.toml (global or project scope)."]
+        ),
+        "paths_checked": [str(p) for p in paths],
+        "existing_paths": [str(p) for p in paths if p.exists()],
+    }
+
+
 def _build_generic_posture(profile: dict[str, Any]) -> dict[str, Any]:
     workspace = _workspace_from_profile(profile)
     paths = _claude_mcp_probe_paths(workspace)
@@ -406,8 +514,12 @@ def build_posture_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "workspace": str(profile.get("workspace", "")).strip(),
     }
     agent_type = normalized["agent_type"]
-    if agent_type in {"claude_code", "claude_desktop"}:
+    if agent_type == "claude_code":
         posture = _build_claude_posture(profile)
+    elif agent_type == "claude_desktop":
+        posture = _build_claude_desktop_posture(profile)
+    elif agent_type == "codex":
+        posture = _build_codex_posture(profile)
     elif agent_type == "cursor":
         posture = _build_cursor_posture(profile)
     else:
@@ -421,6 +533,8 @@ def detect_unregistered_configs(*, known_workspaces: list[pathlib.Path]) -> list
     candidates: list[tuple[str, pathlib.Path, str]] = [
         ("cursor", home / ".cursor" / "mcp.json", "home"),
         ("claude_code", home / ".claude" / "settings.json", "home"),
+        ("claude_desktop", _claude_desktop_config_path(), "desktop"),
+        ("codex", home / ".codex" / "config.toml", "global"),
     ]
     for workspace in known_workspaces:
         candidates.extend(
@@ -428,6 +542,7 @@ def detect_unregistered_configs(*, known_workspaces: list[pathlib.Path]) -> list
                 ("cursor", workspace / ".cursor" / "mcp.json", "workspace"),
                 ("claude_code", workspace / ".claude" / "settings.json", "workspace"),
                 ("claude_code", workspace / ".claude" / "settings.local.json", "workspace"),
+                ("codex", workspace / ".codex" / "config.toml", "project"),
             ]
         )
     seen: set[str] = set()
@@ -447,21 +562,89 @@ def detect_unregistered_configs(*, known_workspaces: list[pathlib.Path]) -> list
     return found
 
 
-def build_posture_summary(profiles: list[dict[str, Any]]) -> dict[str, Any]:
-    profile_postures = [build_posture_for_profile(profile) for profile in profiles]
+def _normalize_path(path_value: Any) -> str:
+    raw = str(path_value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return str(pathlib.Path(raw).expanduser().resolve())
+    except Exception:
+        return raw
+
+
+def _filter_registered_discovered(
+    profile_postures: list[dict[str, Any]],
+    discovered: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    registered: set[tuple[str, str]] = set()
+    for row in profile_postures:
+        if not isinstance(row, dict):
+            continue
+        agent_type = str(row.get("agent_type", "")).strip().lower()
+        if not agent_type:
+            continue
+        paths_checked = row.get("paths_checked", [])
+        if isinstance(paths_checked, list):
+            for path in paths_checked:
+                norm = _normalize_path(path)
+                if norm:
+                    registered.add((agent_type, norm))
+        detected_locations = row.get("mcp_detected_locations", [])
+        if isinstance(detected_locations, list):
+            for item in detected_locations:
+                if not isinstance(item, dict):
+                    continue
+                norm = _normalize_path(item.get("path"))
+                if norm:
+                    registered.add((agent_type, norm))
+
+    filtered: list[dict[str, Any]] = []
+    for item in discovered:
+        if not isinstance(item, dict):
+            continue
+        agent_type = str(item.get("agent_type", "")).strip().lower()
+        path_norm = _normalize_path(item.get("path"))
+        if not agent_type or not path_norm:
+            filtered.append(item)
+            continue
+        if (agent_type, path_norm) in registered:
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _sort_discovered(discovered: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        discovered,
+        key=lambda x: (str(x.get("agent_type", "")), str(x.get("scope", "")), str(x.get("path", ""))),
+    )
+
+
+def _known_workspaces_from_profiles(profiles: list[dict[str, Any]]) -> list[pathlib.Path]:
     workspaces: list[pathlib.Path] = []
-    for p in profiles:
-        raw = str((p or {}).get("workspace", "")).strip()
+    for profile in profiles:
+        raw = str((profile or {}).get("workspace", "")).strip()
         if not raw:
             continue
         try:
             workspaces.append(pathlib.Path(raw).expanduser().resolve())
         except Exception:
             continue
-    discovered = sorted(
-        detect_unregistered_configs(known_workspaces=workspaces),
-        key=lambda x: (str(x.get("agent_type", "")), str(x.get("scope", "")), str(x.get("path", ""))),
-    )
+    return workspaces
+
+
+def detect_unregistered_for_profiles(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    profile_postures = [build_posture_for_profile(profile) for profile in profiles]
+    workspaces = _known_workspaces_from_profiles(profiles)
+    discovered_raw = detect_unregistered_configs(known_workspaces=workspaces)
+    return _sort_discovered(_filter_registered_discovered(profile_postures, discovered_raw))
+
+
+def build_posture_summary(profiles: list[dict[str, Any]]) -> dict[str, Any]:
+    profile_postures = [build_posture_for_profile(profile) for profile in profiles]
+    workspaces = _known_workspaces_from_profiles(profiles)
+    discovered_raw = detect_unregistered_configs(known_workspaces=workspaces)
+    discovered = _sort_discovered(_filter_registered_discovered(profile_postures, discovered_raw))
     totals = {"gray": 0, "green": 0, "yellow": 0, "red": 0}
     for row in profile_postures:
         status = str(row.get("status", "")).lower()

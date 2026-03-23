@@ -487,15 +487,7 @@ def settings_agents_detect():
     paths = _agent_paths()
     registry = agent_configs.load_registry(paths)
     profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
-    workspaces: list[pathlib.Path] = []
-    for profile in profiles:
-        workspace = str((profile or {}).get("workspace", "")).strip()
-        if workspace:
-            workspaces.append(pathlib.Path(workspace).expanduser().resolve())
-    discovered = sorted(
-        agent_posture.detect_unregistered_configs(known_workspaces=workspaces),
-        key=lambda x: (str(x.get("agent_type", "")), str(x.get("scope", "")), str(x.get("path", ""))),
-    )
+    discovered = agent_posture.detect_unregistered_for_profiles(profiles if isinstance(profiles, list) else [])
     return jsonify(
         {
             "ok": True,
