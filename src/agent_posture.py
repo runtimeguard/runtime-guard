@@ -6,12 +6,15 @@ from typing import Any
 
 CLAUDE_SIGNAL_LABELS = {
     "airg_mcp_present": "AIRG MCP configured",
-    "native_tools_restricted": "Native tool deny rules enabled",
-    "hook_active": "airg-hook PreToolUse hook active",
+    "tier1_hook_active": "Tier 1 hook coverage active",
+    "native_tools_restricted": "Tier 1 native tools restricted",
+    "tier2_hook_active": "Tier 2 hook coverage active",
     "sandbox_enabled": "Sandbox enabled",
     "sandbox_escape_closed": "Sandbox unsandboxed-command escape disabled",
 }
 CLAUDE_NATIVE_TOOLS = {"Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"}
+CLAUDE_TIER1_TOOLS = {"Bash", "Write", "Edit", "MultiEdit"}
+CLAUDE_TIER2_TOOLS = {"Read", "Glob", "Grep"}
 
 
 def _read_json(path: pathlib.Path) -> dict[str, Any]:
@@ -55,23 +58,36 @@ def _contains_airg_mcp(payload: dict[str, Any]) -> bool:
     return _contains_airg_mcp_servers(payload.get("mcpServers", {}))
 
 
-def _hook_is_active(effective: dict[str, Any]) -> bool:
+def _hook_active_matchers(effective: dict[str, Any]) -> set[str]:
     hooks = effective.get("hooks", {})
     if not isinstance(hooks, dict):
-        return False
+        return set()
     pre = hooks.get("PreToolUse", [])
     if not isinstance(pre, list):
-        return False
+        return set()
+    out: set[str] = set()
     for matcher in pre:
         if not isinstance(matcher, dict):
             continue
+        matcher_name = str(matcher.get("matcher", "")).strip()
         for hook in matcher.get("hooks", []) or []:
             if not isinstance(hook, dict):
                 continue
             cmd = str(hook.get("command", "")).strip()
             if cmd == "airg-hook" or pathlib.Path(cmd).name == "airg-hook":
-                return True
-    return False
+                if matcher_name:
+                    out.add(matcher_name)
+                break
+    return out
+
+
+def _hook_tier_active(effective: dict[str, Any], required_tools: set[str]) -> bool:
+    matchers = _hook_active_matchers(effective)
+    if not matchers:
+        return False
+    if "*" in matchers:
+        return True
+    return required_tools.issubset(matchers)
 
 
 def _native_tools_restricted(effective: dict[str, Any]) -> bool:
@@ -82,8 +98,7 @@ def _native_tools_restricted(effective: dict[str, Any]) -> bool:
     if not isinstance(deny, list):
         return False
     denied = {str(x).strip() for x in deny}
-    required = {"Bash", "Write", "Edit", "MultiEdit"}
-    return required.issubset(denied)
+    return CLAUDE_TIER1_TOOLS.issubset(denied)
 
 
 def _native_tools_denied_set(effective: dict[str, Any]) -> set[str]:
@@ -106,18 +121,29 @@ def _sandbox_hardened(effective: dict[str, Any]) -> tuple[bool, bool]:
     return enabled, (not allow_unsandboxed)
 
 
-def _score_claude(*, has_mcp: bool, native_denied: bool, hook_active: bool, sandbox_enabled: bool, escape_closed: bool) -> tuple[str, str]:
-    if has_mcp and native_denied and hook_active and sandbox_enabled and escape_closed:
-        return "green", "AIRG MCP configured, native tools restricted, hook active, and sandbox hardened."
-    if has_mcp or native_denied or hook_active or sandbox_enabled:
-        return "yellow", "Partial hardening detected. Review missing controls."
-    return "red", "No effective hardening controls detected for Claude Code."
+def _score_claude(
+    *,
+    has_mcp: bool,
+    tier1_hook_active: bool,
+    native_denied: bool,
+    tier2_hook_active: bool,
+    sandbox_enabled: bool,
+    escape_closed: bool,
+) -> tuple[str, str]:
+    if not has_mcp:
+        return "gray", "No AIRG MCP configuration detected for this agent profile."
+    tier1_ready = tier1_hook_active and native_denied
+    if tier1_ready and tier2_hook_active and sandbox_enabled and escape_closed:
+        return "green", "Full hardening detected: MCP + Tier 1 + Tier 2 + sandbox protections."
+    if tier1_ready:
+        return "yellow", "Tier 1 hardening detected. Complete Tier 2 and sandbox controls to reach Green."
+    return "red", "AIRG MCP is configured but Tier 1 hardening is incomplete."
 
 
 def _score_cursor(*, has_mcp: bool) -> tuple[str, str]:
     if has_mcp:
-        return "yellow", "AIRG MCP detected. Cursor client-side permissions/hooks are limited."
-    return "red", "No AIRG MCP server configuration detected."
+        return "red", "AIRG MCP detected. Advanced client-side hardening is not available for this agent."
+    return "gray", "No AIRG MCP server configuration detected."
 
 
 def _missing_controls_from_signals(signals: dict[str, Any], *, labels: dict[str, str]) -> list[str]:
@@ -132,10 +158,12 @@ def _claude_recommendations(signals: dict[str, Any]) -> list[str]:
     rec: list[str] = []
     if not bool(signals.get("airg_mcp_present", False)):
         rec.append("Add ai-runtime-guard to your MCP config for this workspace.")
-    if not bool(signals.get("hook_active", False)):
-        rec.append("Register airg-hook under Claude PreToolUse hooks in settings.local.json.")
+    if not bool(signals.get("tier1_hook_active", False)):
+        rec.append("Enable Tier 1 hook coverage (Bash/Write/Edit/MultiEdit) for deterministic MCP redirection.")
     if not bool(signals.get("native_tools_restricted", False)):
-        rec.append("Add deny rules for Bash, Write, Edit, and MultiEdit in Claude permissions.")
+        rec.append("Restrict native Bash/Write/Edit/MultiEdit tools in Claude permissions.")
+    if not bool(signals.get("tier2_hook_active", False)):
+        rec.append("Enable Tier 2 hook coverage (Read/Glob/Grep) for path/extension policy checks and audit.")
     if not bool(signals.get("sandbox_enabled", False)):
         rec.append("Enable Claude sandbox mode for this workspace.")
     if bool(signals.get("sandbox_enabled", False)) and not bool(signals.get("sandbox_escape_closed", False)):
@@ -278,26 +306,30 @@ def _build_claude_posture(profile: dict[str, Any]) -> dict[str, Any]:
     expected_scope = _normalize_claude_scope(profile.get("agent_scope"))
     has_mcp = bool(mcp_locations)
     native_denied = _native_tools_restricted(effective)
-    hook_active = _hook_is_active(effective)
+    tier1_hook_active = _hook_tier_active(effective, CLAUDE_TIER1_TOOLS)
+    tier2_hook_active = _hook_tier_active(effective, CLAUDE_TIER2_TOOLS)
     sandbox_enabled, escape_closed = _sandbox_hardened(effective)
     native_tool_denied = sorted(list(_native_tools_denied_set(effective)))
     signal_scopes = {
-        "hook_active": [scope for scope, payload in payload_by_scope.items() if _hook_is_active(payload)],
+        "tier1_hook_active": [scope for scope, payload in payload_by_scope.items() if _hook_tier_active(payload, CLAUDE_TIER1_TOOLS)],
+        "tier2_hook_active": [scope for scope, payload in payload_by_scope.items() if _hook_tier_active(payload, CLAUDE_TIER2_TOOLS)],
         "native_tools_restricted": [scope for scope, payload in payload_by_scope.items() if _native_tools_restricted(payload)],
         "sandbox_enabled": [scope for scope, payload in payload_by_scope.items() if bool((_sandbox_hardened(payload))[0])],
         "sandbox_escape_closed": [scope for scope, payload in payload_by_scope.items() if bool((_sandbox_hardened(payload))[1])],
     }
     status, rationale = _score_claude(
         has_mcp=has_mcp,
+        tier1_hook_active=tier1_hook_active,
         native_denied=native_denied,
-        hook_active=hook_active,
+        tier2_hook_active=tier2_hook_active,
         sandbox_enabled=sandbox_enabled,
         escape_closed=escape_closed,
     )
     signals = {
         "airg_mcp_present": has_mcp,
+        "tier1_hook_active": tier1_hook_active,
         "native_tools_restricted": native_denied,
-        "hook_active": hook_active,
+        "tier2_hook_active": tier2_hook_active,
         "sandbox_enabled": sandbox_enabled,
         "sandbox_escape_closed": escape_closed,
     }
@@ -325,8 +357,6 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
     status, rationale = _score_cursor(has_mcp=has_mcp)
     signals = {
         "airg_mcp_present": has_mcp,
-        "hooks_supported": False,
-        "native_tool_permissions_supported": False,
     }
     return {
         "status": status,
@@ -343,8 +373,12 @@ def _build_generic_posture(profile: dict[str, Any]) -> dict[str, Any]:
     workspace = _workspace_from_profile(profile)
     paths = _claude_mcp_probe_paths(workspace)
     has_mcp = any(_contains_airg_mcp(_read_json(p)) for p in paths)
-    status = "yellow" if has_mcp else "red"
-    rationale = "AIRG MCP detected." if has_mcp else "No AIRG MCP server configuration detected."
+    status = "red" if has_mcp else "gray"
+    rationale = (
+        "AIRG MCP detected. Advanced client-side hardening depends on agent support."
+        if has_mcp
+        else "No AIRG MCP server configuration detected."
+    )
     return {
         "status": status,
         "rationale": rationale,
@@ -428,7 +462,7 @@ def build_posture_summary(profiles: list[dict[str, Any]]) -> dict[str, Any]:
         detect_unregistered_configs(known_workspaces=workspaces),
         key=lambda x: (str(x.get("agent_type", "")), str(x.get("scope", "")), str(x.get("path", ""))),
     )
-    totals = {"green": 0, "yellow": 0, "red": 0}
+    totals = {"gray": 0, "green": 0, "yellow": 0, "red": 0}
     for row in profile_postures:
         status = str(row.get("status", "")).lower()
         if status in totals:

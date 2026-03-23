@@ -11,7 +11,8 @@ from typing import Any
 
 CLAUDE_NATIVE_TOOLS = ["Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"]
 CLAUDE_SCOPES = {"local", "project", "user"}
-CLAUDE_HOOK_MATCHERS = ["Bash", "Write", "Edit", "MultiEdit", "Read", "Glob", "Grep"]
+CLAUDE_TIER1_TOOLS = ["Bash", "Write", "Edit", "MultiEdit"]
+CLAUDE_TIER2_TOOLS = ["Read", "Glob", "Grep"]
 
 
 def _now_iso() -> str:
@@ -225,19 +226,34 @@ def _normalize_claude_hardening_options(profile: dict[str, Any], options: dict[s
     payload = options if isinstance(options, dict) else {}
     selected_scope = _normalize_claude_scope(payload.get("scope") or profile.get("agent_scope") or "local")
 
+    legacy_hook_enabled = bool(payload.get("hook_enabled", True))
+    legacy_restrict_native = bool(payload.get("restrict_native_tools", True))
+
     raw_tools = payload.get("native_tools", CLAUDE_NATIVE_TOOLS)
+    selected_tools: set[str] = set()
     if isinstance(raw_tools, dict):
-        selected_tools = [tool for tool in CLAUDE_NATIVE_TOOLS if bool(raw_tools.get(tool, False))]
+        selected_tools = {
+            tool for tool in CLAUDE_NATIVE_TOOLS if bool(raw_tools.get(tool, False))
+        }
     elif isinstance(raw_tools, list):
-        selected_tools = [tool for tool in CLAUDE_NATIVE_TOOLS if tool in {str(t).strip() for t in raw_tools}]
+        selected_tools = {
+            tool for tool in CLAUDE_NATIVE_TOOLS if tool in {str(t).strip() for t in raw_tools}
+        }
+
+    if "basic_enforcement" in payload:
+        basic_enforcement = bool(payload.get("basic_enforcement"))
     else:
-        selected_tools = list(CLAUDE_NATIVE_TOOLS)
+        basic_enforcement = legacy_hook_enabled and legacy_restrict_native
+
+    if "advanced_enforcement" in payload:
+        advanced_enforcement = bool(payload.get("advanced_enforcement"))
+    else:
+        advanced_enforcement = bool(selected_tools.intersection(set(CLAUDE_TIER2_TOOLS)))
 
     return {
         "scope": selected_scope,
-        "hook_enabled": bool(payload.get("hook_enabled", True)),
-        "restrict_native_tools": bool(payload.get("restrict_native_tools", True)),
-        "native_tools": selected_tools,
+        "basic_enforcement": basic_enforcement,
+        "advanced_enforcement": advanced_enforcement,
         "sandbox_enabled": bool(payload.get("sandbox_enabled", True)),
         "sandbox_escape_closed": bool(payload.get("sandbox_escape_closed", True)),
     }
@@ -290,10 +306,9 @@ def _set_deny_tools(settings: dict[str, Any], *, enabled: bool, tools: list[str]
         settings["permissions"] = permissions
     deny = permissions.get("deny")
     deny_list = [str(item).strip() for item in deny if str(item).strip()] if isinstance(deny, list) else []
-    managed_set = set(CLAUDE_NATIVE_TOOLS)
-    selected = {tool for tool in tools if tool in managed_set}
+    managed_set = {tool for tool in tools if tool in set(CLAUDE_NATIVE_TOOLS)}
     if enabled:
-        for tool in selected:
+        for tool in managed_set:
             if tool not in deny_list:
                 deny_list.append(tool)
     else:
@@ -306,12 +321,23 @@ def _set_deny_tools(settings: dict[str, Any], *, enabled: bool, tools: list[str]
         settings.pop("permissions", None)
 
 
-def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
+def _set_airg_hook(
+    settings: dict[str, Any],
+    *,
+    basic_enforcement: bool,
+    advanced_enforcement: bool,
+) -> None:
     hook_command = _resolve_airg_hook_command()
     hooks_payload = settings.get("hooks")
     hooks = hooks_payload if isinstance(hooks_payload, dict) else {}
     pre = hooks.get("PreToolUse")
     pre_list = pre if isinstance(pre, list) else []
+    requested_matchers: list[str] = []
+    if basic_enforcement:
+        requested_matchers.extend(CLAUDE_TIER1_TOOLS)
+    if advanced_enforcement:
+        requested_matchers.extend(CLAUDE_TIER2_TOOLS)
+    requested_matchers = list(dict.fromkeys(requested_matchers))
 
     # Remove any previously managed AIRG hook entries first (including legacy matcher="*").
     cleaned_pre: list[dict[str, Any]] = []
@@ -331,8 +357,8 @@ def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
             next_matcher["hooks"] = filtered_hooks
             cleaned_pre.append(next_matcher)
 
-    if enabled:
-        for tool_matcher in CLAUDE_HOOK_MATCHERS:
+    if requested_matchers:
+        for tool_matcher in requested_matchers:
             target = None
             for matcher in cleaned_pre:
                 if str(matcher.get("matcher", "")).strip() == tool_matcher:
@@ -388,11 +414,17 @@ def _set_sandbox_flags(
 
 def _apply_claude_hardening_to_settings(before: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
     after = _deep_copy(before)
-    _set_airg_hook(after, enabled=bool(options.get("hook_enabled", True)))
+    basic_enforcement = bool(options.get("basic_enforcement", True))
+    advanced_enforcement = bool(options.get("advanced_enforcement", False))
+    _set_airg_hook(
+        after,
+        basic_enforcement=basic_enforcement,
+        advanced_enforcement=advanced_enforcement,
+    )
     _set_deny_tools(
         after,
-        enabled=bool(options.get("restrict_native_tools", True)),
-        tools=list(options.get("native_tools", []) or []),
+        enabled=basic_enforcement,
+        tools=list(CLAUDE_TIER1_TOOLS),
     )
     _set_sandbox_flags(
         after,
@@ -652,6 +684,7 @@ def _apply_claude(
     selected_scope = selected_options["scope"]
 
     changes: list[dict[str, Any]] = []
+    hardening_changes: list[dict[str, Any]] = []
     preflight = {
         "mcp_locations": _detect_claude_mcp_locations(workspace),
         "mcp_probe_paths": [str(p) for p in _mcp_probe_paths(workspace)],
@@ -694,7 +727,9 @@ def _apply_claude(
         target = _claude_settings_path_for_scope(workspace, selected_scope)
         before = _read_json_file(target) if target.exists() else {}
         after = _apply_claude_hardening_to_settings(before, selected_options)
-        changes.append(_write_with_backup(target, after))
+        settings_change = _write_with_backup(target, after)
+        changes.append(settings_change)
+        hardening_changes.append(settings_change)
     except Exception:
         for change in reversed(changes):
             _restore_change(change)
@@ -714,7 +749,7 @@ def _apply_claude(
                 "backup_path": c["backup_path"],
                 "original_missing": c["original_missing"],
             }
-            for c in changes
+            for c in hardening_changes
         ],
         "diff_summary": summary,
         "applied_options": selected_options,

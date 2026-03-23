@@ -86,7 +86,8 @@ class AgentConfiguratorTests(unittest.TestCase):
         self.assertTrue(undone.get("ok"), msg=undone)
         self.assertFalse(agent_configurator.undo_available(self.paths, "p-claude"))
         self.assertEqual(json.loads(settings_local.read_text()), original_settings)
-        self.assertFalse(workspace_mcp.exists())
+        # Undo All restores hardening changes only; MCP config remains in place.
+        self.assertTrue(workspace_mcp.exists())
 
     def test_cursor_apply_and_undo_restores_file(self) -> None:
         profile = {

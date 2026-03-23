@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import platform
+import re
 import sys
 from datetime import UTC, datetime
 from typing import Any
@@ -23,6 +24,7 @@ ALWAYS_ALLOW = {
 }
 SENSITIVE_READ_SUFFIXES = (".env", ".pem", ".key")
 HOOK_VERSION = "v2.0.dev2"
+_POLICY_CACHE: dict[str, Any] = {"path": "", "mtime_ns": None, "blocked_paths": [], "blocked_extensions": []}
 
 
 def _utc_now() -> str:
@@ -138,7 +140,12 @@ def _emit_deny(reason: str) -> int:
 def _extract_detail(tool_name: str, tool_input: dict[str, Any]) -> str:
     if tool_name == "Bash":
         return str(tool_input.get("command", "")).strip()
-    return str(tool_input.get("file_path", "")).strip()
+    if tool_name == "Read":
+        return str(tool_input.get("file_path", "")).strip()
+    candidates = _extract_path_candidates(tool_input)
+    if candidates:
+        return ", ".join(candidates[:4])
+    return str(tool_input.get("path", "")).strip()
 
 
 def _is_sensitive_read(tool_input: dict[str, Any]) -> bool:
@@ -150,6 +157,115 @@ def _is_sensitive_read(tool_input: dict[str, Any]) -> bool:
     if "/secrets/" in path:
         return True
     return False
+
+
+def _policy_path() -> pathlib.Path:
+    raw = str(os.environ.get("AIRG_POLICY_PATH", "")).strip()
+    if raw:
+        return pathlib.Path(raw).expanduser().resolve()
+    if platform.system() == "Darwin":
+        return (pathlib.Path.home() / "Library" / "Application Support" / "ai-runtime-guard" / "policy.json").resolve()
+    xdg = str(os.environ.get("XDG_STATE_HOME", "")).strip()
+    if xdg:
+        return (pathlib.Path(xdg).expanduser().resolve() / "ai-runtime-guard" / "policy.json").resolve()
+    return (pathlib.Path.home() / ".local" / "state" / "ai-runtime-guard" / "policy.json").resolve()
+
+
+def _load_blocked_policy_rules() -> tuple[list[str], list[str]]:
+    policy = _policy_path()
+    try:
+        if not policy.exists() or not policy.is_file():
+            return ([], [])
+        mtime_ns = policy.stat().st_mtime_ns
+        if _POLICY_CACHE["path"] == str(policy) and _POLICY_CACHE["mtime_ns"] == mtime_ns:
+            return (
+                list(_POLICY_CACHE.get("blocked_paths", [])),
+                list(_POLICY_CACHE.get("blocked_extensions", [])),
+            )
+        payload = json.loads(policy.read_text())
+        blocked = payload.get("blocked", {}) if isinstance(payload, dict) else {}
+        blocked_paths = [str(v).strip().lower() for v in (blocked.get("paths", []) or []) if str(v).strip()]
+        blocked_extensions = [str(v).strip().lower() for v in (blocked.get("extensions", []) or []) if str(v).strip()]
+        _POLICY_CACHE.update(
+            {
+                "path": str(policy),
+                "mtime_ns": mtime_ns,
+                "blocked_paths": blocked_paths,
+                "blocked_extensions": blocked_extensions,
+            }
+        )
+        return (blocked_paths, blocked_extensions)
+    except Exception:
+        return ([], [])
+
+
+def _extract_path_candidates(tool_input: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    key_hints = ("path", "file", "dir", "cwd", "root", "include", "exclude", "glob")
+
+    def add(value: str) -> None:
+        candidate = str(value or "").strip()
+        if not candidate:
+            return
+        marker = candidate.lower()
+        if marker in seen:
+            return
+        seen.add(marker)
+        out.append(candidate)
+
+    def walk(node: Any, key_name: str = "") -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, str(k).strip().lower())
+            return
+        if isinstance(node, list):
+            for item in node:
+                walk(item, key_name)
+            return
+        if isinstance(node, str):
+            text = node.strip()
+            if not text:
+                return
+            hinted = any(hint in key_name for hint in key_hints)
+            looks_like_path = (
+                text.startswith("/")
+                or text.startswith("./")
+                or text.startswith("../")
+                or text.startswith("~")
+                or "/" in text
+                or "\\" in text
+            )
+            if hinted or looks_like_path:
+                add(text)
+
+    walk(tool_input)
+    return out
+
+
+def _blocked_by_policy(path_candidate: str) -> str | None:
+    blocked_paths, blocked_exts = _load_blocked_policy_rules()
+    lower = path_candidate.lower()
+    for blocked_path in blocked_paths:
+        if blocked_path and blocked_path in lower:
+            return f"blocked path pattern '{blocked_path}'"
+    for ext in blocked_exts:
+        if ext and re.search(rf"{re.escape(ext)}\\b", lower):
+            return f"blocked extension '{ext}'"
+    return None
+
+
+def _advanced_tool_violation(tool_name: str, tool_input: dict[str, Any]) -> str | None:
+    if tool_name not in {"Read", "Glob", "Grep"}:
+        return None
+    for candidate in _extract_path_candidates(tool_input):
+        violated = _blocked_by_policy(candidate)
+        if violated:
+            return (
+                f"AIRG policy: native '{tool_name}' request matched {violated}. "
+                "Use AIRG MCP tools within allowed path policy."
+            )
+    return None
 
 
 def _allow() -> int:
@@ -195,12 +311,25 @@ def main() -> int:
                     )
                 )
                 return _emit_deny(reason)
+            advanced_reason = _advanced_tool_violation(tool_name, tool_input)
+            if advanced_reason:
+                _append_log(
+                    _build_activity_entry(
+                        payload=payload,
+                        tool_name=tool_name,
+                        allowed=False,
+                        hook_reason=advanced_reason,
+                        hook_detail=_extract_detail(tool_name, tool_input),
+                    )
+                )
+                return _emit_deny(advanced_reason)
             _append_log(
                 _build_activity_entry(
                     payload=payload,
                     tool_name=tool_name,
                     allowed=True,
                     hook_reason="read_only_tool",
+                    hook_detail=_extract_detail(tool_name, tool_input),
                 )
             )
             return _allow()

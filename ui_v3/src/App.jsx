@@ -327,7 +327,7 @@ export default function App() {
   const [generatedCliByProfile, setGeneratedCliByProfile] = useState({})
   const [hardeningPanelOpenByProfile, setHardeningPanelOpenByProfile] = useState({})
   const [hardeningOptionsByProfile, setHardeningOptionsByProfile] = useState({})
-  const [agentPosture, setAgentPosture] = useState({ profiles: [], discovered_unregistered: [], totals: { green: 0, yellow: 0, red: 0 } })
+  const [agentPosture, setAgentPosture] = useState({ profiles: [], discovered_unregistered: [], totals: { gray: 0, green: 0, yellow: 0, red: 0 } })
   const [agentPostureLoading, setAgentPostureLoading] = useState(false)
   const [agentPostureError, setAgentPostureError] = useState('')
   const [scriptSentinelData, setScriptSentinelData] = useState({ artifacts: { total: 0, items: [] }, summary: null })
@@ -636,17 +636,8 @@ export default function App() {
     const scope = normalizeScopeForAgentType(agentType, profile?.agent_scope || defaultScopeForAgentType(agentType))
     return {
       scope,
-      hook_enabled: true,
-      restrict_native_tools: true,
-      native_tools: {
-        Bash: true,
-        Glob: true,
-        Grep: true,
-        Read: true,
-        Write: true,
-        Edit: true,
-        MultiEdit: true,
-      },
+      basic_enforcement: true,
+      advanced_enforcement: false,
       sandbox_enabled: true,
       sandbox_escape_closed: true,
     }
@@ -769,7 +760,7 @@ export default function App() {
       setAgentPosture({
         profiles: payload.posture.profiles || [],
         discovered_unregistered: payload.posture.discovered_unregistered || [],
-        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+        totals: payload.posture.totals || { gray: 0, green: 0, yellow: 0, red: 0 },
       })
     }
     return payload
@@ -812,7 +803,7 @@ export default function App() {
       setAgentPosture({
         profiles: payload.profiles || [],
         discovered_unregistered: payload.discovered_unregistered || [],
-        totals: payload.totals || { green: 0, yellow: 0, red: 0 },
+        totals: payload.totals || { gray: 0, green: 0, yellow: 0, red: 0 },
       })
     } catch (err) {
       const name = err?.name ? `${err.name}: ` : ''
@@ -896,7 +887,7 @@ export default function App() {
       setAgentPosture({
         profiles: payload.posture.profiles || [],
         discovered_unregistered: payload.posture.discovered_unregistered || [],
-        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+        totals: payload.posture.totals || { gray: 0, green: 0, yellow: 0, red: 0 },
       })
     }
     return payload
@@ -918,7 +909,7 @@ export default function App() {
       setAgentPosture({
         profiles: payload.posture.profiles || [],
         discovered_unregistered: payload.posture.discovered_unregistered || [],
-        totals: payload.posture.totals || { green: 0, yellow: 0, red: 0 },
+        totals: payload.posture.totals || { gray: 0, green: 0, yellow: 0, red: 0 },
       })
     }
     return payload
@@ -5557,35 +5548,15 @@ export default function App() {
       }))
     }
 
-    const setHardeningToolOption = (profileId, tool, enabled) => {
-      setHardeningOptionsByProfile((prev) => {
-        const current = prev[profileId] || defaultHardeningOptionsForProfile(selectedProfile || {})
-        const currentTools = current?.native_tools || {}
-        return {
-          ...prev,
-          [profileId]: {
-            ...current,
-            native_tools: {
-              ...currentTools,
-              [tool]: Boolean(enabled),
-            },
-          },
-        }
-      })
-    }
-
     const applyHardeningForProfile = async (row, { autoAddMcp = false } = {}) => {
       const profileId = String(row?.profile_id || '').trim()
       if (!profileId) return
       setProfileActionLoading(profileId, true)
       setSettingsError('')
       const rawOptions = hardeningOptionsByProfile[profileId] || defaultHardeningOptionsForProfile(row || {})
-      const toolToggles = rawOptions?.native_tools || {}
-      const selectedTools = ['Bash', 'Glob', 'Grep', 'Read', 'Write', 'Edit', 'MultiEdit'].filter((tool) => Boolean(toolToggles?.[tool]))
       const optionsPayload = {
         ...rawOptions,
         scope: normalizeScopeForAgentType(row?.agent_type, rawOptions?.scope || row?.agent_scope),
-        native_tools: selectedTools,
       }
       try {
         const payload = await applyAgentConfigHardening(profileId, { autoAddMcp, options: optionsPayload })
@@ -5629,7 +5600,7 @@ export default function App() {
     const undoHardeningForProfile = async (row) => {
       const profileId = String(row?.profile_id || '').trim()
       if (!profileId) return
-      if (!window.confirm(`Undo last AIRG hardening apply for ${row?.name || row?.agent_id || profileId}?`)) return
+      if (!window.confirm(`Undo all AIRG hardening settings for ${row?.name || row?.agent_id || profileId}?\n\nThis keeps MCP configuration intact.`)) return
       setProfileActionLoading(profileId, true)
       setSettingsError('')
       try {
@@ -5660,8 +5631,8 @@ export default function App() {
 
     const selectedProfile = agentProfiles.find((profile) => String(profile?.profile_id || '') === selectedSettingsProfileId) || agentProfiles[0] || null
     const selectedPosture = postureForProfile(selectedProfile)
-    const selectedStatus = String(selectedPosture?.status || 'red').toLowerCase()
-    const selectedStatusNormalized = ['green', 'yellow', 'red'].includes(selectedStatus) ? selectedStatus : 'red'
+    const selectedStatus = String(selectedPosture?.status || 'gray').toLowerCase()
+    const selectedStatusNormalized = ['gray', 'green', 'yellow', 'red'].includes(selectedStatus) ? selectedStatus : 'gray'
     const selectedAgentType = String(selectedProfile?.agent_type || '').toLowerCase()
     const selectedProfileId = String(selectedProfile?.profile_id || '').trim()
     const selectedScopeOptions = scopeOptionsForAgentType(selectedAgentType)
@@ -5673,25 +5644,33 @@ export default function App() {
     const selectedRecommendations = Array.isArray(selectedPosture?.recommended_actions) ? selectedPosture.recommended_actions : []
 
     const statusPillStyle = {
+      gray: { bg: '#e5e7eb', fg: '#475569', label: 'Gray' },
       red: { bg: '#fee2e2', fg: '#dc2626', label: 'Red' },
       yellow: { bg: '#fef3c7', fg: '#b45309', label: 'Yellow' },
       green: { bg: '#dcfce7', fg: '#15803d', label: 'Green' },
     }
 
     const postureCardTheme = {
-      red: { border: '#fecaca', bg: '#fff5f5', iconBg: '#fee2e2', iconFg: '#dc2626', icon: '✕', label: 'Unprotected' },
-      yellow: { border: '#fde68a', bg: '#fffdf0', iconBg: '#fef3c7', iconFg: '#b45309', icon: '◐', label: 'MCP-only enforcement' },
+      gray: { border: '#d1d5db', bg: '#f8fafc', iconBg: '#e5e7eb', iconFg: '#64748b', icon: '•', label: 'Nothing configured' },
+      red: { border: '#fecaca', bg: '#fff5f5', iconBg: '#fee2e2', iconFg: '#dc2626', icon: '●', label: 'MCP configured only' },
+      yellow: { border: '#fde68a', bg: '#fffdf0', iconBg: '#fef3c7', iconFg: '#b45309', icon: '◐', label: 'Tier 1 enforced' },
       green: { border: '#bbf7d0', bg: '#f0fdf4', iconBg: '#dcfce7', iconFg: '#15803d', icon: '✓', label: 'Fully hardened' },
     }
 
     const selectedTheme = postureCardTheme[selectedStatusNormalized]
     const selectedPill = statusPillStyle[selectedStatusNormalized]
-    const isMcpOnlyCeiling = selectedAgentType !== 'claude_code'
+    const supportsClaudeHardening = selectedAgentType === 'claude_code'
+    const trafficLegend = [
+      { id: 'gray', label: 'None', color: '#94a3b8' },
+      { id: 'red', label: 'MCP', color: '#ef4444' },
+      { id: 'yellow', label: 'Tier 1', color: '#f59e0b' },
+      { id: 'green', label: 'Full', color: '#22c55e' },
+    ]
 
     const ceilingNote = (() => {
-      if (selectedAgentType === 'claude_code') return 'Can reach Green — hooks and permissions available for Claude Code.'
-      if (selectedAgentType === 'cursor') return 'Maximum posture for this agent type is Yellow (MCP-layer controls only).'
-      if (selectedAgentType === 'claude_desktop') return 'Review posture signals for this profile; MCP + hook/sandbox coverage depends on settings files.'
+      if (selectedAgentType === 'claude_code') return 'Can reach Green when Tier 1 + Tier 2 + sandbox controls are active.'
+      if (selectedAgentType === 'cursor') return 'This agent currently supports MCP-layer posture only in AIRG.'
+      if (selectedAgentType === 'claude_desktop') return 'This agent currently supports MCP-layer posture only in AIRG.'
       return 'Posture coverage depends on this client’s support for hooks, permissions, and sandbox controls.'
     })()
 
@@ -5712,12 +5691,13 @@ export default function App() {
 
     const signalRows = [
       { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in project/local/user/managed MCP config scopes' },
-      { key: 'hook_active', label: 'airg-hook PreToolUse registered', failText: 'No hook entry detected in configured settings scopes' },
-      { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
+      { key: 'tier1_hook_active', label: 'Tier 1 hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
+      { key: 'native_tools_restricted', label: 'Tier 1 native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
+      { key: 'tier2_hook_active', label: 'Tier 2 hook active', failText: 'Missing hook matchers for Read/Glob/Grep' },
       { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
       { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
     ].map((row) => {
-      const notSupported = isMcpOnlyCeiling && row.key !== 'airg_mcp_present'
+      const notSupported = !supportsClaudeHardening && row.key !== 'airg_mcp_present'
       const rawValue = selectedSignals?.[row.key]
       const state = notSupported ? 'na' : (rawValue ? 'pass' : 'fail')
       const scopeList = Array.isArray(selectedSignalScopes?.[row.key]) ? selectedSignalScopes[row.key] : []
@@ -5745,7 +5725,7 @@ export default function App() {
     const selectedDirty = selectedProfile ? isProfileDirty(selectedProfile) : false
     const selectedHasSavedProfile = selectedProfile ? hasPersistedProfile(selectedProfile) : false
     const canApplyHardening = Boolean(selectedProfile)
-      && selectedAgentType === 'claude_code'
+      && supportsClaudeHardening
       && selectedHasSavedProfile
     const selectedNeedsReconfigure = selectedProfile ? Boolean(settingsNeedsReconfigure[selectedProfile.profile_id]) : false
 
@@ -5794,9 +5774,9 @@ export default function App() {
               )}
               {agentProfiles.map((profile) => {
                 const posture = postureForProfile(profile)
-                const status = ['green', 'yellow', 'red'].includes(String(posture?.status || '').toLowerCase())
+                const status = ['gray', 'green', 'yellow', 'red'].includes(String(posture?.status || '').toLowerCase())
                   ? String(posture?.status || '').toLowerCase()
-                  : 'red'
+                  : 'gray'
                 const pill = statusPillStyle[status]
                 const isActive = String(profile?.profile_id || '') === String(selectedProfile?.profile_id || '')
                 return (
@@ -5823,7 +5803,7 @@ export default function App() {
                         width: 8,
                         height: 8,
                         borderRadius: '50%',
-                        background: status === 'green' ? '#22c55e' : status === 'yellow' ? '#f59e0b' : '#ef4444',
+                        background: status === 'green' ? '#22c55e' : status === 'yellow' ? '#f59e0b' : status === 'red' ? '#ef4444' : '#94a3b8',
                         flexShrink: 0,
                       }}
                     />
@@ -6121,8 +6101,42 @@ export default function App() {
                         {selectedTheme.label}
                       </div>
                       <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{ceilingNote}</div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                        {trafficLegend.map((item) => {
+                          const isActive = selectedStatusNormalized === item.id
+                          return (
+                            <span
+                              key={item.id}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                border: isActive ? `1px solid ${item.color}` : '1px solid #e5e7eb',
+                                background: isActive ? `${item.color}18` : 'white',
+                                color: isActive ? item.color : '#64748b',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: '0.05em',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: item.color }} />
+                              {item.label}
+                            </span>
+                          )
+                        })}
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => fetchAgentPosture()}
+                        className="px-3 py-2 rounded-[10px] bg-white border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50"
+                        disabled={agentPostureLoading || settingsLoading}
+                      >
+                        {agentPostureLoading ? 'Refreshing…' : 'Refresh'}
+                      </button>
                       {canApplyHardening && (
                         <button
                           onClick={() => {
@@ -6161,7 +6175,7 @@ export default function App() {
                         className="px-3 py-2 rounded-[10px] bg-white border border-slate-300 text-sm hover:bg-slate-50 disabled:opacity-50"
                         disabled={Boolean(agentConfigActionLoading[selectedProfile.profile_id]) || !Boolean(selectedPosture?.undo_available)}
                       >
-                        Undo last apply
+                        Undo All
                       </button>
                     </div>
                   </div>
@@ -6172,7 +6186,7 @@ export default function App() {
                         HARDENING OPTIONS
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                         <div style={{ fontSize: 12, color: '#64748b' }}>Config scope</div>
                         <div style={{ maxWidth: 280 }}>
                           <SegControl
@@ -6181,14 +6195,30 @@ export default function App() {
                             options={selectedScopeOptions.map((opt) => ({ label: opt.label, value: opt.id, activeClass: 'm-blue' }))}
                           />
                         </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Hardening Scope',
+                            content: [
+                              'Scope controls which Claude settings location AIRG modifies for hardening.',
+                              '',
+                              '- Project: <workspace>/.claude/settings.json',
+                              '- Local: <workspace>/.claude/settings.local.json',
+                              '- User: ~/.claude/settings.json',
+                            ].join('\n'),
+                          })}
+                        >
+                          Info
+                        </button>
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Register airg-hook</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Basic Enforcement (Tier 1)</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
-                            value={Boolean(selectedHardeningOptions.hook_enabled)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { hook_enabled: Boolean(value) })}
+                            value={Boolean(selectedHardeningOptions.basic_enforcement)}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { basic_enforcement: Boolean(value) })}
                             options={[
                               { label: 'Yes', value: true, activeClass: 'yn-yes' },
                               { label: 'No', value: false, activeClass: 'yn-no' },
@@ -6199,12 +6229,15 @@ export default function App() {
                           className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
                           onClick={() => setSettingsInfoModal({
                             open: true,
-                            title: 'PreToolUse hooks',
+                            title: 'Basic Enforcement (Tier 1)',
                             content: [
-                              'airg-hook runs before native tool execution and can redirect usage through AIRG MCP tools.',
+                              'Tier 1 covers Bash, Write, Edit, and MultiEdit.',
+                              'AIRG registers tool-specific PreToolUse hook matchers and denies these native tools.',
+                              'Claude is redirected to AIRG MCP equivalents:',
+                              '- Bash -> mcp__ai-runtime-guard__execute_command',
+                              '- Write/Edit/MultiEdit -> mcp__ai-runtime-guard__write_file',
                               '',
-                              'Official docs:',
-                              '- https://docs.anthropic.com/en/docs/claude-code/hooks',
+                              'This is the recommended baseline for runtime policy continuity.',
                             ].join('\n'),
                           })}
                         >
@@ -6212,53 +6245,43 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Restrict native tools</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Advanced Enforcement (Tier 2)</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
-                            value={Boolean(selectedHardeningOptions.restrict_native_tools)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { restrict_native_tools: Boolean(value) })}
+                            value={Boolean(selectedHardeningOptions.advanced_enforcement)}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { advanced_enforcement: Boolean(value) })}
                             options={[
                               { label: 'Yes', value: true, activeClass: 'yn-yes' },
                               { label: 'No', value: false, activeClass: 'yn-no' },
                             ]}
                           />
                         </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Advanced Enforcement (Tier 2)',
+                            content: [
+                              'Tier 2 covers Read, Glob, and Grep.',
+                              'AIRG evaluates these native tool requests against configured blocked paths/extensions and logs allow/deny outcomes.',
+                              '',
+                              'Tradeoff: this can increase processing overhead due to additional hook checks.',
+                              'Recommended when full enforcement + audit fidelity is required.',
+                            ].join('\n'),
+                          })}
+                        >
+                          Info
+                        </button>
                       </div>
 
-                      {Boolean(selectedHardeningOptions.restrict_native_tools) && (
-                        <div style={{ margin: '-2px 0 12px 220px' }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {['Bash', 'Glob', 'Grep', 'Read', 'Write', 'Edit', 'MultiEdit'].map((tool) => (
-                              <div key={tool} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <label className="text-xs border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center gap-1 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(selectedHardeningOptions?.native_tools?.[tool])}
-                                    onChange={(e) => setHardeningToolOption(selectedProfileId, tool, e.target.checked)}
-                                  />
-                                  <span>{tool}</span>
-                                </label>
-                                {['Read', 'Grep', 'Glob'].includes(tool) && (
-                                  <button
-                                    title={`${tool} warning`}
-                                    className="w-5 h-5 rounded-full border border-amber-300 text-amber-700 text-[10px] bg-amber-50"
-                                    onClick={() => setSettingsInfoModal({
-                                      open: true,
-                                      title: `${tool} Restriction Warning`,
-                                      content: `${tool} is useful for agent context gathering. Blocking it can slow down agent workflows, but is recommended if you need stricter path access control via AIRG.`,
-                                    })}
-                                  >
-                                    !
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                      {Boolean(selectedHardeningOptions.advanced_enforcement) && (
+                        <div style={{ margin: '-2px 0 12px 220px', fontSize: 11, color: '#b45309' }}>
+                          Warning: Advanced enforcement can increase processing time for high-frequency read/search workflows.
                         </div>
                       )}
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                         <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox enabled</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
@@ -6270,9 +6293,19 @@ export default function App() {
                             ]}
                           />
                         </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Sandbox Enabled',
+                            content: 'Enables Claude sandbox execution mode for stronger host-level containment where supported by client/runtime.',
+                          })}
+                        >
+                          Info
+                        </button>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
                         <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox escape closed</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
@@ -6284,6 +6317,16 @@ export default function App() {
                             ]}
                           />
                         </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Sandbox Escape Closed',
+                            content: 'Disables unsandboxed command escape routes when sandbox mode is enabled.',
+                          })}
+                        >
+                          Info
+                        </button>
                       </div>
                     </div>
                   )}
