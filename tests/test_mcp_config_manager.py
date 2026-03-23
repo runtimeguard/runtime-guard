@@ -46,7 +46,8 @@ class MCPConfigManagerTests(unittest.TestCase):
 
     def test_apply_and_remove_claude_desktop_mcp_config(self) -> None:
         profile = self._upsert_desktop_profile()
-        desktop_cfg = self.home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+        with patch("mcp_config_manager.pathlib.Path.home", return_value=self.home):
+            desktop_cfg = mcp_config_manager._claude_desktop_config_path()
         desktop_cfg.parent.mkdir(parents=True, exist_ok=True)
         desktop_cfg.write_text(json.dumps({"preferences": {"sidebarMode": "chat"}}, indent=2))
 
