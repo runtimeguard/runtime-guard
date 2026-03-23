@@ -346,13 +346,6 @@ def _resolve_server_command_for_env() -> str:
     return f"{pathlib.Path(sys.executable).resolve()} -m airg_cli server"
 
 
-def _fallback_agent_id() -> str:
-    configured = str(os.environ.get("AIRG_AGENT_ID", "")).strip()
-    if configured:
-        return configured
-    return f"unknown-{secrets.randbelow(1_000_000):06d}"
-
-
 def _preflight_checks() -> tuple[list[str], list[str]]:
     issues: list[str] = []
     warnings: list[str] = []
@@ -632,11 +625,7 @@ def _run_setup(
     approval_db_path: str,
     approval_hmac_key_path: str,
     backup_root: str,
-    agent: str,
-    agent_id: str,
     force_policy: bool,
-    use_gui: bool | None,
-    out_dir: str,
     silent: bool = False,
 ) -> None:
     issues, warnings = _preflight_checks()
@@ -647,24 +636,17 @@ def _run_setup(
             print(f"[airg][error] {issue}")
         raise SystemExit(1)
 
-    selected_agent = (agent or "generic").strip().lower()
-    if selected_agent not in {"claude_code", "claude_desktop", "cursor", "codex", "custom", "generic"}:
-        print(f"[airg][warn] Unknown agent '{selected_agent}', falling back to generic.")
-        selected_agent = "generic"
-
     selected_workspace = workspace.strip()
     selected_policy_path = policy_path.strip()
     selected_db_path = approval_db_path.strip()
     selected_key_path = approval_hmac_key_path.strip()
     selected_backup_root = backup_root.strip()
-    selected_agent_id = agent_id.strip() or _fallback_agent_id()
+    selected_agent_id = str(os.environ.get("AIRG_AGENT_ID", "")).strip() or "Unknown"
     default_workspace = _default_workspace_path()
-    selected_use_gui = use_gui
 
     if silent:
         defaults = True
         yes = True
-        selected_use_gui = True
 
     if not yes:
         proceed = _prompt_yes_no("This will install ai-runtime-guard on your system. Continue?", default=True)
@@ -724,43 +706,11 @@ def _run_setup(
             os.environ["AIRG_AGENT_ID"] = selected_agent_id
             os.environ["AIRG_WORKSPACE"] = str(workspace_path)
 
-    if not defaults:
-        selected_agent = _prompt_text(
-            "Primary agent type (claude_code, claude_desktop, cursor, codex, custom)",
-            selected_agent if selected_agent != "generic" else "claude_code",
-        ).strip().lower() or "claude_code"
-        selected_agent_id = _prompt_text("Primary agent ID", selected_agent_id).strip() or _fallback_agent_id()
-
     current_policy = _load_policy_from_path(path_overrides["policy_path"])
     if selected_backup_root:
         backup_override = pathlib.Path(selected_backup_root).expanduser().resolve()
         current_policy = _apply_backup_override(current_policy, str(backup_override))
     _save_policy_to_path(path_overrides["policy_path"], current_policy)
-    # Q3: GUI usage (optional)
-    if selected_use_gui is None:
-        if defaults and yes:
-            selected_use_gui = True
-        else:
-            selected_use_gui = _prompt_yes_no("Do you want to use the GUI for approvals, policy config, and reports?", default=False)
-
-    payload = _agent_config_payload(selected_agent, str(workspace_path), path_overrides, selected_agent_id)
-    output_root = pathlib.Path(out_dir).expanduser().resolve()
-    output_path = _write_agent_config_outputs(selected_agent, payload, output_root)
-    try:
-        import agent_configs  # type: ignore
-
-        bootstrap = agent_configs.bootstrap_default_profile(
-            path_overrides,
-            workspace=str(workspace_path),
-            agent_id=selected_agent_id or "default",
-            agent_type=_agent_profile_type_for_setup(selected_agent),
-        )
-        if not bootstrap.get("ok"):
-            print(f"[airg][warn] Could not bootstrap default Settings profile: {'; '.join(bootstrap.get('errors', []))}")
-        else:
-            print("[airg] Default agent profile bootstrapped in Settings.")
-    except Exception as exc:
-        print(f"[airg][warn] Failed to bootstrap default Settings profile: {exc}")
 
     print(f"[airg] workspace={workspace_path}")
     print(f"[airg] policy={path_overrides['policy_path']}")
@@ -768,25 +718,17 @@ def _run_setup(
     print(f"[airg] approval_hmac_key={path_overrides['approval_hmac_key_path']}")
     print(f"[airg] log_path={path_overrides['log_path']}")
     print(f"[airg] reports_db={path_overrides['reports_db_path']}")
-    print(f"[airg] agent config written: {output_path}")
-    print("[airg] MCP config snippet:")
-    print(json.dumps(payload, indent=2))
-    if selected_use_gui:
-        ui_dist = _resolve_ui_dist_path()
-        if not (ui_dist / "index.html").exists():
-            _build_ui_assets()
-        _service_install(path_overrides, workspace_path, selected_agent_id)
-        _service_start()
-        print("[airg] GUI service installed and started.")
+    ui_dist = _resolve_ui_dist_path()
+    if not (ui_dist / "index.html").exists():
+        _build_ui_assets()
+    _service_install(path_overrides, workspace_path, selected_agent_id)
+    _service_start()
+    print("[airg] GUI service installed and started.")
     print("[airg] Running doctor checks...")
     main_doctor()
     print("[airg] Setup complete.")
-    if selected_use_gui:
-        print("[airg] Web UI: http://127.0.0.1:5001")
-        print("[airg] Next: open Settings -> Agents in the GUI to review/copy MCP config for your agent.")
-    else:
-        print("[airg] GUI not enabled. You can run `airg-ui` manually anytime.")
-        print(f"[airg] Agent MCP config artifacts: {path_overrides['state_dir'] / 'mcp-configs'}")
+    print("[airg] Web UI: http://127.0.0.1:5001")
+    print("[airg] Next: open Settings -> Agents and add/configure your agent profiles manually.")
 
 
 def _warn_if_paths_inside_unsafe_roots(paths: dict[str, pathlib.Path]) -> None:
@@ -825,24 +767,14 @@ def main_setup_entrypoint() -> None:
     parser = argparse.ArgumentParser(description="Guided setup for ai-runtime-guard")
     parser.add_argument("--defaults", action="store_true", help="Use defaults and skip interactive path questions.")
     parser.add_argument("--yes", action="store_true", help="Skip install confirmation prompt.")
-    parser.add_argument("--silent", action="store_true", help="Fully unattended bootstrap (implies --defaults --yes --gui).")
+    parser.add_argument("--silent", action="store_true", help="Fully unattended bootstrap (implies --defaults --yes).")
     parser.add_argument("--workspace", default="", help="Primary workspace path.")
     parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH.")
     parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH.")
     parser.add_argument("--backup-root", default="", help="Override audit.backup_root.")
-    parser.add_argument("--agent", default="generic", help="Agent target: claude_code, claude_desktop, cursor, codex, custom, generic.")
-    parser.add_argument("--agent-id", default="", help="Agent identifier to include in runtime logs (auto-generated if omitted).")
     parser.add_argument("--force-policy", action="store_true", help="Regenerate policy file from template before applying wizard updates.")
-    parser.add_argument("--gui", action="store_true", help="Enable GUI service setup (install/start user service).")
-    parser.add_argument("--no-gui", action="store_true", help="Disable GUI service setup.")
-    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Output directory for generated MCP config snippets.")
     args = parser.parse_args()
-    if args.gui and args.no_gui:
-        raise SystemExit("[airg][error] --gui and --no-gui are mutually exclusive.")
-    if args.silent and args.no_gui:
-        raise SystemExit("[airg][error] --silent and --no-gui are mutually exclusive.")
-    use_gui = True if args.gui else (False if args.no_gui else None)
     _run_setup(
         defaults=args.defaults,
         yes=args.yes,
@@ -851,11 +783,7 @@ def main_setup_entrypoint() -> None:
         approval_db_path=args.approval_db_path,
         approval_hmac_key_path=args.approval_hmac_key_path,
         backup_root=args.backup_root,
-        agent=args.agent,
-        agent_id=args.agent_id,
         force_policy=args.force_policy,
-        use_gui=use_gui,
-        out_dir=args.out_dir,
         silent=args.silent,
     )
 
@@ -1100,17 +1028,12 @@ def main() -> None:
     parser.add_argument("--force-policy", action="store_true", help="Used with 'init': overwrite existing policy template")
     parser.add_argument("--defaults", action="store_true", help="Setup mode: use defaults and skip interactive path questions.")
     parser.add_argument("--yes", action="store_true", help="Setup mode: skip install confirmation prompt.")
-    parser.add_argument("--silent", action="store_true", help="Setup mode: fully unattended bootstrap (implies --defaults --yes --gui).")
+    parser.add_argument("--silent", action="store_true", help="Setup mode: fully unattended bootstrap (implies --defaults --yes).")
     parser.add_argument("--workspace", default="", help="Setup mode: primary workspace path.")
     parser.add_argument("--policy-path", default="", help="Setup mode: override AIRG_POLICY_PATH.")
     parser.add_argument("--approval-db-path", default="", help="Setup mode: override AIRG_APPROVAL_DB_PATH.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Setup mode: override AIRG_APPROVAL_HMAC_KEY_PATH.")
     parser.add_argument("--backup-root", default="", help="Setup mode: override audit.backup_root.")
-    parser.add_argument("--agent", default="generic", help="Setup mode: claude_code, claude_desktop, cursor, codex, custom, generic.")
-    parser.add_argument("--agent-id", default="", help="Setup mode: agent identifier for logs (auto-generated if omitted).")
-    parser.add_argument("--gui", action="store_true", help="Setup mode: enable GUI service setup.")
-    parser.add_argument("--no-gui", action="store_true", help="Setup mode: disable GUI service setup.")
-    parser.add_argument("--out-dir", default="./out/mcp-configs", help="Setup mode: output directory for generated MCP config.")
     parser.add_argument(
         "--with-runtime-env",
         action="store_true",
@@ -1119,11 +1042,6 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "setup":
-        if args.gui and args.no_gui:
-            raise SystemExit("[airg][error] --gui and --no-gui are mutually exclusive.")
-        if args.silent and args.no_gui:
-            raise SystemExit("[airg][error] --silent and --no-gui are mutually exclusive.")
-        use_gui = True if args.gui else (False if args.no_gui else None)
         _run_setup(
             defaults=args.defaults,
             yes=args.yes,
@@ -1132,11 +1050,7 @@ def main() -> None:
             approval_db_path=args.approval_db_path,
             approval_hmac_key_path=args.approval_hmac_key_path,
             backup_root=args.backup_root,
-            agent=args.agent,
-            agent_id=args.agent_id,
             force_policy=args.force_policy,
-            use_gui=use_gui,
-            out_dir=args.out_dir,
             silent=args.silent,
         )
         return
@@ -1163,7 +1077,6 @@ def main_service() -> None:
     parser = argparse.ArgumentParser(description="Manage ai-runtime-guard GUI user service")
     parser.add_argument("action", choices=["install", "start", "stop", "restart", "status", "uninstall"])
     parser.add_argument("--workspace", default=str(_default_workspace_path()), help="Workspace path used by GUI service.")
-    parser.add_argument("--agent-id", default="", help="Agent identifier used by GUI service (auto-generated if omitted).")
     parser.add_argument("--policy-path", default="", help="Override AIRG_POLICY_PATH for service env.")
     parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH for service env.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH for service env.")
@@ -1181,21 +1094,8 @@ def main_service() -> None:
     workspace.mkdir(parents=True, exist_ok=True)
 
     if args.action == "install":
-        selected_agent_id = args.agent_id.strip() or _fallback_agent_id()
+        selected_agent_id = str(os.environ.get("AIRG_AGENT_ID", "")).strip() or "Unknown"
         _service_install(paths, workspace, selected_agent_id)
-        try:
-            import agent_configs  # type: ignore
-
-            bootstrap = agent_configs.bootstrap_default_profile(
-                paths,
-                workspace=str(workspace),
-                agent_id=selected_agent_id,
-                agent_type="claude_code",
-            )
-            if not bootstrap.get("ok"):
-                print(f"[airg][warn] Could not bootstrap default Settings profile: {'; '.join(bootstrap.get('errors', []))}")
-        except Exception as exc:
-            print(f"[airg][warn] Failed to bootstrap default Settings profile: {exc}")
         return
     if args.action == "start":
         _service_start()

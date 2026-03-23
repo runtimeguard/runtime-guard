@@ -62,15 +62,11 @@ Quick start (package install):
 3. `python -m pip install ai-runtime-guard`
 4. `airg-setup` (guided) or `airg-setup --defaults --yes` (unattended defaults)
 5. `airg-doctor`
+6. Open GUI `Settings -> Agents` and add agent profiles manually.
 
 For source-clone setup, TestPyPI flow, and advanced options, see [`docs/INSTALL.md`](docs/INSTALL.md).
 
-## What is optional
-1. Web GUI is optional, but strongly recommended for policy operations, approvals, agent profile management, and reporting.
-2. GUI background service (`airg-service`) is optional; `airg-ui` can run manually.
-3. `airg-init` is optional and low-level; `airg-setup` is the recommended onboarding path.
-
-## Web GUI (optional)
+## Web GUI
 A local web interface is available for:
 1. Policy editing and per-agent overrides.
 2. Approval management.
@@ -85,10 +81,15 @@ airg-ui
 ```
 Open `http://127.0.0.1:5001`
 
-For persistent background run:
+Setup installs and starts the GUI user service by default.  
+For manual service lifecycle management:
 ```bash
 airg-service install --workspace /absolute/path/to/airg-workspace
 airg-service start
+airg-service status
+airg-service stop
+airg-service restart
+airg-service uninstall
 ```
 
 See [INSTALL.md](docs/INSTALL.md) for advanced setup, service management, and frontend rebuild instructions.

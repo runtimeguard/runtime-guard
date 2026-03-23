@@ -57,12 +57,11 @@ Note:
 4. Runtime fallback for backup root also defaults to user-local runtime state (`<state_dir>/backups`) when policy does not define `audit.backup_root`.
 5. `airg-setup` prints a ready-to-copy MCP config env block with `AIRG_AGENT_ID` and `AIRG_WORKSPACE`.
 6. `airg-init` is available as a low-level/manual bootstrap fallback.
-7. `airg-setup` asks guided questions (workspace, runtime paths, optional GUI service, agent type), updates policy safely, writes agent-compatible MCP config snippets under `./out/mcp-configs`, then runs `airg-doctor`.
-8. `airg-setup --gui` performs setup and configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux).
-9. `airg-setup --defaults --yes` is unattended defaults mode; combine with `--gui` or `--no-gui` to control UI service setup.
-10. `airg-setup --silent` is fully unattended bootstrap (`--defaults --yes --gui`) with one default Settings agent profile created automatically.
-11. If `--agent-id` is omitted, AIRG auto-generates an ID like `unknown-482901`.
-12. Setup/profile-generated MCP config keeps per-agent env minimal (`AIRG_AGENT_ID`, `AIRG_WORKSPACE`) and relies on runtime defaults for shared state paths.
+7. `airg-setup` asks guided questions (workspace and runtime paths), configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux), then runs `airg-doctor`.
+8. `airg-setup --defaults --yes` is unattended defaults mode.
+9. `airg-setup --silent` is fully unattended bootstrap (`--defaults --yes`).
+10. Setup does not auto-create agent profiles. Add/configure agents manually in GUI `Settings -> Agents`.
+11. Setup/profile-generated MCP config keeps per-agent env minimal (`AIRG_AGENT_ID`, `AIRG_WORKSPACE`) and relies on runtime defaults for shared state paths.
 
 Backup-root diagnostics:
 1. `airg-doctor` prints resolved `backup_root`.

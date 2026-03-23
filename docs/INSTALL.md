@@ -1,8 +1,6 @@
 # Installation Guide
 
-This guide separates setup into:
-1. Basic: MCP server only (default policy, no GUI required)
-2. Advanced: MCP server + Web GUI
+This guide covers the standard AIRG install: runtime + Web GUI service.
 
 ## Requirements
 1. Python `>=3.10` (recommended `3.12+`, especially on macOS).
@@ -43,7 +41,7 @@ python -m pip install --index-url https://test.pypi.org/simple --extra-index-url
 Note:
 1. TestPyPI installs typically require `--extra-index-url https://pypi.org/simple` for dependencies.
 
-## Basic setup (MCP server only)
+## Setup (runtime + Web GUI service)
 1. Clone and install:
 ```bash
 git clone --branch main https://github.com/runtimeguard/runtime-guard.git
@@ -57,7 +55,7 @@ pip install .
 ```bash
 airg-setup
 ```
-Optional one-command fully unattended setup with GUI service:
+Optional one-command fully unattended setup:
 ```bash
 airg-setup --silent
 ```
@@ -90,21 +88,11 @@ airg-doctor
 
 Notes:
 1. You do not manually start MCP server in normal use. The AI client starts `airg-server` when MCP is configured.
-2. Web GUI is not required for default/basic setup.
-3. `airg-setup` is the recommended setup entrypoint; `airg-init` is a low-level/manual fallback.
-4. `--defaults` uses default paths/non-interactive choices.
-5. `--gui` enables GUI service setup (`launchd` on macOS, `systemd --user` on Linux).
-6. `--no-gui` explicitly skips GUI service setup.
-7. Deployment prerequisite: disable native shell/file tools in your AI client so actions are forced through AIRG MCP tools.
-8. If `--agent-id` is omitted, AIRG auto-generates an ID like `unknown-482901`.
-
-## Advanced setup (MCP + Web GUI)
-Use this when you want:
-1. Easier policy edits (instead of editing `policy.json` manually).
-2. Human approval workflow when `requires_confirmation` is enabled.
-3. Policy pages for commands, paths, extensions, network controls, script sentinel, and advanced runtime/security settings.
-4. Reports dashboard/log pages sourced from `reports.db`.
-5. Prebuilt GUI assets are shipped in the repository and package. For normal installs, you can start `airg-ui` directly without rebuilding frontend assets.
+2. `airg-setup` is the recommended setup entrypoint; it installs/starts the GUI user service (`launchd` on macOS, `systemd --user` on Linux).
+3. `--defaults` uses default paths/non-interactive choices.
+4. Deployment prerequisite: disable native shell/file tools in your AI client so actions are forced through AIRG MCP tools.
+5. Agent profiles are no longer auto-created during setup. Add agents manually in GUI `Settings -> Agents`.
+6. Prebuilt GUI assets are shipped in repository/package installs. Rebuild only when you modify frontend source.
 
 ### Serve mode (recommended)
 1. Start backend:
@@ -151,12 +139,12 @@ airg-ui --with-runtime-env
 ```
 This prints resolved runtime paths before launching the UI backend.
 
-## Guided setup (optional)
+## Guided setup
 Wizard:
 ```bash
 airg-setup
 ```
-Fully unattended bootstrap (defaults + yes + gui):
+Fully unattended bootstrap (defaults + yes):
 ```bash
 airg-setup --silent
 ```
@@ -164,21 +152,14 @@ Defaults-only (non-interactive path choices):
 ```bash
 airg-setup --defaults --yes
 ```
-Defaults with GUI service enabled:
-```bash
-airg-setup --defaults --yes --gui
-```
-Defaults with GUI service disabled:
-```bash
-airg-setup --defaults --yes --no-gui
-```
 
 Service management:
 ```bash
-airg-service install --workspace /absolute/path/to/airg-workspace --agent-id claude-code-1
+airg-service install --workspace /absolute/path/to/airg-workspace
 airg-service start
 airg-service status
 airg-service stop
+airg-service restart
 airg-service uninstall
 ```
 
@@ -192,13 +173,12 @@ Branch note:
 3. Full restart is only needed if your MCP client caches environment/process state aggressively.
 
 ## Clarifications and current limitations
-1. Web GUI is optional unless you need GUI-based approvals or easier policy editing.
-2. Approval is out-of-band via GUI/API; agent cannot self-approve through MCP tool surface.
-3. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
+1. Approval is out-of-band via GUI/API; agent cannot self-approve through MCP tool surface.
+2. For Claude Code users, add client-side workspace guard instructions (see `AGENT_MCP_CONFIGS.md`); this is a client-behavior mitigation, not an AIRG enforcement boundary.
    - A sample MCP-only skill file is provided at `docs/mcp-only.md`.
    - Save it as `<workspace>/.claude/skills/mcp-only.md` to enforce MCP-only behavior in that workspace.
-4. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
-5. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, require explicit approval for configured risky operations, back up destructive/overwrite targets automatically, and keep full audit logs.
+3. AIRG only enforces operations that flow through MCP tools. If the client has native shell/file tools outside MCP, those operations can bypass AIRG policy.
+4. Product scope is accidental-safety first: block severe destructive actions, keep actions inside known workspace boundaries, require explicit approval for configured risky operations, back up destructive/overwrite targets automatically, and keep full audit logs.
 
 ### Known issue: native client tools bypass MCP policy
 1. AIRG enforces only MCP tool calls routed to AIRG.

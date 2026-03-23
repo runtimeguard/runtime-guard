@@ -2,6 +2,21 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-23 (setup/service install simplification)
+- Simplified setup/install flow in `src/airg_cli.py`:
+  - removed optional GUI toggles from setup (`--gui`, `--no-gui`)
+  - removed setup-time agent arguments (`--agent`, `--agent-id`)
+  - setup now always provisions GUI service and starts it.
+- Removed setup-time default agent bootstrap:
+  - no auto-created Settings agent profile during `airg-setup`
+  - no auto-created Settings agent profile during `airg-service install`.
+- Updated `airg-service install` arguments:
+  - removed `--agent-id`; service env now defaults to `AIRG_AGENT_ID=Unknown` unless explicitly exported in process env.
+- Updated docs to align with current install model:
+  - `README.md`
+  - `docs/INSTALL.md`
+  - `docs/MANUAL.md`.
+
 ## 2026-03-23 (Claude Desktop MCP apply + posture alignment)
 - Extended MCP apply/remove runtime support to include `claude_desktop` profiles in `src/mcp_config_manager.py`.
 - Added Claude Desktop target-file handling:
