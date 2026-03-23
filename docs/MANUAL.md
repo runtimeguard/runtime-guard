@@ -173,6 +173,8 @@ For package installs (PyPI/TestPyPI):
    - profile metadata tracks `last_applied` scope/path/timestamp for safe cleanup on scope/workspace changes and delete.
    - apply supports dry-run planning and explicit previous-config removal confirmation when workspace/agent changes move target location.
 7. Hardening write/undo remains separate from MCP apply flow.
+8. Tool parity and enforcement tradeoffs reference:
+   - see `docs/TOOL_EQUIVALENCE.md` for the current mapping between native tools and AIRG MCP behavior, including Tier 1 vs Tier 2 guidance.
 
 ## 2. Policy tier order (most important)
 Command checks run in strict precedence:

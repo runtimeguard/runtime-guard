@@ -6231,13 +6231,17 @@ export default function App() {
                             open: true,
                             title: 'Basic Enforcement (Tier 1)',
                             content: [
-                              'Tier 1 covers Bash, Write, Edit, and MultiEdit.',
-                              'AIRG registers tool-specific PreToolUse hook matchers and denies these native tools.',
-                              'Claude is redirected to AIRG MCP equivalents:',
+                              'Tier 1 is the recommended baseline.',
+                              'It targets native mutation tools: Bash, Write, Edit, MultiEdit.',
+                              '',
+                              'Redirect mapping:',
                               '- Bash -> mcp__ai-runtime-guard__execute_command',
                               '- Write/Edit/MultiEdit -> mcp__ai-runtime-guard__write_file',
                               '',
-                              'This is the recommended baseline for runtime policy continuity.',
+                              'Why this matters:',
+                              '- policy decisions and approval flow stay on AIRG MCP path',
+                              '- write operations stay under backup + Script Sentinel controls',
+                              '- audit trail remains centralized in activity.log',
                             ].join('\n'),
                           })}
                         >
@@ -6263,11 +6267,14 @@ export default function App() {
                             open: true,
                             title: 'Advanced Enforcement (Tier 2)',
                             content: [
-                              'Tier 2 covers Read, Glob, and Grep.',
-                              'AIRG evaluates these native tool requests against configured blocked paths/extensions and logs allow/deny outcomes.',
+                              'Tier 2 extends coverage to native discovery/read tools: Read, Glob, Grep.',
+                              'AIRG hook evaluates candidate paths against blocked path/extension policy and logs allow/deny outcomes.',
                               '',
-                              'Tradeoff: this can increase processing overhead due to additional hook checks.',
-                              'Recommended when full enforcement + audit fidelity is required.',
+                              'Tradeoff:',
+                              '- additional checks can increase latency in read/search-heavy sessions',
+                              '- Glob capabilities remain broader than list_directory for recursive discovery',
+                              '',
+                              'Use Tier 2 when you want stronger path-policy continuity and richer audit fidelity.',
                             ].join('\n'),
                           })}
                         >
@@ -6277,7 +6284,7 @@ export default function App() {
 
                       {Boolean(selectedHardeningOptions.advanced_enforcement) && (
                         <div style={{ margin: '-2px 0 12px 220px', fontSize: 11, color: '#b45309' }}>
-                          Warning: Advanced enforcement can increase processing time for high-frequency read/search workflows.
+                          Warning: Advanced enforcement can increase processing time in high-frequency read/search workflows.
                         </div>
                       )}
 
