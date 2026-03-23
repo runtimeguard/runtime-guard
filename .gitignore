@@ -45,12 +45,6 @@ out/
 build/
 documentation_review.md
 internal_archive/
-containerization.md
-todo_dev.md
-docs/packaging_todo.md
-docs/reporting_todo.md
-docs/v2_wishlist.md
-
-docs/V2_PRODUCT_SPEC.md
-docs/UI_STABLE_REFERENCE.md
+CONTAINERIZATION.md
+TODO_INTERNAL.md
 ui_v3/src/assets/style-reference.md

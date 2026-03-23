@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.0] - 2026-03-23
+
+### Added
+- Script Sentinel end-to-end workflow:
+  - write-time content tagging on `write_file` and `edit_file`
+  - execute-time policy-intent continuity checks in `execute_command`
+  - modes for `match_original`, `block`, and `requires_confirmation`
+  - context scanning modes for executable context and optional mention-only audit signals.
+- New MCP `edit_file` tool for deterministic in-place text edits with backup and Script Sentinel integration.
+- Expanded Settings -> Agents orchestration:
+  - profile-based MCP apply/remove flows
+  - posture and enforcement controls for supported agent types
+  - Codex and Claude config handling improvements.
+
+### Changed
+- Policy model simplified to active tiers: `blocked`, `requires_confirmation`, `allowed`.
+- Runtime/tooling/docs aligned around GUI-first setup and manual agent onboarding.
+- Logging and reports surfaces aligned to include current enforcement and hook-related events in `activity.log` and `reports.db`.
+- MCP config generation simplified to per-agent essentials:
+  - `AIRG_AGENT_ID`
+  - `AIRG_WORKSPACE`.
+
+### Removed
+- Active simulation-tier enforcement paths from runtime policy decisions.
+- Active cumulative-budget enforcement logic and related GUI controls.
+- Legacy/stale setup and documentation artifacts no longer matching v2 runtime behavior.
+
 ## [1.5.0] - 2026-03-08
 
 ### Added

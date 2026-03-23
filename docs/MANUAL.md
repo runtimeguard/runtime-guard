@@ -1,427 +1,99 @@
 # AI Runtime Guard Manual
 
-This manual explains current runtime behavior as implemented today.
-As of `v2.0.dev6`, active policy tiers are `blocked`, `requires_confirmation`, and `allowed`.
+This manual documents current runtime behavior for v2.0.0.
 
-## 0. Runtime prerequisites
-Python:
-1. Required: Python `>=3.10`.
-2. Recommended: Python `3.12+`.
-3. On macOS, system Python is often `3.9` and can cause dependency install failures; use a newer Python (Homebrew/python.org) and create a fresh venv from that version.
+## 1. Runtime Surface
+AIRG MCP tools:
+1. `server_info`
+2. `execute_command`
+3. `read_file`
+4. `write_file`
+5. `edit_file`
+6. `delete_file`
+7. `list_directory`
+8. `restore_backup`
 
-## 1. What the server does
-- Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`, `restore_backup`.
-- Applies policy from `policy.json` before side effects.
-- Logs all actions to `activity.log`.
-- Builds report views from `activity.log` into `reports.db` for dashboard and log analytics.
-- Creates backups for destructive operations in `backups/`.
+Policy is enforced before side effects. Events are written to `activity.log` and ingested into `reports.db`.
 
-### Product scope (intentional)
-1. AIRG is designed to prevent accidental damage (hallucinated deletes, wrong-path writes, broad wildcard actions, accidental secret access).
-2. AIRG is not a full malicious-actor containment boundary.
-3. Core controls:
-   - block severe destructive/exfiltration actions by policy
-   - enforce workspace/path boundaries
-   - optionally require operator approval for selected risky commands
-   - automatically create backups before destructive/overwrite operations
-   - comprehensively audit allowed/blocked actions and operator decisions
-4. Enforcement boundary: AIRG controls MCP tool calls only. Native client tools outside MCP are out of scope for AIRG enforcement.
-
-### Runtime environment setup (recommended)
-Before starting MCP server and UI backend, source:
-- `source scripts/setup_runtime_env.sh`
-
-This exports:
-- `AIRG_APPROVAL_DB_PATH`
-- `AIRG_APPROVAL_HMAC_KEY_PATH`
-
-Default locations created by the script:
-- macOS: `~/Library/Application Support/ai-runtime-guard/`
-- Linux: `${XDG_STATE_HOME:-~/.local/state}/ai-runtime-guard/`
-
-The script also enforces restrictive permissions (`700` for directories, `600` for files) to avoid approval-store hardening warnings and reduce tamper/exfiltration risk.
-
-Packaged CLI alternative:
-1. `airg-setup` (recommended)
-2. `airg-service` (GUI service management for macOS/Linux user sessions)
-3. `airg-server` (MCP server) and/or `airg-ui` (Flask backend for control plane)
-4. `airg-up` starts Flask backend as a sidecar and then starts MCP server (stdio) in one command.
-5. `airg-doctor` runs environment, path, permission, and UI-build diagnostics.
-6. `airg-ui --with-runtime-env` initializes and prints resolved runtime paths before launching UI backend.
-7. Recommended gate: run `airg-doctor` and resolve warnings before first MCP client connection.
-
-Note:
-1. In packaged flow, `airg-setup` already performs secure runtime path setup.
-2. `scripts/setup_runtime_env.sh` is mainly for direct source/manual runs.
-3. `airg-setup` seeds `policy.audit.backup_root` to a user-local runtime state path (`<state_dir>/backups`) when creating policy files.
-4. Runtime fallback for backup root also defaults to user-local runtime state (`<state_dir>/backups`) when policy does not define `audit.backup_root`.
-5. `airg-setup` prints a ready-to-copy MCP config env block with `AIRG_AGENT_ID` and `AIRG_WORKSPACE`.
-6. `airg-init` is available as a low-level/manual bootstrap fallback.
-7. `airg-setup` asks guided questions (workspace and runtime paths), configures/starts GUI as a user service (`launchd` on macOS, `systemd --user` on Linux), then runs `airg-doctor`.
-8. `airg-setup --defaults --yes` is unattended defaults mode.
-9. `airg-setup --silent` is fully unattended bootstrap (`--defaults --yes`).
-10. Setup does not auto-create agent profiles. Add/configure agents manually in GUI `Settings -> Agents`.
-11. Setup/profile-generated MCP config keeps per-agent env minimal (`AIRG_AGENT_ID`, `AIRG_WORKSPACE`) and relies on runtime defaults for shared state paths.
-
-Backup-root diagnostics:
-1. `airg-doctor` prints resolved `backup_root`.
-2. If `backup_root` points to `site-packages` or project directory, treat it as misconfiguration and move it to user-local runtime state paths.
-
-### AIRG_WORKSPACE model
-`AIRG_WORKSPACE` defines the operational sandbox root for AI agent actions.
-
-Behavior:
-1. `execute_command` runs with this directory as working directory.
-2. File/tool path checks are evaluated against this root and policy path rules.
-3. Traversal outside workspace is blocked.
-
-Operational guidance:
-1. Install folder and workspace should be separate.
-2. Example install path: `~/Documents/Projects/ai-runtime-guard`
-3. Example workspace path: `~/airg-workspace`
-4. Do not use the install folder as the default destructive-test workspace.
-5. If you need multiple workspaces, add explicit extra roots under `policy.allowed.paths_whitelist`.
-
-### Agent-specific policy overrides
-Runtime supports optional per-agent overlays keyed by `AIRG_AGENT_ID`:
-1. `policy.agent_overrides.<agent_id>.policy`:
-   - deep-merged overlay applied on top of the base policy for that agent only.
-   - dictionary values merge recursively, scalar/list values replace base values.
-2. Supported per-agent override sections:
-   - `blocked`
-   - `requires_confirmation`
-   - `requires_simulation`
-   - `allowed`
-   - `network`
-   - `execution`
-3. Not supported as per-agent overrides:
-   - `reports.*`
-   - `audit.*`
-   - `backup_access.*`
-   - `restore.*`
-   - workspace path (`AIRG_WORKSPACE` remains MCP/env configured)
-
-Notes:
-1. If no override exists for current `AIRG_AGENT_ID`, base policy behavior remains unchanged.
-2. Effective policy is hot-reloaded on subsequent tool calls after policy apply/write; restart is not required for normal policy updates.
-3. This feature enables per-agent guardrails without maintaining separate policy files.
-4. UI authoring path is available under `Policy -> Agent Overrides` with section-based editors and baseline info cards.
-5. Saved overrides are diff-style overlays, not full copies of baseline sections.
-
-### Current capabilities and caveats snapshot
-Capabilities:
-1. Default basic profile blocks severe actions and allows non-severe actions.
-2. Advanced tiers (`requires_simulation`, `requires_confirmation`) are policy-available and per-command configurable.
-3. Approvals are out-of-band (GUI/API), not agent-invokable via MCP tools.
-4. Runtime includes audit logging, backup/restore flows, normalization, and path/workspace hardening.
-5. GUI supports policy editing, plus adding custom commands and custom categories.
-6. GUI `Settings -> Agents` supports profile-based MCP config generation and copy-assist modal flows for CLI/JSON.
-7. GUI `Settings -> Agents` includes read-only `Agent Security Posture`:
-   - posture status per profile (`green/yellow/red`)
-   - missing controls and recommended next actions
-   - local unregistered agent-config detection.
-8. Claude hook/cfg posture help is available via copy-assist snippets in the same panel.
-9. Script Sentinel (when enabled) preserves policy intent across direct and indirect execution:
-   - scripts written via `write_file`/`edit_file` are scanned and hash-tagged on blocked/approval-gated pattern matches
-   - scan modes:
-     - `exec_context` (default): tags only executable-context matches
-     - `exec_context_plus_mentions`: also records mention-only matches for audit visibility
-   - script execution via `execute_command` applies tier continuity (`match_original`, `block`, or `requires_confirmation`)
-   - mention-only matches are audit signals by default; enforcement decisions are based on executable-context signatures
-   - `Settings -> Agents` includes Script Sentinel artifact visibility and per-hash trust/dismiss actions.
-   - tagging/enforcement is content-hash based (not extension based): if a file is flagged as `.txt` and later renamed/copied to `.py` with identical bytes, Script Sentinel still enforces on execute.
-
-Caveats:
-1. Runtime policy is hot-reloaded by tool entry points when `policy.json` mtime changes; after `Validate` + `Apply`, changes are picked up on the next tool call.
-2. “Basic/Advanced” are policy conventions rather than hard runtime modes.
-3. Redaction and obfuscation defenses are pattern-based and not exhaustive.
-4. Some blast-radius/target inference for complex shell patterns is heuristic.
-5. Cumulative budget efficacy depends on threshold tuning.
-6. Script Sentinel coverage is scoped to artifacts written through AIRG `write_file`/`edit_file`; it is not a generic host-wide script execution guardrail.
-7. Extension/type changes alone do not clear Script Sentinel state; only content changes (new hash) or explicit trust/dismiss controls alter enforcement outcomes.
-
-### Packaged UI/runtime path behavior
-For package installs (PyPI/TestPyPI):
-1. UI dist is served from installed package paths (for example `<venv>/ui_v3/dist`) when source-tree paths are not present.
-2. Default workspace fallback (when `AIRG_WORKSPACE` is unset) is `~/airg-workspace`.
-3. `airg-doctor` should not report workspace under `site-packages`; if it does, treat it as misconfiguration/regression.
-
-### Agent posture + hook (v2.0.dev6 scope)
-1. Posture panel shows traffic-light status and supports safe apply/undo hardening actions for supported agents.
-2. Posture scoring intent:
-   - Claude can reach green when AIRG MCP + native deny + hook + hardened sandbox are detected.
-   - Cursor currently caps at yellow (MCP-layer posture only).
-3. `airg-hook` is a standalone binary intended for Claude `PreToolUse` integration.
-4. Hook behavior:
-   - denies native `Bash/Write/Edit/MultiEdit` with deterministic AIRG MCP redirect message.
-   - allows AIRG MCP tool calls and read-only tools.
-   - blocks sensitive native `Read` targets (`.env`, `.key`, `.pem`, `/secrets/` paths).
-   - fail-open on runtime/parsing errors to avoid bricking sessions.
-5. Hook logging is appended to `activity.log` (same runtime audit stream, `source: "airg-hook"`).
-6. MCP config manager behavior (Settings -> Agents -> Apply MCP Config):
-   - Claude scopes:
-     - `project` (default): `<workspace>/.mcp.json` (created if missing)
-     - `local`: `~/.claude.json` at `projects.<workspace>.mcpServers` (file must exist)
-     - `user`: `~/.claude.json` at `mcpServers` (file must exist)
-   - for `project` scope, Claude may not show AIRG in `claude mcp list` until Claude is started in that workspace and the user accepts the MCP prompt.
-   - apply also syncs `<workspace>/.claude/settings.local.json` with AIRG entries:
-     - `enabledMcpjsonServers` includes `ai-runtime-guard`
-     - `permissions.allow` includes AIRG MCP tools (`mcp__ai-runtime-guard__*`)
-   - remove-everything cleanup removes only AIRG-specific settings-local entries and preserves unrelated Claude settings.
-   - every MCP write/remove operation creates a backup under `<state_dir>/mcp-configs/backups/`.
-   - profile metadata tracks `last_applied` scope/path/timestamp for safe cleanup on scope/workspace changes and delete.
-   - apply supports dry-run planning and explicit previous-config removal confirmation when workspace/agent changes move target location.
-7. Hardening write/undo remains separate from MCP apply flow.
-8. Tool parity and enforcement tradeoffs reference:
-   - see `docs/TOOL_EQUIVALENCE.md` for the current mapping between native tools and AIRG MCP behavior, including Tier 1 vs Tier 2 guidance.
-
-## 2. Policy tier order (most important)
-Command checks run in strict precedence:
+## 2. Active Policy Tiers
+Tier precedence for command policy:
 1. `blocked`
 2. `requires_confirmation`
-3. `requires_simulation`
-4. `allowed`
-
-If a command matches multiple tiers, the highest tier wins.
-
-## 3. Action options (basic vs advanced)
-Default profile:
-- Runtime ships in basic-protection mode by default: severe commands/paths are blocked, all other actions are allowed.
-- Advanced tiers remain in policy for opt-in hardening when desired.
-
-### Basic options
-- `allowed`:
-  - Command/path passes policy and executes immediately.
-  - No human checkpoint required.
-- `blocked`:
-  - Command/path is denied immediately.
-  - No approval path for that request.
-  - For `execute_command`, blocked outcomes (except confirmation-tier blocks) consume server-side retry budget until final block.
-
-### Advanced options
-- `requires_simulation`:
-  - Runtime simulates blast radius for configured command families (wildcards, bulk actions).
-  - If simulation exceeds threshold or cannot safely resolve wildcard targets, command is blocked with a simulation reason.
-  - If `requires_confirmation` also matches, confirmation wins by precedence, and simulation context is still included in response/log.
-- `requires_confirmation`:
-  - Runtime returns an approval token and requires human/operator approval via GUI/API before retrying the exact command.
-  - Approval is one-time for session+command and time-bounded.
-  - This tier does not consume the server retry counter for blocked attempts.
-  - In default basic profile, this tier is configured but inactive until commands/paths are populated.
-
-## 4. Command matching behavior
-- Matching is not strict full-string equality.
-- Single-token patterns (example: `rm`) are token-aware.
-- Multi-token patterns (example: `rm -rf`) match normalized command sequences.
-
-Examples:
-- `rm -rf /tmp/x` matches blocked `rm -rf`.
-- `rm *.txt` does not match `rm -rf`; it can still be caught by `requires_confirmation`/`requires_simulation` if `rm` is configured there.
-- `find docs -delete` can be matched directly by blocked pattern `find -delete`.
-- `find docs -exec rm {} +` can be matched by blocked pattern `find -exec rm`.
-- `printf 'a.tmp\n' | xargs rm` can be matched by blocked pattern `xargs rm`.
-- `for f in *.tmp; do rm "$f"; done` can be matched by blocked pattern `do rm`.
+3. `allowed`
 
 Notes:
-- Command-level decisions are policy-driven for transparency (blocked/simulation/approval/allowed).
-- Runtime still enforces non-command safety invariants in code (workspace boundary, protected runtime paths, control-char sanitization, optional shell containment).
+1. Legacy `requires_simulation` is no longer an active runtime tier.
+2. Global cumulative budget enforcement is removed from active runtime logic.
 
-## 5. Confirmation handshake behavior
-Current flow:
-1. `execute_command` is blocked with a token when `requires_confirmation` matches.
-2. A human operator approves out-of-band via control-plane GUI/API (`/approvals/approve`) using exact `command` + `token`.
-3. Re-running the exact command can proceed.
+## 3. Command Enforcement Flow (`execute_command`)
+Order of checks:
+1. Reject unsafe control characters (newline/carriage-return/NUL) in command payload.
+2. Protect backup storage paths from direct shell targeting.
+3. Apply network policy (`off` | `monitor` | `enforce`).
+4. Apply shell workspace containment policy (`off` | `monitor` | `enforce`).
+5. Evaluate command tier policy (`blocked` / `requires_confirmation` / `allowed`).
+6. Apply Script Sentinel execute-time checks.
+7. If allowed, optionally back up destructive targets and execute command.
+8. Log decision and execution telemetry.
 
-Storage model:
-- pending approvals are persisted in `approvals.db` (SQLite) so separate processes can read/update the same queue.
-- each pending record includes `token`, `command`, `session_id`, `requested_at`, `expires_at`, and optional `affected_paths`.
-- approved commands are persisted as one-time session+command grants in SQLite and consumed by MCP confirmation checks on retry.
+Retry behavior:
+1. Blocked non-confirmation decisions use server-side retry tracking.
+2. Confirmation-tier decisions do not consume that retry bucket.
 
-Current security status:
-- MCP no longer exposes an agent-callable approval tool.
-- Approval decisions come from out-of-band operator channels (GUI/API) and are persisted in SQLite.
-- Operator actions are logged as `source: "human-operator"` in `activity.log`.
+## 4. Script Sentinel
+Purpose: preserve policy intent across indirect execution patterns.
 
-## 6. Simulation behavior
-- Simulation is used for wildcard blast-radius checks (`requires_simulation.commands`).
-- Wildcard operations can be blocked if unresolved or above threshold.
-- When confirmation wins tier precedence, simulation context is still included in confirmation response and audit fields.
+Model:
+1. Flag at write time (`write_file` and `edit_file`): scan content against blocked and approval-gated policy patterns.
+2. Check at execute time (`execute_command`): detect script invocation targets and enforce decision continuity.
 
-Known limitation:
-- `execute_command` telemetry can undercount `affected_paths_count` for some shell-expanded forms (for example certain wildcard/wrapper move/delete commands). Policy enforcement still applies, but count metrics in logs/budget metadata can be lower than real path impact until counting normalization is completed.
+Modes:
+1. `match_original`: keeps original pattern tier (`blocked` or `requires_confirmation`).
+2. `block`: any hit blocks execution.
+3. `requires_confirmation`: any hit requires approval.
 
-## 7. Retry behavior
-- Retries are server-side, not client-authoritative.
-- Retry key is scoped to `(normalized_command + decision_tier + matched_rule)`.
-- Retries are not one global counter for the entire session.
-- Retries apply to blocked `execute_command` outcomes except `requires_confirmation`.
+Scan modes:
+1. `exec_context` (default): executable-context signatures only.
+2. `exec_context_plus_mentions`: includes mention-only signatures for audit visibility.
 
-Practical effect:
-- Different blocked command/rule combinations maintain independent retry counters.
+Boundary:
+1. Coverage is limited to content written through AIRG file-edit/write tools.
+2. This feature targets policy-enforcement evasion patterns, not malicious intent classification.
 
-## 8. Budget behavior
-Current enforced budget:
-- Global cumulative budget under `requires_simulation.cumulative_budget`.
-- Scope is policy-driven (currently typically `session`).
-- Aggregates operations/paths/bytes across included commands.
+## 5. File and Path Enforcement
+1. Path checks apply to all file tools and enforce workspace boundary plus blocked paths/extensions.
+2. `allowed.paths_whitelist` can extend permitted roots.
+3. `allowed.max_directory_depth` applies to directory listing depth controls.
 
-Budget fields visible in logs/UI (runtime-level):
-- `budget ops`: cumulative total operations (`cumulative_total_operations`).
-- `budget paths`: cumulative unique affected paths (`cumulative_unique_paths`).
-- `budget bytes`: cumulative estimated bytes touched (`cumulative_total_bytes_estimate`).
+## 6. Approvals
+1. `requires_confirmation` commands return tokenized block responses.
+2. Approval is out-of-band through GUI/API.
+3. Approved command grants are session + command scoped.
+4. Approval state is persisted in `approvals.db` with HMAC-backed safeguards.
 
-Not currently enforced:
-- Per-command budget overrides from UI metadata.
-- Budget override tied to confirmation approvals is temporarily disabled during durable approval migration (pending explicit redesign).
+## 7. Backup and Restore
+1. Backups are created automatically before destructive or overwrite operations when enabled.
+2. Backup retention and version count are policy controlled.
+3. Restore supports dry-run token workflow and optional apply confirmation TTL.
+4. Backup storage can be protected from direct agent tools by policy.
 
-Reset behavior details (current implementation):
-- Budget state is evaluated/reset on budget-checked operations (no background timer loop).
-- `reset.idle_reset_seconds` performs a full budget-state reset after inactivity beyond the threshold.
-- `reset.window_seconds` prunes path-timestamp history for unique-path accounting (sliding-window effect).
-- `reset.mode` is currently metadata-level (no distinct mode-specific runtime branches yet).
-- `reset.reset_on_server_restart` is effectively redundant while budget state is in-memory, because process restart resets counters.
+## 8. Reports and Audit
+1. `activity.log` is the canonical event stream.
+2. `reports.db` is an indexed analytics store built from `activity.log`.
+3. Reports retention and DB-size pruning are configurable.
+4. Hook events (for supported clients) are written into the same `activity.log` stream.
 
-Practical implication:
-- Current settings are strong for burst/mass operations in normal coding sessions.
-- Slow-drip patterns spaced beyond `idle_reset_seconds` can avoid meaningful cumulative growth (for example, one operation every 901 seconds with `idle_reset_seconds=900`).
-- This is acceptable for accidental-safety-first scope, but should not be treated as malicious-intent containment.
+## 9. Agent Profiles and Posture
+`Settings -> Agents` provides:
+1. Agent profiles and MCP config generation/apply/remove.
+2. Security posture signals by agent type.
+3. Enforcement controls (agent-dependent): MCP presence, hooks/rules guidance, native tool restrictions, sandbox posture.
 
-## 9. UI retry/budget fields: what they mean today
-The local policy UI writes optional per-command metadata:
-- `policy.ui_overrides.commands.<command>.retry_override`
-- `policy.ui_overrides.commands.<command>.budget.*`
+Identity model:
+1. Per-agent policy overlays resolve by `AIRG_AGENT_ID`.
+2. In STDIO deployments, practical separation is usually the tuple (`AIRG_AGENT_ID`, workspace profile).
 
-Current status:
-- Persisted in `policy.json`.
-- Visible in UI status tags.
-- Not enforced by runtime yet.
-
-## 9.1 Allowed limits semantics
-- `allowed.max_directory_depth` is measured relative to the deepest matching allowed root (workspace root or a whitelisted root), not from filesystem `/`.
-  - Example: if allowed root is `/home/user/airg-workspace` and max depth is `5`, then `/home/user/airg-workspace/a/b/c/d/e` is allowed depth, while adding one more segment exceeds it.
-  - This is why the default stays high for normal workflows and is mainly for tight-access deployments.
-
-## 10. Backup and restore behavior
-- Backup creation occurs before destructive/overwrite actions.
-- Backups are timestamped directories with `manifest.json`.
-- `restore_backup` supports dry run and apply.
-
-Important improvement already implemented:
-- Dry run issues a `restore_token` bound to the apply step.
-
-Restore confirmation token behavior:
-1. `restore.require_dry_run_before_apply=true` means apply requires a valid token from a prior dry-run.
-2. Token is time-bounded by `restore.confirmation_ttl_seconds`.
-3. If apply is attempted after TTL expiry, restore is rejected and a new dry-run is required.
-4. This is an operation-safety gate; it is not a human-approval workflow by itself.
-
-Backup retention/pruning behavior:
-1. `audit.backup_on_content_change_only=true` deduplicates backups by content hash (sha256) and skips redundant snapshots.
-2. Version/day pruning is event-driven during backup operations (not a background scheduler).
-3. `audit.max_versions_per_file` and `audit.backup_retention_days` govern cleanup.
-4. Pruning does not currently emit a dedicated prune event for every removed backup artifact.
-
-Audit logging detail:
-1. `audit.redact_patterns` applies to log output redaction, not backup file payloads.
-2. `audit.log_level` is currently configuration metadata with limited runtime differentiation.
-
-## 11. Network behavior
-- `network.enforcement_mode` controls behavior:
-1. `off`: skip network policy checks.
-2. `monitor`: evaluate policy and emit warnings/diagnostics, but do not block command execution.
-3. `enforce`: evaluate policy and block when domain rules fail.
-
-- `network.commands` is intent classification, not a direct deny list:
-1. These command markers (`curl`, `wget`, `scp`, etc.) are used to decide whether network-domain policy should run.
-2. Listing a command in `network.commands` alone does not block it.
-
-- Domain rules:
-1. `blocked_domains`: explicit deny list. Matching domains are blocked in `enforce` mode.
-2. `allowed_domains`: explicit allow list. Matching domains are allowed when not blocked.
-3. `block_unknown_domains`:
-   - `false` (default): domains not in either list are allowed.
-   - `true`: domains not in `allowed_domains` are blocked (default-deny behavior).
-4. If a domain appears in both `allowed_domains` and `blocked_domains`, blocklist wins.
-5. Subdomains are matched (`example.com` also matches `api.example.com`).
-
-Still limited:
-1. Runtime evaluates domains parsed from command tokens/URLs; redirect chains and out-of-band destination changes are not deeply inspected.
-
-## 12. Local policy UI behavior (current)
-Current recommended UI stack:
-- Backend: Flask (`ui/backend_flask.py`)
-- Frontend: Vite React + Tailwind (`ui_v3/`)
-
-Behavior:
-- Three-layer navigation: rail (`Approvals`, `Policy`, `Reports`, `Settings`) + policy tabs (`Commands`, `Paths`, `Extensions`, `Network`, `Advanced Policy`) + content panel.
-- Approvals panel polls backend and supports `approve`/`deny` actions against shared SQLite approval store.
-- Commands panel supports search, tier radios, clickable command-info modal, applied-state badges, and advanced JSON editor.
-- Commands panel supports adding custom commands (with optional description/comment) and assigning them to one or more categories.
-- Commands panel supports adding custom categories.
-- Commands panel advanced tier visibility toggle controls only command tier radios (`Simulation`, `Requires Approval`); global retry/budget controls are configured on `Advanced Policy`.
-- Paths panel is separate from Commands and includes:
-  - read-only runtime path display (workspace/policy/approval paths)
-  - instructions to update MCP config/env and restart for runtime path changes
-  - policy-managed path rules with absolute-path validation
-  - mapping: `Allowed` => `allowed.paths_whitelist`, `Blocked` => `blocked.paths`, `Requires Approval` => `requires_confirmation.paths`
-  - editable/removable path entries
-- Network panel includes:
-  - `network.enforcement_mode` control (`off` / `monitor` / `enforce`)
-  - editable `network.commands` list (used to trigger network policy evaluation)
-  - editable domain whitelist/blocklist with precedence guidance
-- Advanced Policy panel includes global simulation/budget controls:
-  - `requires_simulation.max_retries` and `bulk_file_threshold`
-  - cumulative budget enable/scope/limits
-  - counting controls (`mode`, `dedupe_paths`, `include_noop_attempts`, `commands_included`)
-  - reset controls (`reset.window_seconds`, `reset.idle_reset_seconds`)
-  - note: `cumulative_budget.audit.*` is still not exposed in GUI controls
-- Advanced Policy panel also includes shell containment for `execute_command`:
-  - `execution.shell_workspace_containment.mode` with `off` / `monitor` / `enforce`
-  - this is a best-effort path guard for shell command arguments and redirection targets
-  - `monitor` logs violations but allows execution; `enforce` blocks
-- Status badges reflect applied policy only (post-`Apply`).
-- Reports rail now includes:
-  - `Dashboard` tab with totals, 7-day event/blocked trends, top commands/paths, blocked-by-rule.
-  - `Log` tab with paginated events and filters (`agent_id`, `agent_session_id`, `source`, `tool`, `policy_decision`, `decision_tier`, `matched_rule`, `command`, `path`, `event`, time range).
-  - automatic ingestion from `activity.log` into `reports.db`, with freshness metadata (`Last indexed`).
-  - ingest sync runs on manual refresh and scheduled refresh, while filter changes query existing indexed data.
-- Shared policy actions are available across all policy tabs: `Reload`, `Validate`, `Apply`, `Revert Last Apply`, `Reset to Defaults`.
-- `Apply`/`Revert`/`Reset` perform validation + atomic write and append `ui/config_changes.log`.
-- Global header no longer shows tier legend badges; it retains policy hash and unsaved-changes state.
-
-Snapshot behavior for policy actions:
-- `Reset to Defaults` is enabled when a defaults snapshot exists (`policy.json.defaults`).
-- `Revert Last Apply` is enabled after at least one apply/revert/reset operation creates a last-applied snapshot (`policy.json.last-applied`).
-
-Serving model:
-- `ui/backend_flask.py` now serves both REST API endpoints and built frontend assets from `ui_v3/dist` when present.
-- Prebuilt `ui_v3/dist` assets are committed and packaged for normal installs; rebuilding is only needed for local frontend development changes.
-- If the frontend build is missing, backend API routes still work and `/` returns a build-missing hint.
-- Override built UI path with `AIRG_UI_DIST_PATH` when needed.
-- Legacy UI fallback is no longer used in normal flow, which prevents silent serving of stale assets.
-
-## 13. What is automatic vs manual in UI command catalog
-Automatic:
-- Commands added to policy command lists appear in `All Commands`.
-- Commands/categories added in UI are persisted in `policy.json` (`ui_catalog`) and reloaded automatically.
-
-Manual:
-- Editing base shipped defaults in `ui/catalog.json` is optional.
-- Runtime enforcement still depends on MCP server restart after policy Apply.
-
-## 14. Merge and release gates (current)
-Before merge to `main`:
-1. Unit tests must pass (`python3 -m unittest discover -s tests -p 'test_*.py'`).
-2. Manual MCP gate from `TEST_PLAN.md` must pass.
-3. Approval separation gate must pass (agent cannot approve via MCP tool surface).
-
-Linux validation note:
-- Linux validation summary is documented in `docs/LINUX_VALIDATION_SUMMARY.md`.
-
-## 15. Known high-priority limitations
-- Operator endpoint authentication/authorization remains local-trust oriented and should be hardened before broad deployment.
-- `shell=True` remains in command execution path.
-- `execution.shell_workspace_containment` can reduce accidental out-of-workspace shell access, but it is heuristic and does not replace OS-level sandboxing.
-- Cumulative budget defaults may be too high to trigger in typical manual runs.
-- Per-command UI override fields are metadata only today.
-- AIRG enforcement only applies to MCP tool calls; native client shell/file tools (for example Claude Code Bash) can bypass AIRG controls.
+## 10. Known Boundaries
+1. AIRG enforces only AIRG MCP tool calls.
+2. Native client tools outside MCP can bypass AIRG unless separately restricted in the client.
+3. Client capabilities differ; some hardening controls are unavailable on some agents.
