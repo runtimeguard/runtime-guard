@@ -3,6 +3,8 @@ import os
 import platform
 import pathlib
 import re
+import hashlib
+import tomllib
 from typing import Any
 
 
@@ -17,6 +19,10 @@ CLAUDE_SIGNAL_LABELS = {
 CLAUDE_NATIVE_TOOLS = {"Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER1_TOOLS = {"Bash", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER2_TOOLS = {"Read", "Glob", "Grep"}
+CODEX_AGENT_DOC_BEGIN = "<!-- AIRG_CODEX_TIER1_BEGIN -->"
+CODEX_AGENT_DOC_END = "<!-- AIRG_CODEX_TIER1_END -->"
+CODEX_RULES_BEGIN = "# AIRG_CODEX_TIER2_BEGIN"
+CODEX_RULES_END = "# AIRG_CODEX_TIER2_END"
 _CODEX_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
 
@@ -275,6 +281,187 @@ def _codex_paths(workspace: pathlib.Path) -> list[pathlib.Path]:
     ]
 
 
+def _codex_agents_doc_path() -> pathlib.Path:
+    return _home() / ".codex" / "AGENTS.md"
+
+
+def _codex_rules_path() -> pathlib.Path:
+    return _home() / ".codex" / "rules" / "default.rules"
+
+
+def _read_text_optional(path: pathlib.Path) -> str:
+    try:
+        if not path.exists() or not path.is_file():
+            return ""
+        return path.read_text()
+    except Exception:
+        return ""
+
+
+def _find_managed_block(text: str, begin_token: str, end_token: str) -> tuple[int, int]:
+    begin_index = text.find(begin_token)
+    if begin_index < 0:
+        return -1, -1
+    end_index = text.find(end_token, begin_index)
+    if end_index < 0:
+        return -1, -1
+    end_index = end_index + len(end_token)
+    while end_index < len(text) and text[end_index] in {"\r", "\n"}:
+        end_index += 1
+    return begin_index, end_index
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _deep_merge_dict(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    out = json.loads(json.dumps(base))
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge_dict(out[key], value)
+        else:
+            out[key] = json.loads(json.dumps(value))
+    return out
+
+
+def _effective_policy_for_agent(agent_id: str) -> dict[str, Any]:
+    policy_path = pathlib.Path(os.environ.get("AIRG_POLICY_PATH", "")).expanduser()
+    if not str(policy_path):
+        return {}
+    payload = _read_json(policy_path)
+    if not isinstance(payload, dict):
+        return {}
+    overrides = payload.get("agent_overrides")
+    if isinstance(overrides, dict):
+        override_entry = overrides.get(agent_id, {})
+        if isinstance(override_entry, dict):
+            overlay = override_entry.get("policy", {})
+            if isinstance(overlay, dict) and overlay:
+                return _deep_merge_dict(payload, overlay)
+    return payload
+
+
+def _codex_tier1_guidance_present(path: pathlib.Path) -> bool:
+    text = _read_text_optional(path)
+    if not text:
+        return False
+    start, end = _find_managed_block(text, CODEX_AGENT_DOC_BEGIN, CODEX_AGENT_DOC_END)
+    return start >= 0 and end >= 0
+
+
+def _parse_codex_rules_metadata(text: str) -> dict[str, Any]:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(CODEX_RULES_BEGIN):
+            continue
+        raw = stripped[len(CODEX_RULES_BEGIN) :].strip()
+        if not raw:
+            return {}
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
+
+def _extract_codex_rules_body(text: str) -> str:
+    start, end = _find_managed_block(text, CODEX_RULES_BEGIN, CODEX_RULES_END)
+    if start < 0 or end < 0:
+        return ""
+    block = text[start:end]
+    lines = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(CODEX_RULES_BEGIN):
+            continue
+        if stripped == CODEX_RULES_END:
+            continue
+        lines.append(line)
+    return ("\n".join(lines).strip() + "\n") if lines else ""
+
+
+def _codex_rules_state(path: pathlib.Path, agent_id: str) -> dict[str, Any]:
+    text = _read_text_optional(path)
+    if not text:
+        return {
+            "present": False,
+            "in_sync": False,
+            "include_requires_confirmation": False,
+            "policy_hash_match": False,
+            "rules_hash_match": False,
+            "metadata": {},
+        }
+    start, end = _find_managed_block(text, CODEX_RULES_BEGIN, CODEX_RULES_END)
+    if start < 0 or end < 0:
+        return {
+            "present": False,
+            "in_sync": False,
+            "include_requires_confirmation": False,
+            "policy_hash_match": False,
+            "rules_hash_match": False,
+            "metadata": {},
+        }
+    metadata = _parse_codex_rules_metadata(text)
+    body = _extract_codex_rules_body(text)
+    body_hash = _sha256_text(body)
+    generated_hash = str(metadata.get("generated_rules_hash", "")).strip()
+    rules_hash_match = bool(generated_hash) and generated_hash == body_hash
+    include_requires_confirmation = bool(metadata.get("include_requires_confirmation", False))
+    effective_policy = _effective_policy_for_agent(agent_id)
+    policy_hash = _sha256_text(json.dumps(effective_policy, sort_keys=True, separators=(",", ":"))) if effective_policy else ""
+    policy_hash_match = bool(policy_hash) and str(metadata.get("policy_hash", "")).strip() == policy_hash
+    return {
+        "present": True,
+        "in_sync": bool(rules_hash_match and policy_hash_match),
+        "include_requires_confirmation": include_requires_confirmation,
+        "policy_hash_match": policy_hash_match,
+        "rules_hash_match": rules_hash_match,
+        "metadata": metadata,
+    }
+
+
+def _codex_tier3_state(path: pathlib.Path) -> dict[str, Any]:
+    text = _read_text_optional(path)
+    if not text.strip():
+        return {
+            "present": False,
+            "sandbox_mode": "",
+            "approval_policy": "",
+            "network_access": None,
+            "hardened": False,
+        }
+    try:
+        payload = tomllib.loads(text)
+    except Exception:
+        return {
+            "present": False,
+            "sandbox_mode": "",
+            "approval_policy": "",
+            "network_access": None,
+            "hardened": False,
+        }
+    sandbox_mode = str(payload.get("sandbox_mode", "")).strip().lower()
+    approval_policy = str(payload.get("approval_policy", "")).strip().lower()
+    workspace_cfg = payload.get("sandbox_workspace_write", {})
+    network_access = None
+    if isinstance(workspace_cfg, dict) and "network_access" in workspace_cfg:
+        network_access = bool(workspace_cfg.get("network_access"))
+    present = bool(sandbox_mode) and bool(approval_policy)
+    hardened = (
+        sandbox_mode in {"read-only", "workspace-write"}
+        and approval_policy in {"untrusted", "on-request"}
+    )
+    return {
+        "present": present,
+        "sandbox_mode": sandbox_mode,
+        "approval_policy": approval_policy,
+        "network_access": network_access,
+        "hardened": hardened,
+    }
+
+
 def _codex_has_airg_mcp(path: pathlib.Path) -> bool:
     try:
         if not path.exists() or not path.is_file():
@@ -445,7 +632,30 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
     has_global = _codex_has_airg_mcp(paths[0])
     has_project = _codex_has_airg_mcp(paths[1])
     has_mcp = has_global or has_project
-    status, rationale = _score_cursor(has_mcp=has_mcp)
+    tier1_path = _codex_agents_doc_path()
+    tier2_path = _codex_rules_path()
+    tier3_path = paths[0]
+    tier1_guidance = _codex_tier1_guidance_present(tier1_path)
+    tier2_state = _codex_rules_state(tier2_path, str(profile.get("agent_id", "")).strip())
+    tier2_present = bool(tier2_state.get("present", False))
+    tier2_in_sync = bool(tier2_state.get("in_sync", False))
+    tier3_state = _codex_tier3_state(tier3_path)
+    tier3_present = bool(tier3_state.get("present", False))
+    tier3_hardened = bool(tier3_state.get("hardened", False))
+
+    if not has_mcp:
+        status = "gray"
+        rationale = "No AIRG MCP server configuration detected."
+    elif tier1_guidance and tier2_in_sync and tier3_hardened:
+        status = "green"
+        rationale = "Full Codex hardening detected: MCP + Tier 1 guidance + Tier 2 policy mirror + Tier 3 sandbox controls."
+    elif tier1_guidance or tier2_present or tier3_present:
+        status = "yellow"
+        rationale = "Partial Codex hardening detected. Complete Tier 1/2/3 controls to reach Green."
+    else:
+        status = "red"
+        rationale = "AIRG MCP detected, but Codex hardening tiers are not configured."
+
     detected_scopes: list[str] = []
     if has_global:
         detected_scopes.append("global")
@@ -457,23 +667,63 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
         locations.append({"scope": "global", "path": str(paths[0])})
     if has_project:
         locations.append({"scope": "project", "path": str(paths[1])})
+    signals = {
+        "airg_mcp_present": has_mcp,
+        "tier1_guidance_present": tier1_guidance,
+        "tier2_rules_present": tier2_present,
+        "tier2_rules_in_sync": tier2_in_sync,
+        "sandbox_hardened": tier3_hardened,
+    }
+    missing_controls = []
+    if not has_mcp:
+        missing_controls.append("AIRG MCP configured")
+    if has_mcp and not tier1_guidance:
+        missing_controls.append("Tier 1 Codex guidance")
+    if has_mcp and not tier2_present:
+        missing_controls.append("Tier 2 rules mirror")
+    if has_mcp and tier2_present and not tier2_in_sync:
+        missing_controls.append("Tier 2 rules in sync with policy")
+    if has_mcp and not tier3_hardened:
+        missing_controls.append("Tier 3 sandbox + approval hardening")
+
+    recommendations: list[str] = []
+    if not has_mcp:
+        recommendations.append("Add ai-runtime-guard MCP server to Codex config.toml (global or project scope).")
+    else:
+        if not tier1_guidance:
+            recommendations.append("Apply Codex Tier 1 guidance in ~/.codex/AGENTS.md.")
+        if not tier2_present:
+            recommendations.append("Apply Codex Tier 2 AIRG policy mirror to ~/.codex/rules/default.rules.")
+        elif not tier2_in_sync:
+            recommendations.append("Codex Tier 2 rules drifted from AIRG policy. Reapply hardening.")
+        if not tier3_hardened:
+            recommendations.append("Set Codex sandbox_mode and approval_policy to hardened values in ~/.codex/config.toml.")
+
     return {
         "status": status,
         "rationale": rationale,
-        "signals": {"airg_mcp_present": has_mcp},
-        "signal_scopes": {"airg_mcp_present": detected_scopes},
+        "signals": signals,
+        "signal_scopes": {
+            "airg_mcp_present": detected_scopes,
+            "tier1_guidance_present": (["global"] if tier1_guidance else []),
+            "tier2_rules_present": (["global"] if tier2_present else []),
+            "tier2_rules_in_sync": (["global"] if tier2_in_sync else []),
+            "sandbox_hardened": (["global"] if tier3_present else []),
+        },
         "mcp_detected_scopes": detected_scopes,
         "mcp_detected_locations": locations,
         "mcp_expected_scope": expected_scope,
         "mcp_scope_match": (expected_scope in detected_scopes) if has_mcp else False,
-        "missing_controls": [] if has_mcp else ["AIRG MCP configured"],
-        "recommended_actions": (
-            ["Codex is MCP-layer protected; client-native hardening controls are limited."]
-            if has_mcp
-            else ["Add ai-runtime-guard MCP server to Codex config.toml (global or project scope)."]
-        ),
-        "paths_checked": [str(p) for p in paths],
-        "existing_paths": [str(p) for p in paths if p.exists()],
+        "missing_controls": missing_controls,
+        "recommended_actions": recommendations,
+        "paths_checked": [str(p) for p in paths + [tier1_path, tier2_path]],
+        "existing_paths": [str(p) for p in paths + [tier1_path, tier2_path] if p.exists()],
+        "codex_tier2_include_requires_confirmation": bool(tier2_state.get("include_requires_confirmation", False)),
+        "codex_tier2_policy_hash_match": bool(tier2_state.get("policy_hash_match", False)),
+        "codex_tier2_rules_hash_match": bool(tier2_state.get("rules_hash_match", False)),
+        "codex_tier3_sandbox_mode": str(tier3_state.get("sandbox_mode", "")),
+        "codex_tier3_approval_policy": str(tier3_state.get("approval_policy", "")),
+        "codex_tier3_network_access": tier3_state.get("network_access"),
     }
 
 

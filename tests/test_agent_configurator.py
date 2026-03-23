@@ -1,5 +1,6 @@
 import json
 import pathlib
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -201,6 +202,71 @@ class AgentConfiguratorTests(unittest.TestCase):
         self.assertIn("Write", deny)
         self.assertNotIn("Read", deny)
         self.assertFalse(bool(payload.get("sandbox", {}).get("enabled", False)))
+
+    def test_codex_apply_writes_tiers_and_undo_preserves_mcp(self) -> None:
+        profile = {
+            "profile_id": "p-codex-hardening",
+            "agent_type": "codex",
+            "agent_scope": "global",
+            "workspace": str(self.workspace),
+            "agent_id": "codex-1",
+        }
+        options = {
+            "tier1_guidance": True,
+            "tier2_mirror": True,
+            "tier2_include_requires_confirmation": False,
+            "tier3_sandbox_mode": "workspace-write",
+            "tier3_approval_policy": "on-request",
+            "tier3_workspace_write_network_access": False,
+            "tier3_workspace_write_writable_roots": [],
+        }
+        self.paths["policy_path"].write_text(
+            json.dumps(
+                {
+                    "blocked": {"commands": ["rm -rf"], "paths": [], "extensions": []},
+                    "requires_confirmation": {"commands": [], "paths": []},
+                    "allowed": {"paths_whitelist": []},
+                    "agent_overrides": {},
+                }
+            )
+        )
+        home_dir = self.base / "home"
+        home_dir.mkdir(parents=True, exist_ok=True)
+        codex_cfg = home_dir / ".codex" / "config.toml"
+        codex_cfg.parent.mkdir(parents=True, exist_ok=True)
+        codex_cfg.write_text('model = "gpt-5"\n')
+
+        with patch("agent_configurator.pathlib.Path.home", return_value=home_dir), patch(
+            "agent_configurator.shutil.which",
+            side_effect=lambda name: None if name == "codex" else shutil.which(name),
+        ):
+            applied = agent_configurator.apply_hardening(self.paths, profile, options=options, auto_add_mcp=True)
+            self.assertTrue(applied.get("ok"), msg=applied)
+            self.assertTrue(agent_configurator.undo_available(self.paths, "p-codex-hardening"))
+
+            agents_doc = home_dir / ".codex" / "AGENTS.md"
+            self.assertTrue(agents_doc.exists())
+            agents_text = agents_doc.read_text()
+            self.assertIn("AIRG_CODEX_TIER1_BEGIN", agents_text)
+            self.assertIn("mcp__ai-runtime-guard__execute_command", agents_text)
+
+            rules_file = home_dir / ".codex" / "rules" / "default.rules"
+            self.assertTrue(rules_file.exists())
+            rules_text = rules_file.read_text()
+            self.assertIn("AIRG_CODEX_TIER2_BEGIN", rules_text)
+            self.assertIn("prefix_rule(", rules_text)
+
+            cfg_text = codex_cfg.read_text()
+            self.assertIn('[mcp_servers.ai-runtime-guard]', cfg_text)
+            self.assertIn('sandbox_mode = "workspace-write"', cfg_text)
+            self.assertIn('approval_policy = "on-request"', cfg_text)
+
+            undone = agent_configurator.undo_hardening(self.paths, profile)
+            self.assertTrue(undone.get("ok"), msg=undone)
+            # Undo all should keep MCP config in place and only revert hardening overlays.
+            undone_cfg_text = codex_cfg.read_text()
+            self.assertIn('[mcp_servers.ai-runtime-guard]', undone_cfg_text)
+            self.assertNotIn('sandbox_mode = "workspace-write"', undone_cfg_text)
 
 
 if __name__ == "__main__":

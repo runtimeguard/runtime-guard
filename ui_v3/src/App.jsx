@@ -634,6 +634,18 @@ export default function App() {
   function defaultHardeningOptionsForProfile(profile) {
     const agentType = String(profile?.agent_type || '').trim().toLowerCase()
     const scope = normalizeScopeForAgentType(agentType, profile?.agent_scope || defaultScopeForAgentType(agentType))
+    if (agentType === 'codex') {
+      return {
+        scope,
+        tier1_guidance: true,
+        tier2_mirror: true,
+        tier2_include_requires_confirmation: false,
+        tier3_sandbox_mode: 'workspace-write',
+        tier3_approval_policy: 'on-request',
+        tier3_workspace_write_network_access: false,
+        tier3_workspace_write_writable_roots: [],
+      }
+    }
     return {
       scope,
       basic_enforcement: true,
@@ -5570,8 +5582,11 @@ export default function App() {
       } catch (err) {
         const payload = err?.payload || {}
         if (payload?.requires_mcp) {
+          const mcpLocationHint = String(row?.agent_type || '').toLowerCase() === 'codex'
+            ? 'Codex config.toml'
+            : 'workspace .mcp.json'
           const confirmAutoAdd = window.confirm(
-            `AIRG MCP server was not detected for ${row?.name || row?.agent_id || profileId}.\n\nAdd AIRG MCP to workspace .mcp.json and continue?`
+            `AIRG MCP server was not detected for ${row?.name || row?.agent_id || profileId}.\n\nAdd AIRG MCP to ${mcpLocationHint} and continue?`
           )
           if (confirmAutoAdd) {
             try {
@@ -5660,6 +5675,8 @@ export default function App() {
     const selectedTheme = postureCardTheme[selectedStatusNormalized]
     const selectedPill = statusPillStyle[selectedStatusNormalized]
     const supportsClaudeHardening = selectedAgentType === 'claude_code'
+    const supportsCodexHardening = selectedAgentType === 'codex'
+    const supportsConfigHardening = supportsClaudeHardening || supportsCodexHardening
     const trafficLegend = [
       { id: 'gray', label: 'None', color: '#94a3b8' },
       { id: 'red', label: 'MCP', color: '#ef4444' },
@@ -5669,6 +5686,7 @@ export default function App() {
 
     const ceilingNote = (() => {
       if (selectedAgentType === 'claude_code') return 'Can reach Green when Tier 1 + Tier 2 + sandbox controls are active.'
+      if (selectedAgentType === 'codex') return 'Can reach Green when MCP + Tier 1 guidance + Tier 2 mirror + Tier 3 sandbox controls are active.'
       if (selectedAgentType === 'cursor') return 'This agent currently supports MCP-layer posture only in AIRG.'
       if (selectedAgentType === 'claude_desktop') return 'This agent currently supports MCP-layer posture only in AIRG.'
       return 'Posture coverage depends on this client’s support for hooks, permissions, and sandbox controls.'
@@ -5678,10 +5696,12 @@ export default function App() {
       ? selectedPosture.mcp_detected_scopes.map((scope) => String(scope || '').trim()).filter(Boolean)
       : []
     const mcpScopeLabels = {
+      global: 'global',
       project: 'project',
       local: 'local',
       user: 'user',
       managed: 'managed',
+      desktop: 'desktop',
     }
     const mcpScopeSummary = mcpDetectedScopes.length
       ? `Configured in ${mcpDetectedScopes.map((scope) => mcpScopeLabels[scope] || scope).join(', ')} scope${mcpDetectedScopes.length === 1 ? '' : 's'}`
@@ -5689,15 +5709,33 @@ export default function App() {
     const expectedMcpScope = String(selectedPosture?.mcp_expected_scope || selectedScopeValue || '').trim()
     const mcpScopeMismatch = Boolean(selectedSignals?.airg_mcp_present) && Boolean(expectedMcpScope) && !mcpDetectedScopes.includes(expectedMcpScope)
 
-    const signalRows = [
-      { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in project/local/user/managed MCP config scopes' },
-      { key: 'tier1_hook_active', label: 'Tier 1 hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
-      { key: 'native_tools_restricted', label: 'Tier 1 native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
-      { key: 'tier2_hook_active', label: 'Tier 2 hook active', failText: 'Missing hook matchers for Read/Glob/Grep' },
-      { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
-      { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
-    ].map((row) => {
-      const notSupported = !supportsClaudeHardening && row.key !== 'airg_mcp_present'
+    const signalRowsBase = selectedAgentType === 'codex'
+      ? [
+          { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in global/project Codex config scopes' },
+          { key: 'tier1_guidance_present', label: 'Tier 1 guidance present', failText: 'Missing AIRG managed block in ~/.codex/AGENTS.md' },
+          { key: 'tier2_rules_present', label: 'Tier 2 rules mirror present', failText: 'Missing AIRG managed block in ~/.codex/rules/default.rules' },
+          { key: 'tier2_rules_in_sync', label: 'Tier 2 rules in sync', failText: 'Rules drift detected; reapply hardening' },
+          { key: 'sandbox_hardened', label: 'Tier 3 sandbox hardened', failText: 'sandbox_mode/approval_policy not in hardened state' },
+        ]
+      : [
+          {
+            key: 'airg_mcp_present',
+            label: 'AIRG MCP configured',
+            failText: selectedAgentType === 'claude_desktop'
+              ? 'Not found in Claude Desktop config'
+              : 'Not found in project/local/user/managed MCP config scopes',
+          },
+          { key: 'tier1_hook_active', label: 'Tier 1 hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
+          { key: 'native_tools_restricted', label: 'Tier 1 native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
+          { key: 'tier2_hook_active', label: 'Tier 2 hook active', failText: 'Missing hook matchers for Read/Glob/Grep' },
+          { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
+          { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
+        ]
+    const signalRows = (selectedAgentType === 'claude_desktop'
+      ? signalRowsBase.filter((row) => row.key === 'airg_mcp_present')
+      : signalRowsBase
+    ).map((row) => {
+      const notSupported = !supportsConfigHardening && row.key !== 'airg_mcp_present'
       const rawValue = selectedSignals?.[row.key]
       const state = notSupported ? 'na' : (rawValue ? 'pass' : 'fail')
       const scopeList = Array.isArray(selectedSignalScopes?.[row.key]) ? selectedSignalScopes[row.key] : []
@@ -5719,13 +5757,16 @@ export default function App() {
         : state === 'na'
           ? 'Not supported by this client'
           : row.failText
-      return { ...row, state, detail }
+      const codexTier3Detail = (row.key === 'sandbox_hardened' && state === 'pass')
+        ? `sandbox_mode=${String(selectedPosture?.codex_tier3_sandbox_mode || '')}, approval_policy=${String(selectedPosture?.codex_tier3_approval_policy || '')}`
+        : detail
+      return { ...row, state, detail: codexTier3Detail }
     })
 
     const selectedDirty = selectedProfile ? isProfileDirty(selectedProfile) : false
     const selectedHasSavedProfile = selectedProfile ? hasPersistedProfile(selectedProfile) : false
     const canApplyHardening = Boolean(selectedProfile)
-      && supportsClaudeHardening
+      && supportsConfigHardening
       && selectedHasSavedProfile
     const selectedNeedsReconfigure = selectedProfile ? Boolean(settingsNeedsReconfigure[selectedProfile.profile_id]) : false
 
@@ -6336,6 +6377,164 @@ export default function App() {
                           Info
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {selectedHardeningOpen && selectedHardeningOptions && selectedAgentType === 'codex' && (
+                    <div style={{ background: '#ffffff', borderBottom: `1px solid ${selectedTheme.border}`, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 10 }}>
+                        HARDENING OPTIONS
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Tier 1 guidance</div>
+                        <div style={{ maxWidth: 120 }}>
+                          <SegControl
+                            value={Boolean(selectedHardeningOptions.tier1_guidance)}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { tier1_guidance: Boolean(value) })}
+                            options={[
+                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                              { label: 'No', value: false, activeClass: 'yn-no' },
+                            ]}
+                          />
+                        </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Codex Tier 1 Guidance',
+                            content: 'Writes an AIRG-managed section to ~/.codex/AGENTS.md with deterministic instructions to prefer AIRG MCP tools over native shell/file tools.',
+                          })}
+                        >
+                          Info
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Tier 2 policy mirror</div>
+                        <div style={{ maxWidth: 120 }}>
+                          <SegControl
+                            value={Boolean(selectedHardeningOptions.tier2_mirror)}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { tier2_mirror: Boolean(value) })}
+                            options={[
+                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                              { label: 'No', value: false, activeClass: 'yn-no' },
+                            ]}
+                          />
+                        </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Codex Tier 2 Policy Mirror',
+                            content: 'Compiles AIRG blocked commands into Codex execpolicy forbidden rules and keeps them in an AIRG-managed block in ~/.codex/rules/default.rules.',
+                          })}
+                        >
+                          Info
+                        </button>
+                      </div>
+
+                      {Boolean(selectedHardeningOptions.tier2_mirror) && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>Mirror requires_confirmation</div>
+                          <div style={{ maxWidth: 120 }}>
+                            <SegControl
+                              value={Boolean(selectedHardeningOptions.tier2_include_requires_confirmation)}
+                              onChange={(value) => setHardeningOption(selectedProfileId, { tier2_include_requires_confirmation: Boolean(value) })}
+                              options={[
+                                { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                { label: 'No', value: false, activeClass: 'yn-no' },
+                              ]}
+                            />
+                          </div>
+                          <button
+                            className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                            onClick={() => setSettingsInfoModal({
+                              open: true,
+                              title: 'Mirror Requires Confirmation',
+                              content: 'When enabled, AIRG requires_confirmation commands are mirrored as Codex execpolicy prompt rules.',
+                            })}
+                          >
+                            Info
+                          </button>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox mode</div>
+                        <div style={{ maxWidth: 360 }}>
+                          <SegControl
+                            value={String(selectedHardeningOptions.tier3_sandbox_mode || 'workspace-write')}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { tier3_sandbox_mode: String(value) })}
+                            options={[
+                              { label: 'Read-only', value: 'read-only', activeClass: 'm-blue' },
+                              { label: 'Workspace-write', value: 'workspace-write', activeClass: 'm-blue' },
+                              { label: 'Danger-full-access', value: 'danger-full-access', activeClass: 'm-blue' },
+                            ]}
+                          />
+                        </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Codex Sandbox Mode',
+                            content: 'Writes sandbox_mode in ~/.codex/config.toml. Recommended: workspace-write for practical containment.',
+                          })}
+                        >
+                          Info
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Approval policy</div>
+                        <div style={{ maxWidth: 360 }}>
+                          <SegControl
+                            value={String(selectedHardeningOptions.tier3_approval_policy || 'on-request')}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { tier3_approval_policy: String(value) })}
+                            options={[
+                              { label: 'Untrusted', value: 'untrusted', activeClass: 'm-blue' },
+                              { label: 'On-request', value: 'on-request', activeClass: 'm-blue' },
+                              { label: 'Never', value: 'never', activeClass: 'm-blue' },
+                            ]}
+                          />
+                        </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Codex Approval Policy',
+                            content: 'Writes approval_policy in ~/.codex/config.toml. Recommended: on-request or untrusted.',
+                          })}
+                        >
+                          Info
+                        </button>
+                      </div>
+
+                      {String(selectedHardeningOptions.tier3_sandbox_mode || '') === 'workspace-write' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
+                          <div style={{ fontSize: 12, color: '#64748b' }}>Workspace-write network access</div>
+                          <div style={{ maxWidth: 120 }}>
+                            <SegControl
+                              value={Boolean(selectedHardeningOptions.tier3_workspace_write_network_access)}
+                              onChange={(value) => setHardeningOption(selectedProfileId, { tier3_workspace_write_network_access: Boolean(value) })}
+                              options={[
+                                { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                { label: 'No', value: false, activeClass: 'yn-no' },
+                              ]}
+                            />
+                          </div>
+                          <button
+                            className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                            onClick={() => setSettingsInfoModal({
+                              open: true,
+                              title: 'Workspace-write Network Access',
+                              content: 'Controls sandbox_workspace_write.network_access in Codex config.toml. Default is No.',
+                            })}
+                          >
+                            Info
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 

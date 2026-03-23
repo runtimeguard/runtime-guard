@@ -1,4 +1,5 @@
 import json
+import hashlib
 import pathlib
 import tempfile
 import unittest
@@ -220,6 +221,77 @@ class AgentPostureTests(unittest.TestCase):
         self.assertEqual(row.get("status"), "red")
         self.assertTrue(row.get("signals", {}).get("airg_mcp_present"))
         self.assertIn("project", row.get("mcp_detected_scopes", []))
+
+    def test_codex_posture_green_when_all_tiers_present_and_in_sync(self) -> None:
+        codex_cfg = self.home / ".codex" / "config.toml"
+        codex_cfg.parent.mkdir(parents=True, exist_ok=True)
+        codex_cfg.write_text(
+            'sandbox_mode = "workspace-write"\n'
+            'approval_policy = "on-request"\n'
+            '\n'
+            '[sandbox_workspace_write]\n'
+            'network_access = false\n'
+            'writable_roots = []\n'
+            '\n'
+            '[mcp_servers.ai-runtime-guard]\n'
+            'command = "/tmp/airg-server"\n'
+            'args = []\n'
+            '\n'
+            '[mcp_servers.ai-runtime-guard.env]\n'
+            'AIRG_AGENT_ID = "codex-1"\n'
+            f'AIRG_WORKSPACE = "{self.workspace}"\n'
+        )
+        agents_doc = self.home / ".codex" / "AGENTS.md"
+        agents_doc.parent.mkdir(parents=True, exist_ok=True)
+        agents_doc.write_text(
+            "<!-- AIRG_CODEX_TIER1_BEGIN -->\nTier1\n<!-- AIRG_CODEX_TIER1_END -->\n"
+        )
+        policy_path = self.base / "policy.json"
+        policy = {
+            "blocked": {"commands": ["rm -rf"], "paths": [], "extensions": []},
+            "requires_confirmation": {"commands": [], "paths": []},
+            "allowed": {"paths_whitelist": []},
+            "agent_overrides": {},
+        }
+        policy_path.write_text(json.dumps(policy))
+        policy_hash = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        rules_body = (
+            'prefix_rule(pattern=["rm", "-rf"], decision="forbidden", '
+            'justification="Blocked by AIRG policy. Use mcp__ai-runtime-guard__execute_command instead.")\n'
+        )
+        rules_hash = hashlib.sha256(rules_body.encode("utf-8")).hexdigest()
+        rules_file = self.home / ".codex" / "rules" / "default.rules"
+        rules_file.parent.mkdir(parents=True, exist_ok=True)
+        rules_file.write_text(
+            '# AIRG_CODEX_TIER2_BEGIN {"agent_id":"codex-1","policy_hash":"'
+            + policy_hash
+            + '","include_requires_confirmation":false,"generated_rules_hash":"'
+            + rules_hash
+            + '"}\n'
+            + rules_body
+            + "# AIRG_CODEX_TIER2_END\n"
+        )
+
+        profile = {
+            "profile_id": "p8",
+            "name": "Codex Hardened",
+            "agent_type": "codex",
+            "agent_scope": "global",
+            "agent_id": "codex-1",
+            "workspace": str(self.workspace),
+        }
+        with patch("agent_posture.pathlib.Path.home", return_value=self.home), patch.dict(
+            "os.environ",
+            {"AIRG_POLICY_PATH": str(policy_path)},
+            clear=False,
+        ):
+            row = agent_posture.build_posture_for_profile(profile)
+
+        self.assertEqual(row.get("status"), "green")
+        self.assertTrue(row.get("signals", {}).get("tier1_guidance_present"))
+        self.assertTrue(row.get("signals", {}).get("tier2_rules_present"))
+        self.assertTrue(row.get("signals", {}).get("tier2_rules_in_sync"))
+        self.assertTrue(row.get("signals", {}).get("sandbox_hardened"))
 
 
 if __name__ == "__main__":
