@@ -120,10 +120,13 @@ def _append_log(entry: dict[str, Any]) -> None:
 
 def _emit_deny(reason: str) -> int:
     payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        },
+        # Legacy compatibility fields for older clients that may still read these keys.
         "decision": "deny",
-        "action": "block",
-        "blocked": True,
-        "continue": False,
         "reason": reason,
         "message": reason,
     }

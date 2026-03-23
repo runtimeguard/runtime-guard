@@ -11,6 +11,7 @@ from typing import Any
 
 CLAUDE_NATIVE_TOOLS = ["Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"]
 CLAUDE_SCOPES = {"local", "project", "user"}
+CLAUDE_HOOK_MATCHERS = ["Bash", "Write", "Edit", "MultiEdit", "Read", "Glob", "Grep"]
 
 
 def _now_iso() -> str:
@@ -312,30 +313,7 @@ def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
     pre = hooks.get("PreToolUse")
     pre_list = pre if isinstance(pre, list) else []
 
-    if enabled:
-        for matcher in pre_list:
-            if not isinstance(matcher, dict):
-                continue
-            hook_list = matcher.get("hooks")
-            if not isinstance(hook_list, list):
-                continue
-            for hook in hook_list:
-                if isinstance(hook, dict) and _is_airg_hook_command(hook.get("command")):
-                    if str(hook.get("command", "")).strip() != hook_command:
-                        hook["type"] = "command"
-                        hook["command"] = hook_command
-                    settings["hooks"] = hooks
-                    return
-        pre_list.append(
-            {
-                "matcher": "*",
-                "hooks": [{"type": "command", "command": hook_command}],
-            }
-        )
-        hooks["PreToolUse"] = pre_list
-        settings["hooks"] = hooks
-        return
-
+    # Remove any previously managed AIRG hook entries first (including legacy matcher="*").
     cleaned_pre: list[dict[str, Any]] = []
     for matcher in pre_list:
         if not isinstance(matcher, dict):
@@ -352,6 +330,28 @@ def _set_airg_hook(settings: dict[str, Any], *, enabled: bool) -> None:
             next_matcher = dict(matcher)
             next_matcher["hooks"] = filtered_hooks
             cleaned_pre.append(next_matcher)
+
+    if enabled:
+        for tool_matcher in CLAUDE_HOOK_MATCHERS:
+            target = None
+            for matcher in cleaned_pre:
+                if str(matcher.get("matcher", "")).strip() == tool_matcher:
+                    target = matcher
+                    break
+            if target is None:
+                target = {"matcher": tool_matcher, "hooks": []}
+                cleaned_pre.append(target)
+            hook_list = target.get("hooks")
+            if not isinstance(hook_list, list):
+                hook_list = []
+                target["hooks"] = hook_list
+            if not any(isinstance(hook, dict) and _is_airg_hook_command(hook.get("command")) for hook in hook_list):
+                hook_list.append({"type": "command", "command": hook_command})
+
+        hooks["PreToolUse"] = cleaned_pre
+        settings["hooks"] = hooks
+        return
+
     if cleaned_pre:
         hooks["PreToolUse"] = cleaned_pre
     else:

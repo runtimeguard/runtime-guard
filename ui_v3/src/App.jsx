@@ -15,12 +15,12 @@ const RAIL_ITEMS = [
 const POLICY_TABS = [
   { id: 'rules', label: 'Rules' },
   { id: 'network', label: 'Network' },
+  { id: 'script_sentinel', label: 'Script Sentinel' },
   { id: 'agent_overrides', label: 'Agent Overrides' },
   { id: 'advanced', label: 'Advanced' },
 ]
 const REPORT_TABS = [
   { id: 'dashboard', label: 'Dashboard' },
-  { id: 'sentinel', label: 'Script Sentinel' },
   { id: 'log', label: 'Log' },
 ]
 const SETTINGS_TABS = [
@@ -1184,9 +1184,9 @@ export default function App() {
   }, [activeRail, activeSettingsTab])
 
   useEffect(() => {
-    if (activeRail !== 'reports' || reportsTab !== 'sentinel') return
+    if (activeRail !== 'policy' || activePolicyTab !== 'script_sentinel') return
     fetchScriptSentinel()
-  }, [activeRail, reportsTab])
+  }, [activeRail, activePolicyTab])
 
   useEffect(() => {
     // Table edits are source-of-truth while editing. Keep JSON textarea in sync
@@ -2283,8 +2283,23 @@ export default function App() {
   }
 
   function ScriptSentinelPanel() {
+    const scriptSentinel = draftPolicy?.script_sentinel || {}
     const sentinelArtifacts = scriptSentinelData?.artifacts?.items || []
     const sentinelSummary = scriptSentinelData?.summary || {}
+    const scanSizeMb = Math.max(1, Math.round((scriptSentinel.max_scan_bytes ?? 1048576) / 1048576))
+    const scanModeValue = scriptSentinel.scan_mode || 'exec_context'
+    const yesNoOptions = [
+      { label: 'Yes', value: true, activeClass: 'yn-yes' },
+      { label: 'No', value: false, activeClass: 'yn-no' },
+    ]
+
+    const setScriptSentinel = (patch) => {
+      setDraftPolicy((prev) => {
+        const next = deepClone(prev)
+        next.script_sentinel = { ...(next.script_sentinel || {}), ...patch }
+        return next
+      })
+    }
 
     const stats = [
       { label: 'Flagged', value: Number(sentinelSummary.flagged_artifacts || 0), color: '#d97706' },
@@ -2304,48 +2319,116 @@ export default function App() {
 
     const normalizeSignatureLabel = (sig) => String(sig?.pattern || sig?.normalized_pattern || '').trim()
 
-    function HashCell({ hash }) {
-      const [copied, setCopied] = useState(false)
-
-      const handleClick = async () => {
-        try {
-          await navigator.clipboard?.writeText(hash)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        } catch {
-          // noop: clipboard can fail in restricted contexts
-        }
-      }
-
-      return (
-        <div
-          title={hash}
-          onClick={handleClick}
-          style={{
-            fontFamily: 'monospace',
-            fontSize: 11,
-            color: copied ? '#15803d' : '#6b7280',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            transition: 'color 0.15s',
-            userSelect: 'none',
-          }}
-          onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = '#4f46e5' }}
-          onMouseLeave={(e) => { if (!copied) e.currentTarget.style.color = '#6b7280' }}
-        >
-          {copied ? 'Copied!' : `${hash.slice(0, 12)}…`}
-        </div>
-      )
-    }
-
     return (
       <div>
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden mb-3">
+          <div className="flex items-center justify-between gap-3 p-4">
+            <div className="flex items-center gap-3">
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                ⛨
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-800">Script sentinel policy</div>
+                <div className="text-xs text-slate-400 mt-1">Scans content written via write_file for blocked or approval-gated command patterns</div>
+              </div>
+            </div>
+            <div style={{ width: 122 }}>
+              <SegControl
+                value={Boolean(scriptSentinel.enabled)}
+                onChange={(enabled) => setScriptSentinel({ enabled: Boolean(enabled) })}
+                options={yesNoOptions}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 items-center p-4 border-t border-slate-200">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Mode</div>
+              <div className="text-xs text-slate-400 mt-1">What to do when a blocked pattern is detected in written file content</div>
+            </div>
+            <div style={{ width: 260, justifySelf: 'end' }}>
+              <SegControl
+                value={scriptSentinel.mode || 'match_original'}
+                onChange={(mode) => setScriptSentinel({ mode })}
+                options={[
+                  { label: 'Match original', value: 'match_original', activeClass: 'm-blue' },
+                  { label: 'Block', value: 'block', activeClass: 'active-block' },
+                  { label: 'Confirm', value: 'requires_confirmation', activeClass: 'active-confirm' },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 items-center p-4 border-t border-slate-200">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Scan mode</div>
+              <div className="text-xs text-slate-400 mt-1">Choose executable-context only, or include mention-only audit hits</div>
+            </div>
+            <div style={{ width: 260, justifySelf: 'end' }}>
+              <SegControl
+                value={scanModeValue}
+                onChange={(scan_mode) => setScriptSentinel({ scan_mode })}
+                options={[
+                  { label: 'Exec context', value: 'exec_context', activeClass: 'm-blue' },
+                  { label: 'Exec + mentions', value: 'exec_context_plus_mentions', activeClass: 'active-confirm' },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 items-center p-4 border-t border-slate-200">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Include common wrapper signatures</div>
+              <div className="text-xs text-slate-400 mt-1">Extend detection to common shell wrapper patterns</div>
+            </div>
+            <div style={{ width: 122, justifySelf: 'end' }}>
+              <SegControl
+                value={Boolean(scriptSentinel.include_wrappers)}
+                onChange={(enabled) => setScriptSentinel({ include_wrappers: Boolean(enabled) })}
+                options={yesNoOptions}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-3 items-center p-4 border-t border-slate-200">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Max scan size</div>
+              <div className="text-xs text-slate-400 mt-1">Files larger than this are skipped for write-time scanning</div>
+            </div>
+            <label className="flex items-center gap-2 justify-self-end w-full">
+              <input
+                type="number"
+                min={1}
+                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
+                value={scanSizeMb}
+                onChange={(e) => {
+                  const mb = Math.max(1, parseInt(e.target.value, 10) || 1)
+                  setScriptSentinel({ max_scan_bytes: mb * 1024 * 1024 })
+                }}
+              />
+              <span className="text-xs text-slate-400">MB</span>
+            </label>
+          </div>
+        </div>
+
         <div className="topbar">
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#0f0f0f' }}>
-              Reports · Script Sentinel
+              Script Sentinel
             </div>
             <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1 }}>
               Policy-intent continuity for script-mediated command execution
@@ -2417,14 +2500,14 @@ export default function App() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '2fr 1.4fr 80px 1fr 90px 110px',
+              gridTemplateColumns: '2fr 1.8fr 80px 90px 110px',
               gap: 12,
               padding: '8px 12px',
               background: '#fafafa',
               borderBottom: '1px solid #f0f0f0',
             }}
           >
-            {['Path', 'Hash', 'Exec context', 'Matched signatures', 'Last seen', 'Actions'].map((header) => (
+            {['Path', 'Detected content', 'Exec context', 'Last seen', 'Actions'].map((header) => (
               <div
                 key={header}
                 style={{
@@ -2447,16 +2530,22 @@ export default function App() {
             const signatures = Array.isArray(row?.matched_signatures) ? row.matched_signatures : []
             const execContext = hasExecContext(signatures)
             const lastSeen = row?.path_last_seen_ts || row?.last_seen_ts || ''
-            const signatureLabels = signatures
-              .map((sig) => normalizeSignatureLabel(sig))
+            const detectedPreview = signatures
+              .map((sig) => {
+                const pattern = normalizeSignatureLabel(sig)
+                const source = String(sig?.type || 'signature').trim()
+                if (!pattern) return ''
+                return `${source}: ${pattern}`
+              })
               .filter(Boolean)
+              .join(' | ')
 
             return (
               <div
                 key={`${row?.path || 'row'}:${hash || idx}`}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '2fr 1.4fr 80px 1fr 90px 110px',
+                  gridTemplateColumns: '2fr 1.8fr 80px 90px 110px',
                   gap: 12,
                   padding: '9px 12px',
                   borderBottom: idx < sentinelArtifacts.length - 1 ? '1px solid #f3f4f6' : 'none',
@@ -2477,7 +2566,19 @@ export default function App() {
                   {row?.path || '-'}
                 </div>
 
-                <HashCell hash={hash} />
+                <div
+                  title={detectedPreview || hash || ''}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: '#6b7280',
+                  }}
+                >
+                  {detectedPreview || (hash ? `${hash.slice(0, 12)}…` : '-')}
+                </div>
 
                 <span
                   style={{
@@ -2493,26 +2594,6 @@ export default function App() {
                 >
                   {execContext ? 'Yes' : 'No'}
                 </span>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {signatureLabels.length ? signatureLabels.map((sig, sigIdx) => (
-                    <span
-                      key={`${hash}-sig-${sigIdx}`}
-                      style={{
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        background: '#fef3c7',
-                        color: '#92400e',
-                        padding: '1px 6px',
-                        borderRadius: 3,
-                      }}
-                    >
-                      {sig}
-                    </span>
-                  )) : (
-                    <span style={{ fontSize: 11, color: '#9ca3af' }}>-</span>
-                  )}
-                </div>
 
                 <span style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>
                   {lastSeen ? relativeTime(lastSeen) : '-'}
@@ -2751,8 +2832,7 @@ export default function App() {
           </div>
         )}
 
-        {reportsTab !== 'sentinel' && (
-          <div className="card">
+        <div className="card">
           <div className="flex items-center justify-between gap-2">
             <button onClick={() => setShowReportFilters((v) => !v)} className="btn btn-ghost">
               {showReportFilters ? 'Hide filters' : 'Show filters'} ({activeFilterCount})
@@ -2809,11 +2889,6 @@ export default function App() {
             </div>
           )}
           </div>
-        )}
-
-        {reportsTab === 'sentinel' && (
-          <ScriptSentinelPanel />
-        )}
 
         {reportsTab === 'dashboard' && (
           <>
@@ -3859,7 +3934,6 @@ export default function App() {
     const restore = draftPolicy?.restore || {}
     const audit = draftPolicy?.audit || {}
     const reportsCfg = draftPolicy?.reports || {}
-    const scriptSentinel = draftPolicy?.script_sentinel || {}
 
     const setConfirmationSecurity = (patch) => {
       setDraftPolicy((prev) => {
@@ -3925,17 +3999,7 @@ export default function App() {
       })
     }
 
-    const setScriptSentinel = (patch) => {
-      setDraftPolicy((prev) => {
-        const next = deepClone(prev)
-        next.script_sentinel = { ...(next.script_sentinel || {}), ...patch }
-        return next
-      })
-    }
-
     const redactPatternsText = Array.isArray(audit.redact_patterns) ? audit.redact_patterns.join('\n') : ''
-    const scanSizeMb = Math.max(1, Math.round((scriptSentinel.max_scan_bytes ?? 1048576) / 1048576))
-    const scanModeValue = scriptSentinel.scan_mode || 'exec_context'
     const yesNoOptions = [
       { label: 'Yes', value: true, activeClass: 'yn-yes' },
       { label: 'No', value: false, activeClass: 'yn-no' },
@@ -4260,94 +4324,6 @@ export default function App() {
                 onChange={(e) => setConfirmationSecurity({ failed_attempt_window_seconds: Math.max(0, parseInt(e.target.value, 10) || 0) })}
               />
               <span className="text-xs text-slate-400">seconds</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
-          <CardHeader
-            icon="⛨"
-            iconBg="#fee2e2"
-            iconFg="#dc2626"
-            title="Script sentinel"
-            subtitle="Scans content written via write_file for blocked or approval-gated command patterns"
-            right={(
-              <div style={{ width: 122 }}>
-                <SegControl
-                  value={Boolean(scriptSentinel.enabled)}
-                  onChange={(enabled) => setScriptSentinel({ enabled: Boolean(enabled) })}
-                  options={yesNoOptions}
-                />
-              </div>
-            )}
-          />
-
-          <div className={rowClass}>
-            <div>
-              <div className={titleClass}>Mode</div>
-              <div className={helpClass}>What to do when a blocked pattern is detected in written file content</div>
-            </div>
-            <div style={{ width: 260, justifySelf: 'end' }}>
-              <SegControl
-                value={scriptSentinel.mode || 'match_original'}
-                onChange={(mode) => setScriptSentinel({ mode })}
-                options={[
-                  { label: 'Match original', value: 'match_original', activeClass: 'm-blue' },
-                  { label: 'Block', value: 'block', activeClass: 'active-block' },
-                  { label: 'Confirm', value: 'requires_confirmation', activeClass: 'active-confirm' },
-                ]}
-              />
-            </div>
-          </div>
-
-          <div className={rowClass}>
-            <div>
-              <div className={titleClass}>Scan mode</div>
-              <div className={helpClass}>Choose executable-context only, or include mention-only audit hits</div>
-            </div>
-            <div style={{ width: 260, justifySelf: 'end' }}>
-              <SegControl
-                value={scanModeValue}
-                onChange={(scan_mode) => setScriptSentinel({ scan_mode })}
-                options={[
-                  { label: 'Exec context', value: 'exec_context', activeClass: 'm-blue' },
-                  { label: 'Exec + mentions', value: 'exec_context_plus_mentions', activeClass: 'active-confirm' },
-                ]}
-              />
-            </div>
-          </div>
-
-          <div className={rowClass}>
-            <div>
-              <div className={titleClass}>Include common wrapper signatures</div>
-              <div className={helpClass}>Extend detection to common shell wrapper patterns</div>
-            </div>
-            <div style={{ width: 122, justifySelf: 'end' }}>
-              <SegControl
-                value={Boolean(scriptSentinel.include_wrappers)}
-                onChange={(enabled) => setScriptSentinel({ include_wrappers: Boolean(enabled) })}
-                options={yesNoOptions}
-              />
-            </div>
-          </div>
-
-          <div className={rowClass}>
-            <div>
-              <div className={titleClass}>Max scan size</div>
-              <div className={helpClass}>Files larger than this are skipped for write-time scanning</div>
-            </div>
-            <label className="flex items-center gap-2 justify-self-end w-full">
-              <input
-                type="number"
-                min={1}
-                className="w-full border border-slate-300 rounded-[8px] px-3 py-2 text-sm text-right font-mono"
-                value={scanSizeMb}
-                onChange={(e) => {
-                  const mb = Math.max(1, parseInt(e.target.value, 10) || 1)
-                  setScriptSentinel({ max_scan_bytes: mb * 1024 * 1024 })
-                }}
-              />
-              <span className="text-xs text-slate-400">MB</span>
             </label>
           </div>
         </div>
@@ -5256,6 +5232,7 @@ export default function App() {
       <>
         {activePolicyTab === 'rules' && RulesPanel()}
         {activePolicyTab === 'network' && NetworkPanel()}
+        {activePolicyTab === 'script_sentinel' && ScriptSentinelPanel()}
         {activePolicyTab === 'agent_overrides' && AgentOverridesPanel()}
         {activePolicyTab === 'advanced' && AdvancedPolicyPanel()}
         <div className="mt-4">
