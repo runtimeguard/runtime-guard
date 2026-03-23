@@ -425,4 +425,3 @@ Linux validation note:
 - Cumulative budget defaults may be too high to trigger in typical manual runs.
 - Per-command UI override fields are metadata only today.
 - AIRG enforcement only applies to MCP tool calls; native client shell/file tools (for example Claude Code Bash) can bypass AIRG controls.
-- For Claude Code, a sample MCP-only skill is provided at `docs/mcp-only.md`; save it as `<workspace>/.claude/skills/mcp-only.md` to guide strict MCP-only behavior.

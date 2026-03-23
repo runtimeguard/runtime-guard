@@ -150,7 +150,6 @@ Claude Code includes a native Bash tool outside MCP. To reduce bypass risk, add 
 
 Path:
 1. `<workspace>/.claude/CLAUDE.md`
-2. `<workspace>/.claude/skills/mcp-only.md` (sample skill provided in this repo at `docs/mcp-only.md`)
 
 Example:
 ```markdown
@@ -167,7 +166,6 @@ This workspace is protected by ai-runtime-guard MCP server.
 Note:
 1. This is a client-behavior mitigation, not a hard AIRG enforcement boundary.
 2. If Claude Code uses native Bash/file tools, those actions occur outside MCP and AIRG cannot enforce policy on them.
-3. Copy `docs/mcp-only.md` into your workspace skills folder and activate it in Claude Code when you need strict MCP-only operation.
 
 ## Cursor
 ### GUI setup
