@@ -31,14 +31,19 @@ export default function SegControl({ options = [], value, onChange }) {
             onClick={() => onChange(opt.value)}
             style={{
               flex: 1,
-              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               fontSize: 11,
               fontWeight: 500,
+              lineHeight: 1.2,
+              minHeight: 24,
               padding: '4px 8px',
               borderRadius: 4,
               cursor: 'pointer',
               color: '#6b7280',
               userSelect: 'none',
+              whiteSpace: 'nowrap',
               boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.07)' : 'none',
               ...(isActive ? (ACTIVE_STYLES[opt.activeClass] || {}) : {}),
             }}

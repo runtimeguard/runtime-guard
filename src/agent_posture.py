@@ -10,9 +10,9 @@ from typing import Any
 
 CLAUDE_SIGNAL_LABELS = {
     "airg_mcp_present": "AIRG MCP configured",
-    "tier1_hook_active": "Tier 1 hook coverage active",
-    "native_tools_restricted": "Tier 1 native tools restricted",
-    "tier2_hook_active": "Tier 2 hook coverage active",
+    "tier1_hook_active": "Hook coverage active",
+    "native_tools_restricted": "Native tools restricted",
+    "tier2_hook_active": "Optional Read/Glob/Grep hook active",
     "sandbox_enabled": "Sandbox enabled",
     "sandbox_escape_closed": "Sandbox unsandboxed-command escape disabled",
 }
@@ -135,18 +135,16 @@ def _score_claude(
     has_mcp: bool,
     tier1_hook_active: bool,
     native_denied: bool,
-    tier2_hook_active: bool,
     sandbox_enabled: bool,
     escape_closed: bool,
 ) -> tuple[str, str]:
     if not has_mcp:
         return "gray", "No AIRG MCP configuration detected for this agent profile."
-    tier1_ready = tier1_hook_active and native_denied
-    if tier1_ready and tier2_hook_active and sandbox_enabled and escape_closed:
-        return "green", "Full hardening detected: MCP + Tier 1 + Tier 2 + sandbox protections."
-    if tier1_ready:
-        return "yellow", "Tier 1 hardening detected. Complete Tier 2 and sandbox controls to reach Green."
-    return "red", "AIRG MCP is configured but Tier 1 hardening is incomplete."
+    if tier1_hook_active and native_denied and sandbox_enabled and escape_closed:
+        return "green", "Maximum enforcement detected: MCP + hook + native tool restrictions + sandbox protections."
+    if tier1_hook_active:
+        return "yellow", "Strict enforcement detected: MCP + hook active."
+    return "red", "Standard enforcement detected: AIRG MCP is configured."
 
 
 def _score_cursor(*, has_mcp: bool) -> tuple[str, str]:
@@ -168,11 +166,11 @@ def _claude_recommendations(signals: dict[str, Any]) -> list[str]:
     if not bool(signals.get("airg_mcp_present", False)):
         rec.append("Add ai-runtime-guard to your MCP config for this workspace.")
     if not bool(signals.get("tier1_hook_active", False)):
-        rec.append("Enable Tier 1 hook coverage (Bash/Write/Edit/MultiEdit) for deterministic MCP redirection.")
+        rec.append("Enable hook coverage (Bash/Write/Edit/MultiEdit) for deterministic MCP redirection.")
     if not bool(signals.get("native_tools_restricted", False)):
         rec.append("Restrict native Bash/Write/Edit/MultiEdit tools in Claude permissions.")
     if not bool(signals.get("tier2_hook_active", False)):
-        rec.append("Enable Tier 2 hook coverage (Read/Glob/Grep) for path/extension policy checks and audit.")
+        rec.append("Optional: enable Read/Glob/Grep hook coverage for path/extension policy checks and audit.")
     if not bool(signals.get("sandbox_enabled", False)):
         rec.append("Enable Claude sandbox mode for this workspace.")
     if bool(signals.get("sandbox_enabled", False)) and not bool(signals.get("sandbox_escape_closed", False)):
@@ -578,7 +576,6 @@ def _build_claude_posture(profile: dict[str, Any]) -> dict[str, Any]:
         has_mcp=has_mcp,
         tier1_hook_active=tier1_hook_active,
         native_denied=native_denied,
-        tier2_hook_active=tier2_hook_active,
         sandbox_enabled=sandbox_enabled,
         escape_closed=escape_closed,
     )

@@ -2368,7 +2368,7 @@ export default function App() {
                 value={scriptSentinel.mode || 'match_original'}
                 onChange={(mode) => setScriptSentinel({ mode })}
                 options={[
-                  { label: 'Match original', value: 'match_original', activeClass: 'm-blue' },
+                  { label: 'Match Original', value: 'match_original', activeClass: 'm-blue' },
                   { label: 'Block', value: 'block', activeClass: 'active-block' },
                   { label: 'Confirm', value: 'requires_confirmation', activeClass: 'active-confirm' },
                 ]}
@@ -5573,11 +5573,11 @@ export default function App() {
       try {
         const payload = await applyAgentConfigHardening(profileId, { autoAddMcp, options: optionsPayload })
         const diffSummary = Array.isArray(payload?.diff_summary) ? payload.diff_summary : []
-        setMessage(`Hardening applied for ${row?.name || row?.agent_id || profileId}`)
+        setMessage(`Enforcement applied for ${row?.name || row?.agent_id || profileId}`)
         setCopyAssistModal({
           open: true,
-          title: `Hardening Diff · ${row?.name || row?.agent_id || profileId}`,
-          content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG hardening baseline.',
+          title: `Enforcement Diff · ${row?.name || row?.agent_id || profileId}`,
+          content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG enforcement baseline.',
         })
       } catch (err) {
         const payload = err?.payload || {}
@@ -5592,11 +5592,11 @@ export default function App() {
             try {
               const retry = await applyAgentConfigHardening(profileId, { autoAddMcp: true, options: optionsPayload })
               const diffSummary = Array.isArray(retry?.diff_summary) ? retry.diff_summary : []
-              setMessage(`Hardening applied for ${row?.name || row?.agent_id || profileId} (MCP auto-added)`)
+              setMessage(`Enforcement applied for ${row?.name || row?.agent_id || profileId} (MCP auto-added)`)
               setCopyAssistModal({
                 open: true,
-                title: `Hardening Diff · ${row?.name || row?.agent_id || profileId}`,
-                content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG hardening baseline.',
+                title: `Enforcement Diff · ${row?.name || row?.agent_id || profileId}`,
+                content: diffSummary.length ? diffSummary.join('\n') : 'No visible diff. Target files already matched AIRG enforcement baseline.',
               })
             } catch (retryErr) {
               setSettingsError(String(retryErr.message || retryErr))
@@ -5615,15 +5615,15 @@ export default function App() {
     const undoHardeningForProfile = async (row) => {
       const profileId = String(row?.profile_id || '').trim()
       if (!profileId) return
-      if (!window.confirm(`Undo all AIRG hardening settings for ${row?.name || row?.agent_id || profileId}?\n\nThis keeps MCP configuration intact.`)) return
+      if (!window.confirm(`Undo all AIRG enforcement settings for ${row?.name || row?.agent_id || profileId}?\n\nThis keeps MCP configuration intact.`)) return
       setProfileActionLoading(profileId, true)
       setSettingsError('')
       try {
         const payload = await undoAgentConfigHardening(profileId)
-        setMessage(`Undo completed for ${row?.name || row?.agent_id || profileId}`)
+        setMessage(`Enforcement undo completed for ${row?.name || row?.agent_id || profileId}`)
         setCopyAssistModal({
           open: true,
-          title: `Hardening Undo · ${row?.name || row?.agent_id || profileId}`,
+          title: `Enforcement Undo · ${row?.name || row?.agent_id || profileId}`,
           content: `Restored ${payload?.undone_changes || 0} file change(s) from AIRG backup state.`,
         })
       } catch (err) {
@@ -5646,51 +5646,76 @@ export default function App() {
 
     const selectedProfile = agentProfiles.find((profile) => String(profile?.profile_id || '') === selectedSettingsProfileId) || agentProfiles[0] || null
     const selectedPosture = postureForProfile(selectedProfile)
-    const selectedStatus = String(selectedPosture?.status || 'gray').toLowerCase()
-    const selectedStatusNormalized = ['gray', 'green', 'yellow', 'red'].includes(selectedStatus) ? selectedStatus : 'gray'
     const selectedAgentType = String(selectedProfile?.agent_type || '').toLowerCase()
     const selectedProfileId = String(selectedProfile?.profile_id || '').trim()
     const selectedScopeOptions = scopeOptionsForAgentType(selectedAgentType)
     const selectedScopeValue = normalizeScopeForAgentType(selectedAgentType, selectedProfile?.agent_scope || defaultScopeForAgentType(selectedAgentType))
-    const selectedHardeningOptions = hardeningOptionsByProfile[selectedProfileId] || (selectedProfile ? defaultHardeningOptionsForProfile(selectedProfile) : null)
+    const deriveStatusFromSignals = (profile, posture) => {
+      const fallback = String(posture?.status || 'gray').toLowerCase()
+      const fallbackNormalized = ['gray', 'green', 'yellow', 'red'].includes(fallback) ? fallback : 'gray'
+      const agentType = String(profile?.agent_type || '').trim().toLowerCase()
+      const signals = posture?.signals || {}
+      if (agentType !== 'claude_code') return fallbackNormalized
+      const hasMcp = Boolean(signals?.airg_mcp_present)
+      if (!hasMcp) return 'gray'
+      const hookActive = Boolean(signals?.tier1_hook_active)
+      const nativeRestricted = Boolean(signals?.native_tools_restricted)
+      const sandboxEnabled = Boolean(signals?.sandbox_enabled)
+      const escapeClosed = Boolean(signals?.sandbox_escape_closed)
+      if (hookActive && nativeRestricted && sandboxEnabled && escapeClosed) return 'green'
+      if (hookActive) return 'yellow'
+      return 'red'
+    }
+    const selectedStatusNormalized = deriveStatusFromSignals(selectedProfile, selectedPosture)
+    const hardeningBaselineForProfile = (profile, posture) => {
+      const defaults = defaultHardeningOptionsForProfile(profile || {})
+      const signals = posture?.signals || {}
+      if (String(profile?.agent_type || '').trim().toLowerCase() === 'claude_code') {
+        const strictReady = Boolean(signals?.tier1_hook_active) && Boolean(signals?.native_tools_restricted)
+        return {
+          ...defaults,
+          basic_enforcement: strictReady,
+          advanced_enforcement: Boolean(signals?.tier2_hook_active),
+          sandbox_enabled: Boolean(signals?.sandbox_enabled),
+          sandbox_escape_closed: Boolean(signals?.sandbox_escape_closed),
+        }
+      }
+      if (String(profile?.agent_type || '').trim().toLowerCase() === 'codex') {
+        return {
+          ...defaults,
+          tier1_guidance: Boolean(signals?.tier1_guidance_present),
+          tier2_mirror: Boolean(signals?.tier2_rules_present),
+          tier2_include_requires_confirmation: Boolean(posture?.codex_tier2_include_requires_confirmation),
+          tier3_sandbox_mode: String(posture?.codex_tier3_sandbox_mode || defaults.tier3_sandbox_mode || 'workspace-write'),
+          tier3_approval_policy: String(posture?.codex_tier3_approval_policy || defaults.tier3_approval_policy || 'on-request'),
+          tier3_workspace_write_network_access: Boolean(posture?.codex_tier3_workspace_write_network_access),
+        }
+      }
+      return defaults
+    }
+    const selectedHardeningBaseline = hardeningBaselineForProfile(selectedProfile || {}, selectedPosture || {})
+    const selectedHardeningOptions = hardeningOptionsByProfile[selectedProfileId] || selectedHardeningBaseline
     const selectedHardeningOpen = Boolean(hardeningPanelOpenByProfile[selectedProfileId])
     const selectedSignalScopes = selectedPosture?.signal_scopes || {}
     const selectedSignals = selectedPosture?.signals || {}
-    const selectedRecommendations = Array.isArray(selectedPosture?.recommended_actions) ? selectedPosture.recommended_actions : []
-
-    const statusPillStyle = {
-      gray: { bg: '#e5e7eb', fg: '#475569', label: 'Gray' },
-      red: { bg: '#fee2e2', fg: '#dc2626', label: 'Red' },
-      yellow: { bg: '#fef3c7', fg: '#b45309', label: 'Yellow' },
-      green: { bg: '#dcfce7', fg: '#15803d', label: 'Green' },
-    }
 
     const postureCardTheme = {
-      gray: { border: '#d1d5db', bg: '#f8fafc', iconBg: '#e5e7eb', iconFg: '#64748b', icon: '•', label: 'Nothing configured' },
-      red: { border: '#fecaca', bg: '#fff5f5', iconBg: '#fee2e2', iconFg: '#dc2626', icon: '●', label: 'MCP configured only' },
-      yellow: { border: '#fde68a', bg: '#fffdf0', iconBg: '#fef3c7', iconFg: '#b45309', icon: '◐', label: 'Tier 1 enforced' },
-      green: { border: '#bbf7d0', bg: '#f0fdf4', iconBg: '#dcfce7', iconFg: '#15803d', icon: '✓', label: 'Fully hardened' },
+      gray: { border: '#d1d5db', bg: '#f8fafc', iconBg: '#e5e7eb', iconFg: '#64748b', icon: '•', label: 'Off' },
+      red: { border: '#fecaca', bg: '#fff5f5', iconBg: '#fee2e2', iconFg: '#dc2626', icon: '●', label: 'Standard' },
+      yellow: { border: '#fde68a', bg: '#fffdf0', iconBg: '#fef3c7', iconFg: '#b45309', icon: '◐', label: 'Strict' },
+      green: { border: '#bbf7d0', bg: '#f0fdf4', iconBg: '#dcfce7', iconFg: '#15803d', icon: '✓', label: 'Maximum' },
     }
 
     const selectedTheme = postureCardTheme[selectedStatusNormalized]
-    const selectedPill = statusPillStyle[selectedStatusNormalized]
     const supportsClaudeHardening = selectedAgentType === 'claude_code'
     const supportsCodexHardening = selectedAgentType === 'codex'
     const supportsConfigHardening = supportsClaudeHardening || supportsCodexHardening
     const trafficLegend = [
       { id: 'gray', label: 'None', color: '#94a3b8' },
-      { id: 'red', label: 'MCP', color: '#ef4444' },
-      { id: 'yellow', label: 'Tier 1', color: '#f59e0b' },
-      { id: 'green', label: 'Full', color: '#22c55e' },
+      { id: 'red', label: 'Standard', color: '#ef4444' },
+      { id: 'yellow', label: 'Strict', color: '#f59e0b' },
+      { id: 'green', label: 'Maximum', color: '#22c55e' },
     ]
-
-    const ceilingNote = (() => {
-      if (selectedAgentType === 'claude_code') return 'Can reach Green when Tier 1 + Tier 2 + sandbox controls are active.'
-      if (selectedAgentType === 'codex') return 'Can reach Green when MCP + Tier 1 guidance + Tier 2 mirror + Tier 3 sandbox controls are active.'
-      if (selectedAgentType === 'cursor') return 'This agent currently supports MCP-layer posture only in AIRG.'
-      if (selectedAgentType === 'claude_desktop') return 'This agent currently supports MCP-layer posture only in AIRG.'
-      return 'Posture coverage depends on this client’s support for hooks, permissions, and sandbox controls.'
-    })()
 
     const mcpDetectedScopes = Array.isArray(selectedPosture?.mcp_detected_scopes)
       ? selectedPosture.mcp_detected_scopes.map((scope) => String(scope || '').trim()).filter(Boolean)
@@ -5712,10 +5737,10 @@ export default function App() {
     const signalRowsBase = selectedAgentType === 'codex'
       ? [
           { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in global/project Codex config scopes' },
-          { key: 'tier1_guidance_present', label: 'Tier 1 guidance present', failText: 'Missing AIRG managed block in ~/.codex/AGENTS.md' },
-          { key: 'tier2_rules_present', label: 'Tier 2 rules mirror present', failText: 'Missing AIRG managed block in ~/.codex/rules/default.rules' },
-          { key: 'tier2_rules_in_sync', label: 'Tier 2 rules in sync', failText: 'Rules drift detected; reapply hardening' },
-          { key: 'sandbox_hardened', label: 'Tier 3 sandbox hardened', failText: 'sandbox_mode/approval_policy not in hardened state' },
+          { key: 'tier1_guidance_present', label: 'Guidance present', failText: 'Missing AIRG managed block in ~/.codex/AGENTS.md' },
+          { key: 'tier2_rules_present', label: 'Policy mirror present', failText: 'Missing AIRG managed block in ~/.codex/rules/default.rules' },
+          { key: 'tier2_rules_in_sync', label: 'Policy mirror in sync', failText: 'Rules drift detected; reapply hardening' },
+          { key: 'sandbox_hardened', label: 'Sandbox hardened', failText: 'sandbox_mode/approval_policy not in hardened state' },
         ]
       : [
           {
@@ -5725,9 +5750,9 @@ export default function App() {
               ? 'Not found in Claude Desktop config'
               : 'Not found in project/local/user/managed MCP config scopes',
           },
-          { key: 'tier1_hook_active', label: 'Tier 1 hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
-          { key: 'native_tools_restricted', label: 'Tier 1 native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
-          { key: 'tier2_hook_active', label: 'Tier 2 hook active', failText: 'Missing hook matchers for Read/Glob/Grep' },
+          { key: 'tier1_hook_active', label: 'Hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
+          { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
+          { key: 'tier2_hook_active', label: 'Optional Read/Glob/Grep hook', failText: 'Missing hook matchers for Read/Glob/Grep' },
           { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
           { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
         ]
@@ -5737,7 +5762,10 @@ export default function App() {
     ).map((row) => {
       const notSupported = !supportsConfigHardening && row.key !== 'airg_mcp_present'
       const rawValue = selectedSignals?.[row.key]
-      const state = notSupported ? 'na' : (rawValue ? 'pass' : 'fail')
+      const optionalClaudeHook = selectedAgentType === 'claude_code' && row.key === 'tier2_hook_active'
+      const state = notSupported
+        ? 'na'
+        : (rawValue ? 'pass' : (optionalClaudeHook ? 'na' : 'fail'))
       const scopeList = Array.isArray(selectedSignalScopes?.[row.key]) ? selectedSignalScopes[row.key] : []
       const scopeDetail = scopeList.length
         ? `Configured in ${scopeList.map((scope) => mcpScopeLabels[scope] || scope).join(', ')} scope${scopeList.length === 1 ? '' : 's'}`
@@ -5755,7 +5783,7 @@ export default function App() {
               : scopeDetail
         )
         : state === 'na'
-          ? 'Not supported by this client'
+          ? (optionalClaudeHook ? 'Optional control' : 'Not supported by this client')
           : row.failText
       const codexTier3Detail = (row.key === 'sandbox_hardened' && state === 'pass')
         ? `sandbox_mode=${String(selectedPosture?.codex_tier3_sandbox_mode || '')}, approval_policy=${String(selectedPosture?.codex_tier3_approval_policy || '')}`
@@ -5769,6 +5797,35 @@ export default function App() {
       && supportsConfigHardening
       && selectedHasSavedProfile
     const selectedNeedsReconfigure = selectedProfile ? Boolean(settingsNeedsReconfigure[selectedProfile.profile_id]) : false
+    const comparableHardening = (agentType, options) => {
+      const normalized = String(agentType || '').trim().toLowerCase()
+      const scope = normalizeScopeForAgentType(agentType, options?.scope || selectedScopeValue)
+      if (normalized === 'claude_code') {
+        return {
+          scope,
+          basic_enforcement: Boolean(options?.basic_enforcement),
+          advanced_enforcement: Boolean(options?.advanced_enforcement),
+          sandbox_enabled: Boolean(options?.sandbox_enabled),
+          sandbox_escape_closed: Boolean(options?.sandbox_escape_closed),
+        }
+      }
+      if (normalized === 'codex') {
+        return {
+          scope,
+          tier1_guidance: Boolean(options?.tier1_guidance),
+          tier2_mirror: Boolean(options?.tier2_mirror),
+          tier2_include_requires_confirmation: Boolean(options?.tier2_include_requires_confirmation),
+          tier3_sandbox_mode: String(options?.tier3_sandbox_mode || ''),
+          tier3_approval_policy: String(options?.tier3_approval_policy || ''),
+          tier3_workspace_write_network_access: Boolean(options?.tier3_workspace_write_network_access),
+        }
+      }
+      return { scope }
+    }
+    const selectedPendingEnforcementChanges = (
+      Boolean(selectedPosture?.signals?.airg_mcp_present)
+      && JSON.stringify(comparableHardening(selectedAgentType, selectedHardeningOptions)) !== JSON.stringify(comparableHardening(selectedAgentType, selectedHardeningBaseline))
+    )
 
     const typeLabelFor = (profile) => {
       const id = String(profile?.agent_type || '').trim()
@@ -5815,10 +5872,7 @@ export default function App() {
               )}
               {agentProfiles.map((profile) => {
                 const posture = postureForProfile(profile)
-                const status = ['gray', 'green', 'yellow', 'red'].includes(String(posture?.status || '').toLowerCase())
-                  ? String(posture?.status || '').toLowerCase()
-                  : 'gray'
-                const pill = statusPillStyle[status]
+                const status = deriveStatusFromSignals(profile, posture)
                 const isActive = String(profile?.profile_id || '') === String(selectedProfile?.profile_id || '')
                 return (
                   <button
@@ -5856,19 +5910,6 @@ export default function App() {
                         {typeLabelFor(profile)}
                       </div>
                     </div>
-                    <span
-                      style={{
-                        background: pill.bg,
-                        color: pill.fg,
-                        fontSize: 10,
-                        fontWeight: 700,
-                        borderRadius: 6,
-                        padding: '1px 6px',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {pill.label}
-                    </span>
                   </button>
                 )
               })}
@@ -6039,7 +6080,7 @@ export default function App() {
                             open: true,
                             title: 'Agent Scope',
                             content: [
-                              'Scope controls where MCP and hardening settings are written.',
+                              'Scope controls where MCP and enforcement settings are written.',
                               '',
                               'Claude Code:',
                               '- Project (default): <workspace>/.mcp.json',
@@ -6138,10 +6179,14 @@ export default function App() {
                       {selectedTheme.icon}
                     </div>
                     <div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: selectedTheme.iconFg }}>
-                        {selectedTheme.label}
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>
+                        Security Posture
+                        {selectedPendingEnforcementChanges && (
+                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
+                            Pending Changes
+                          </span>
+                        )}
                       </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{ceilingNote}</div>
                       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                         {trafficLegend.map((item) => {
                           const isActive = selectedStatusNormalized === item.id
@@ -6194,9 +6239,7 @@ export default function App() {
                         >
                           {agentConfigActionLoading[selectedProfile.profile_id]
                             ? 'Applying…'
-                            : selectedHardeningOpen
-                              ? 'Apply selected hardening'
-                              : 'Apply hardening'}
+                            : 'Apply'}
                         </button>
                       )}
                       {canApplyHardening && (
@@ -6224,10 +6267,10 @@ export default function App() {
                   {selectedHardeningOpen && selectedHardeningOptions && selectedAgentType === 'claude_code' && (
                     <div style={{ background: '#ffffff', borderBottom: `1px solid ${selectedTheme.border}`, padding: '12px 14px' }}>
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 10 }}>
-                        HARDENING OPTIONS
+                        ENFORCEMENT OPTIONS
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 12 }}>
                         <div style={{ fontSize: 12, color: '#64748b' }}>Config scope</div>
                         <div style={{ maxWidth: 280 }}>
                           <SegControl
@@ -6240,9 +6283,9 @@ export default function App() {
                           className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
                           onClick={() => setSettingsInfoModal({
                             open: true,
-                            title: 'Hardening Scope',
+                            title: 'Enforcement Scope',
                             content: [
-                              'Scope controls which Claude settings location AIRG modifies for hardening.',
+                              'Scope controls which Claude settings location AIRG modifies for enforcement options.',
                               '',
                               '- Project: <workspace>/.claude/settings.json',
                               '- Local: <workspace>/.claude/settings.local.json',
@@ -6254,128 +6297,141 @@ export default function App() {
                         </button>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Basic Enforcement (Tier 1)</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.basic_enforcement)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { basic_enforcement: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STANDARD
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Basic Enforcement (Tier 1)',
-                            content: [
-                              'Tier 1 is the recommended baseline.',
-                              'It targets native mutation tools: Bash, Write, Edit, MultiEdit.',
-                              '',
-                              'Redirect mapping:',
-                              '- Bash -> mcp__ai-runtime-guard__execute_command',
-                              '- Write -> mcp__ai-runtime-guard__write_file',
-                              '- Edit/MultiEdit -> mcp__ai-runtime-guard__edit_file',
-                              '',
-                              'Why this matters:',
-                              '- policy decisions and approval flow stay on AIRG MCP path',
-                              '- write operations stay under backup + Script Sentinel controls',
-                              '- audit trail remains centralized in activity.log',
-                            ].join('\n'),
-                          })}
-                        >
-                          Info
-                        </button>
+                        <div style={{ padding: '10px 12px', fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                          Standard enforcement is MCP-only. Configure this using <span className="font-semibold">Apply MCP Config</span> above.
+                        </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Advanced Enforcement (Tier 2)</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.advanced_enforcement)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { advanced_enforcement: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STRICT
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Advanced Enforcement (Tier 2)',
-                            content: [
-                              'Tier 2 extends coverage to native discovery/read tools: Read, Glob, Grep.',
-                              'AIRG hook evaluates candidate paths against blocked path/extension policy and logs allow/deny outcomes.',
-                              '',
-                              'Tradeoff:',
-                              '- additional checks can increase latency in read/search-heavy sessions',
-                              '- Glob capabilities remain broader than list_directory for recursive discovery',
-                              '',
-                              'Use Tier 2 when you want stronger path-policy continuity and richer audit fidelity.',
-                            ].join('\n'),
-                          })}
-                        >
-                          Info
-                        </button>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Hook active</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.basic_enforcement)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { basic_enforcement: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Hook Active',
+                                content: [
+                                  'Registers PreToolUse matchers for Bash, Write, Edit, and MultiEdit.',
+                                  'These native tools are denied and Claude is guided to AIRG MCP equivalents.',
+                                ].join('\n'),
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
+
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Native tools are restricted together with Hook Active for strict enforcement.
+                          </div>
+                        </div>
                       </div>
 
-                      {Boolean(selectedHardeningOptions.advanced_enforcement) && (
-                        <div style={{ margin: '-2px 0 12px 220px', fontSize: 11, color: '#b45309' }}>
-                          Warning: Advanced enforcement can increase processing time in high-frequency read/search workflows.
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          MAXIMUM
                         </div>
-                      )}
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox enabled</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_enabled)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_enabled: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Sandbox Enabled',
+                                content: 'Enables Claude sandbox execution mode for stronger host-level containment where supported by client/runtime.',
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox enabled</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.sandbox_enabled)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_enabled: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox escape closed</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_escape_closed)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_escape_closed: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Sandbox Escape Closed',
+                                content: 'Disables unsandboxed command escape routes when sandbox mode is enabled.',
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Sandbox Enabled',
-                            content: 'Enables Claude sandbox execution mode for stronger host-level containment where supported by client/runtime.',
-                          })}
-                        >
-                          Info
-                        </button>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox escape closed</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.sandbox_escape_closed)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_escape_closed: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          OPTIONAL
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Sandbox Escape Closed',
-                            content: 'Disables unsandboxed command escape routes when sandbox mode is enabled.',
-                          })}
-                        >
-                          Info
-                        </button>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Read/Glob/Grep hook</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.advanced_enforcement)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { advanced_enforcement: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Optional Read/Glob/Grep Hook',
+                                content: [
+                                  'Applies path and extension checks before native Read/Glob/Grep calls.',
+                                  'Optional: does not increase or decrease enforcement level.',
+                                  'May increase latency in read/search-heavy sessions.',
+                                ].join('\n'),
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -6383,11 +6439,11 @@ export default function App() {
                   {selectedHardeningOpen && selectedHardeningOptions && selectedAgentType === 'codex' && (
                     <div style={{ background: '#ffffff', borderBottom: `1px solid ${selectedTheme.border}`, padding: '12px 14px' }}>
                       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 10 }}>
-                        HARDENING OPTIONS
+                        ENFORCEMENT OPTIONS
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Tier 1 guidance</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Guidance</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
                             value={Boolean(selectedHardeningOptions.tier1_guidance)}
@@ -6402,7 +6458,7 @@ export default function App() {
                           className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
                           onClick={() => setSettingsInfoModal({
                             open: true,
-                            title: 'Codex Tier 1 Guidance',
+                            title: 'Codex Guidance',
                             content: 'Writes an AIRG-managed section to ~/.codex/AGENTS.md with deterministic instructions to prefer AIRG MCP tools over native shell/file tools.',
                           })}
                         >
@@ -6411,7 +6467,7 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Tier 2 policy mirror</div>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Policy mirror</div>
                         <div style={{ maxWidth: 120 }}>
                           <SegControl
                             value={Boolean(selectedHardeningOptions.tier2_mirror)}
@@ -6426,7 +6482,7 @@ export default function App() {
                           className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
                           onClick={() => setSettingsInfoModal({
                             open: true,
-                            title: 'Codex Tier 2 Policy Mirror',
+                            title: 'Codex Policy Mirror',
                             content: 'Compiles AIRG blocked commands into Codex execpolicy forbidden rules and keeps them in an AIRG-managed block in ~/.codex/rules/default.rules.',
                           })}
                         >
@@ -6573,21 +6629,6 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-
-                {selectedRecommendations.length > 0 && selectedStatusNormalized !== 'green' && (
-                  <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm">
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 8 }}>
-                      RECOMMENDED NEXT ACTIONS
-                    </div>
-                    <ul style={{ paddingLeft: 16, margin: 0 }}>
-                      {selectedRecommendations.map((line, idx) => (
-                        <li key={`rec-${idx}`} style={{ fontSize: 12, color: '#334155', marginBottom: 6, lineHeight: 1.4 }}>
-                          {line}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
 
                 {(selectedDirty || selectedNeedsReconfigure) && (
                   <div className="bg-white border border-slate-200 rounded-[10px] px-3 py-2 text-xs text-slate-600 shadow-sm">
