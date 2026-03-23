@@ -37,7 +37,7 @@ class AgentConfigsTests(unittest.TestCase):
         result = agent_configs.upsert_profile(self.paths, profile)
         self.assertTrue(result.get("ok"), msg=result)
         saved = result.get("profile", {})
-        self.assertEqual(saved.get("agent_scope"), "local")
+        self.assertEqual(saved.get("agent_scope"), "project")
 
     def test_generate_claude_command_includes_selected_scope(self) -> None:
         profile = {

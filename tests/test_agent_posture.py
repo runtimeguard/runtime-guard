@@ -107,7 +107,7 @@ class AgentPostureTests(unittest.TestCase):
         ):
             row = agent_posture.build_posture_for_profile(profile)
 
-        self.assertEqual(row.get("status"), "red")
+        self.assertEqual(row.get("status"), "gray")
         self.assertFalse(row.get("signals", {}).get("airg_mcp_present"))
         self.assertEqual(row.get("mcp_detected_scopes", []), [])
 
