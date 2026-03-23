@@ -113,9 +113,6 @@ class AgentPostureTests(unittest.TestCase):
         self.assertEqual(row.get("mcp_detected_scopes", []), [])
 
     def test_claude_desktop_posture_detects_desktop_config(self) -> None:
-        desktop_cfg = self.home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-        desktop_cfg.parent.mkdir(parents=True, exist_ok=True)
-        desktop_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
         profile = {
             "profile_id": "p4",
             "name": "Claude Desktop",
@@ -125,6 +122,9 @@ class AgentPostureTests(unittest.TestCase):
         }
 
         with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            desktop_cfg = agent_posture._claude_desktop_config_path()
+            desktop_cfg.parent.mkdir(parents=True, exist_ok=True)
+            desktop_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
             row = agent_posture.build_posture_for_profile(profile)
 
         self.assertEqual(row.get("status"), "green")
@@ -148,9 +148,6 @@ class AgentPostureTests(unittest.TestCase):
         self.assertEqual(row.get("mcp_detected_scopes", []), [])
 
     def test_detect_unregistered_excludes_registered_claude_desktop_config(self) -> None:
-        desktop_cfg = self.home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-        desktop_cfg.parent.mkdir(parents=True, exist_ok=True)
-        desktop_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
         profiles = [
             {
                 "profile_id": "p5b",
@@ -162,6 +159,9 @@ class AgentPostureTests(unittest.TestCase):
         ]
 
         with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            desktop_cfg = agent_posture._claude_desktop_config_path()
+            desktop_cfg.parent.mkdir(parents=True, exist_ok=True)
+            desktop_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
             discovered = agent_posture.detect_unregistered_for_profiles(profiles)
 
         self.assertEqual(discovered, [])
