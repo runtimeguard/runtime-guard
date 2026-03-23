@@ -18,7 +18,7 @@ Primary runtime artifacts:
 - `approvals.py`: command/restore token lifecycle and approval failure throttling.
 - `backup.py`: backup extraction, dedupe/hash logic, retention/version pruning.
 - `reports.py`: activity-log ingestion, reports SQLite schema, query aggregations, retention pruning.
-- `script_sentinel.py`: script-artifact flagging (`write_file`) and execute-time policy-intent continuity checks (`execute_command`).
+- `script_sentinel.py`: script-artifact flagging (`write_file`/`edit_file`) and execute-time policy-intent continuity checks (`execute_command`).
 - `audit.py`: canonical audit-log entry build + append helpers.
 - `executor.py`: constrained subprocess environment and shell execution wrapper.
 - `tools/`: tool surfaces split by concern (`command_tools.py`, `file_tools.py`, `restore_tools.py`).
@@ -70,7 +70,7 @@ If multiple tiers match one command, highest-priority tier wins and a `policy_co
 
 ## Script Sentinel (policy-intent continuity)
 `Script Sentinel` extends command-tier intent to common indirect execution paths:
-1. `flag-at-write`: files written via `write_file` are scanned for blocked/approval-gated command patterns and tagged by `content_hash`.
+1. `flag-at-write`: files written via `write_file`/`edit_file` are scanned for blocked/approval-gated command patterns and tagged by `content_hash`.
    - `scan_mode=exec_context` (default): tags executable-context matches only.
    - `scan_mode=exec_context_plus_mentions`: also records mention-only matches for audit.
 2. `check-at-execute`: `execute_command` resolves common script invocation targets and checks hashes against tagged artifacts.
@@ -88,7 +88,7 @@ If multiple tiers match one command, highest-priority tier wins and a `policy_co
    - execution decisions are applied from executable-context signatures
    - mention-only signatures are retained as audit metadata and do not enforce by default.
 5. Scope boundary:
-   - coverage is intentionally limited to artifacts written through AIRG `write_file`
+   - coverage is intentionally limited to artifacts written through AIRG `write_file`/`edit_file`
    - this is policy-enforcement-evasion detection, not malicious-intent classification.
 
 ### `blocked`
@@ -214,6 +214,7 @@ Backup behavior:
 - `execute_command`: policy-check command (including optional shell workspace containment), track retries, optional backup, execute in constrained env (`shell=True`, `/bin/bash`, cwd=`WORKSPACE_ROOT`, 30s timeout).
 - `read_file`: path policy + file-size guard, then read text (`errors="replace"`).
 - `write_file`: path policy, optional pre-overwrite backup, write text.
+- `edit_file`: path policy, deterministic replacement edits, optional pre-edit backup, write updated text.
 - `delete_file`: path policy, existence/type checks, pre-delete backup, delete file.
 - `list_directory`: path policy, existence/type/depth checks, return formatted listing with type/size/mtime.
 

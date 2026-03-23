@@ -25,6 +25,7 @@ AIRG_MCP_TOOLS = [
     "execute_command",
     "read_file",
     "write_file",
+    "edit_file",
     "delete_file",
     "list_directory",
 ]

@@ -11,8 +11,8 @@ from typing import Any
 REDIRECTS = {
     "Bash": "mcp__ai-runtime-guard__execute_command",
     "Write": "mcp__ai-runtime-guard__write_file",
-    "Edit": "mcp__ai-runtime-guard__write_file",
-    "MultiEdit": "mcp__ai-runtime-guard__write_file",
+    "Edit": "mcp__ai-runtime-guard__edit_file",
+    "MultiEdit": "mcp__ai-runtime-guard__edit_file",
 }
 ALWAYS_ALLOW = {
     "Read",

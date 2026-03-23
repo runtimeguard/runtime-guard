@@ -11,7 +11,7 @@ import config
 import policy_engine
 import script_sentinel
 from tools.command_tools import execute_command
-from tools.file_tools import delete_file, list_directory, read_file, write_file
+from tools.file_tools import delete_file, edit_file, list_directory, read_file, write_file
 
 from tests.test_helpers import apply_test_environment, install_test_policy, reset_runtime_state, restore_policy
 
@@ -189,6 +189,18 @@ class AttackerTestSuite(unittest.TestCase):
         delete_result = delete_file("nested/demo.txt")
         self.assertIn("Successfully deleted", delete_result)
 
+    def test_edit_file_flow(self):
+        self._write("nested/edit.txt", "alpha beta gamma")
+        result = edit_file("nested/edit.txt", old_text="beta", new_text="BETA")
+        self.assertIn("Successfully edited", result)
+        self.assertEqual(read_file("nested/edit.txt"), "alpha BETA gamma")
+
+    def test_edit_file_ambiguous_match_requires_replace_all(self):
+        self._write("nested/ambiguous.txt", "x y x")
+        result = edit_file("nested/ambiguous.txt", old_text="x", new_text="z")
+        self.assertIn("matched 2 times", result)
+        self.assertEqual(read_file("nested/ambiguous.txt"), "x y x")
+
     def test_runtime_protected_files_are_blocked_for_file_tools(self):
         # Create placeholder files; policy should still block access by protected path rule.
         (self.workspace / "approvals.db").write_text("placeholder")
@@ -217,6 +229,17 @@ class AttackerTestSuite(unittest.TestCase):
         backup_events = [entry for entry in lines if entry.get("event") == "backup_created" and entry.get("tool") == "write_file"]
         self.assertEqual(backup_events, [])
 
+    def test_edit_file_creates_backup_event_when_enabled(self):
+        self._write("edit/backup.txt", "before")
+        result = edit_file("edit/backup.txt", old_text="before", new_text="after")
+        self.assertIn("Successfully edited", result)
+        self.assertIn("backed up to", result)
+
+        log_path = self.workspace / "activity.log"
+        lines = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+        backup_events = [entry for entry in lines if entry.get("event") == "backup_created" and entry.get("tool") == "edit_file"]
+        self.assertTrue(backup_events)
+
     def test_delete_file_skips_backup_when_backup_disabled(self):
         self._write("gone.txt", "x")
         policy_engine.POLICY["audit"]["backup_enabled"] = False
@@ -239,6 +262,20 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertIn("Script Sentinel flagged content", write_result)
 
         blocked = execute_command("bash sentinel/block.sh")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("Script Sentinel preserved policy intent", blocked)
+
+    def test_script_sentinel_flags_on_edit_file_and_blocks_execution(self):
+        policy_engine.POLICY["script_sentinel"]["enabled"] = True
+        policy_engine.POLICY["script_sentinel"]["mode"] = "match_original"
+        policy_engine.POLICY["blocked"]["commands"] = ["danger-cmd"]
+        policy_engine.POLICY["requires_confirmation"]["commands"] = []
+        self._write("sentinel/edit.sh", "echo safe\n")
+
+        edit_result = edit_file("sentinel/edit.sh", old_text="echo safe", new_text="danger-cmd")
+        self.assertIn("Script Sentinel flagged content", edit_result)
+
+        blocked = execute_command("bash sentinel/edit.sh")
         self.assertIn("[POLICY BLOCK]", blocked)
         self.assertIn("Script Sentinel preserved policy intent", blocked)
 

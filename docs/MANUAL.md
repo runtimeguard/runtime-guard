@@ -10,7 +10,7 @@ Python:
 3. On macOS, system Python is often `3.9` and can cause dependency install failures; use a newer Python (Homebrew/python.org) and create a fresh venv from that version.
 
 ## 1. What the server does
-- Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `delete_file`, `list_directory`, `restore_backup`.
+- Exposes MCP tools: `server_info`, `execute_command`, `read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`, `restore_backup`.
 - Applies policy from `policy.json` before side effects.
 - Logs all actions to `activity.log`.
 - Builds report views from `activity.log` into `reports.db` for dashboard and log analytics.
@@ -123,7 +123,7 @@ Capabilities:
    - local unregistered agent-config detection.
 8. Claude hook/cfg posture help is available via copy-assist snippets in the same panel.
 9. Script Sentinel (when enabled) preserves policy intent across direct and indirect execution:
-   - scripts written via `write_file` are scanned and hash-tagged on blocked/approval-gated pattern matches
+   - scripts written via `write_file`/`edit_file` are scanned and hash-tagged on blocked/approval-gated pattern matches
    - scan modes:
      - `exec_context` (default): tags only executable-context matches
      - `exec_context_plus_mentions`: also records mention-only matches for audit visibility
@@ -138,7 +138,7 @@ Caveats:
 3. Redaction and obfuscation defenses are pattern-based and not exhaustive.
 4. Some blast-radius/target inference for complex shell patterns is heuristic.
 5. Cumulative budget efficacy depends on threshold tuning.
-6. Script Sentinel coverage is scoped to artifacts written through AIRG `write_file`; it is not a generic host-wide script execution guardrail.
+6. Script Sentinel coverage is scoped to artifacts written through AIRG `write_file`/`edit_file`; it is not a generic host-wide script execution guardrail.
 7. Extension/type changes alone do not clear Script Sentinel state; only content changes (new hash) or explicit trust/dismiss controls alter enforcement outcomes.
 
 ### Packaged UI/runtime path behavior

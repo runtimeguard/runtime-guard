@@ -4,9 +4,10 @@ This guide explains how AIRG MCP tools compare to common native agent tools, and
 
 ## Quick mapping
 1. `Bash` -> `execute_command`
-2. `Write` / `Edit` / `MultiEdit` -> `write_file`
-3. `Read` -> `read_file` (Tier 2 policy checks can apply in hook)
-4. `Glob` / `Grep` -> native tools remain native, but Tier 2 hook can allow/deny based on AIRG path/extension policy.
+2. `Write` -> `write_file`
+3. `Edit` / `MultiEdit` -> `edit_file`
+4. `Read` -> `read_file` (Tier 2 policy checks can apply in hook)
+5. `Glob` / `Grep` -> native tools remain native, but Tier 2 hook can allow/deny based on AIRG path/extension policy.
 
 ## Capability comparison
 ### `list_directory` vs native `Glob`
@@ -25,6 +26,11 @@ This guide explains how AIRG MCP tools compare to common native agent tools, and
 3. Nuance: backup creation depends on policy and operation type:
    - creating a new file has no prior content to back up,
    - overwrites/backups depend on configured backup behavior.
+
+### `edit_file` vs native `Edit` / `MultiEdit`
+1. AIRG `edit_file` applies deterministic text replacements on existing files.
+2. It enforces path policy, creates backup snapshots before content changes, and re-runs Script Sentinel on resulting content.
+3. It supports single-edit and multi-edit operation lists, with ambiguity protection unless `replace_all=true`.
 
 ### `execute_command` vs native `Bash`
 1. AIRG `execute_command` is the enforcement path for command policy, confirmation, audit logging, and Script Sentinel execute checks.
