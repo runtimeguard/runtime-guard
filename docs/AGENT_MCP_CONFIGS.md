@@ -65,6 +65,11 @@ Useful Codex MCP commands:
 2. `codex mcp` (manage configured servers)
 3. In TUI, run `/mcp` to view active MCP servers.
 
+AIRG `Settings -> Agents -> Apply MCP Config` supports Codex directly:
+1. `global` scope writes to `~/.codex/config.toml`
+2. `project` scope writes to `<workspace>/.codex/config.toml`
+3. AIRG manages only the `mcp_servers.ai-runtime-guard` section and preserves unrelated Codex settings.
+
 Example `config.toml` entry:
 ```toml
 [mcp_servers.ai-runtime-guard]
@@ -84,6 +89,8 @@ Use Claude Desktop settings to edit MCP configuration (or edit the JSON file dir
 ### CLI/file setup
 Claude Desktop config file location:
 1. macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+2. Linux: `~/.config/Claude/claude_desktop_config.json`
+3. Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
 
 Sample JSON (AIRG-focused, sanitized):
 ```json
@@ -103,6 +110,8 @@ Sample JSON (AIRG-focused, sanitized):
 
 Notes:
 1. `preferences` keys in Claude config are optional and unrelated to MCP server registration.
+2. AIRG `Apply MCP Config` in Settings -> Agents writes/removes only `mcpServers.ai-runtime-guard` in this file and preserves unrelated keys (for example `preferences`).
+3. Claude Desktop posture in AIRG is MCP-only (no hooks/sandbox hardening controls): gray when absent, green when configured.
 
 ## Claude Code
 ### CLI/file setup

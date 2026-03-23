@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import sys
@@ -10,6 +11,7 @@ from typing import Any
 import agent_configs
 
 CLAUDE_SCOPES = {"project", "local", "user"}
+CODEX_SCOPES = {"global", "project"}
 
 _CLAUDE_JSON_MISSING = (
     "~/.claude.json not found. Claude Code may not have been initialised for this user. "
@@ -18,6 +20,10 @@ _CLAUDE_JSON_MISSING = (
 )
 _INVALID_JSON_MESSAGE = (
     "The target file contains invalid JSON. Please fix it manually or back it up before AIRG can apply."
+)
+_INVALID_TOML_MESSAGE = (
+    "The target file appears to have unsupported TOML structure for AIRG codex MCP updates. "
+    "Please fix it manually or back it up before AIRG can apply."
 )
 AIRG_MCP_TOOLS = [
     "server_info",
@@ -29,6 +35,7 @@ AIRG_MCP_TOOLS = [
     "delete_file",
     "list_directory",
 ]
+_CODEX_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
 
 def _now_iso() -> str:
@@ -83,7 +90,33 @@ def _workspace_path(profile: dict[str, Any]) -> pathlib.Path:
     return workspace
 
 
-def _normalize_scope(raw_scope: Any) -> str:
+def _claude_desktop_config_path() -> pathlib.Path:
+    system = os.name
+    if system == "nt":
+        appdata = str(os.environ.get("APPDATA", "")).strip()
+        if appdata:
+            return pathlib.Path(appdata).expanduser().resolve() / "Claude" / "claude_desktop_config.json"
+        return _home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
+    if sys.platform == "darwin":
+        return _home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    return _home() / ".config" / "Claude" / "claude_desktop_config.json"
+
+
+def _codex_config_path(workspace: pathlib.Path, scope: str) -> pathlib.Path:
+    if scope == "project":
+        return workspace / ".codex" / "config.toml"
+    return _home() / ".codex" / "config.toml"
+
+
+def _normalize_scope(agent_type: str, raw_scope: Any) -> str:
+    normalized = str(agent_type or "").strip().lower()
+    if normalized == "claude_desktop":
+        return "desktop"
+    if normalized == "codex":
+        requested = str(raw_scope or "").strip().lower()
+        if requested in CODEX_SCOPES:
+            return requested
+        return "global"
     requested = str(raw_scope or "").strip().lower()
     if requested in CLAUDE_SCOPES:
         return requested
@@ -131,7 +164,12 @@ def _server_block(workspace: pathlib.Path, agent_id: str) -> dict[str, Any]:
     }
 
 
-def _target_file_for_scope(workspace: pathlib.Path, scope: str) -> pathlib.Path:
+def _target_file_for_scope(agent_type: str, workspace: pathlib.Path, scope: str) -> pathlib.Path:
+    normalized = str(agent_type or "").strip().lower()
+    if normalized == "claude_desktop":
+        return _claude_desktop_config_path()
+    if normalized == "codex":
+        return _codex_config_path(workspace, scope)
     if scope == "project":
         return workspace / ".mcp.json"
     return _home() / ".claude.json"
@@ -280,6 +318,84 @@ def _write_json_verified(path: pathlib.Path, payload: dict[str, Any]) -> None:
         raise RuntimeError(f"Write appeared to succeed but verification failed. Please check the file manually at `{path}`.")
 
 
+def _read_text_strict(path: pathlib.Path) -> str:
+    try:
+        return path.read_text()
+    except Exception as exc:  # pragma: no cover - OS-level read failures
+        raise RuntimeError(f"Failed to read `{path}`: {exc}. Check file permissions and try again.") from exc
+
+
+def _toml_escape(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _toml_string(value: str) -> str:
+    return f'"{_toml_escape(value)}"'
+
+
+def _toml_list(values: list[str]) -> str:
+    return "[" + ", ".join(_toml_string(v) for v in values) + "]"
+
+
+def _codex_airg_block(server_entry: dict[str, Any]) -> str:
+    command = str(server_entry.get("command", "")).strip()
+    args = [str(v) for v in (server_entry.get("args") or [])]
+    env = server_entry.get("env") if isinstance(server_entry.get("env"), dict) else {}
+    lines = [
+        "[mcp_servers.ai-runtime-guard]",
+        f"command = {_toml_string(command)}",
+        f"args = {_toml_list(args)}",
+        "",
+        "[mcp_servers.ai-runtime-guard.env]",
+    ]
+    for key in sorted(env.keys()):
+        lines.append(f"{key} = {_toml_string(str(env[key]))}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _remove_codex_airg_sections(text: str) -> tuple[str, bool]:
+    lines = text.splitlines()
+    out: list[str] = []
+    skip = False
+    removed = False
+    for line in lines:
+        m = _CODEX_SECTION_RE.match(line)
+        if m:
+            section = str(m.group(1)).strip()
+            if section == "mcp_servers.ai-runtime-guard" or section.startswith("mcp_servers.ai-runtime-guard."):
+                skip = True
+                removed = True
+                continue
+            skip = False
+        if not skip:
+            out.append(line)
+    cleaned = "\n".join(out).rstrip()
+    return (cleaned + "\n") if cleaned else "", removed
+
+
+def _codex_has_airg_section(text: str) -> bool:
+    for line in text.splitlines():
+        m = _CODEX_SECTION_RE.match(line)
+        if not m:
+            continue
+        section = str(m.group(1)).strip()
+        if section == "mcp_servers.ai-runtime-guard":
+            return True
+    return False
+
+
+def _write_codex_verified(path: pathlib.Path, text: str) -> None:
+    try:
+        path.write_text(text)
+    except Exception as exc:  # pragma: no cover - OS-level write failures
+        raise RuntimeError(
+            f"Failed to write to `{path}`: {exc}. You can apply manually using the Copy buttons."
+        ) from exc
+    verify = _read_text_strict(path)
+    if not _codex_has_airg_section(verify):
+        raise RuntimeError(f"Write appeared to succeed but verification failed. Please check the file manually at `{path}`.")
+
+
 def _ensure_claude_json_exists(path: pathlib.Path) -> None:
     if path.exists() and path.is_file():
         return
@@ -309,10 +425,7 @@ def _ensure_project_entry(payload: dict[str, Any], workspace: pathlib.Path) -> d
 
 def _apply_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Path, block: dict[str, Any]) -> dict[str, Any]:
     after = _deep_copy(payload)
-    if scope == "project":
-        _ensure_mcp_servers(after)["ai-runtime-guard"] = block
-        return after
-    if scope == "user":
+    if scope in {"project", "user", "desktop"}:
         _ensure_mcp_servers(after)["ai-runtime-guard"] = block
         return after
     project_entry = _ensure_project_entry(after, workspace)
@@ -326,7 +439,7 @@ def _apply_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Pa
 
 def _remove_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Path) -> tuple[dict[str, Any], bool]:
     after = _deep_copy(payload)
-    if scope in {"project", "user"}:
+    if scope in {"project", "user", "desktop"}:
         servers = after.get("mcpServers")
         if not isinstance(servers, dict):
             return after, False
@@ -353,14 +466,14 @@ def _remove_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.P
     return after, existed
 
 
-def _validate_profile(profile: dict[str, Any]) -> tuple[pathlib.Path, str, str]:
+def _validate_profile(profile: dict[str, Any]) -> tuple[str, pathlib.Path, str, str]:
     agent_type = str(profile.get("agent_type", "")).strip().lower()
-    if agent_type != "claude_code":
-        raise ValueError("Only Claude Code MCP apply/remove is supported in this pass.")
+    if agent_type not in {"claude_code", "claude_desktop", "codex"}:
+        raise ValueError("Only Claude Code, Claude Desktop, and Codex MCP apply/remove are supported in this pass.")
     workspace = _workspace_path(profile)
-    scope = _normalize_scope(profile.get("agent_scope"))
+    scope = _normalize_scope(agent_type, profile.get("agent_scope"))
     agent_id = str(profile.get("agent_id") or "").strip() or "default"
-    return workspace, scope, agent_id
+    return agent_type, workspace, scope, agent_id
 
 
 def _normalize_last_applied(raw: Any) -> dict[str, Any] | None:
@@ -377,13 +490,14 @@ def _normalize_last_applied(raw: Any) -> dict[str, Any] | None:
         "timestamp": timestamp,
         "workspace": str(raw.get("workspace") or "").strip(),
         "agent_id": str(raw.get("agent_id") or "").strip(),
+        "agent_type": str(raw.get("agent_type") or "").strip().lower(),
         "created_by_airg": bool(raw.get("created_by_airg", False)),
     }
 
 
 def _build_plan(profile: dict[str, Any]) -> dict[str, Any]:
-    workspace, scope, agent_id = _validate_profile(profile)
-    target_path = _target_file_for_scope(workspace, scope)
+    agent_type, workspace, scope, agent_id = _validate_profile(profile)
+    target_path = _target_file_for_scope(agent_type, workspace, scope)
     previous = _normalize_last_applied(profile.get("last_applied"))
 
     scope_changed = False
@@ -410,7 +524,7 @@ def _build_plan(profile: dict[str, Any]) -> dict[str, Any]:
             requires_previous_choice = True
 
     return {
-        "agent_type": "claude_code",
+        "agent_type": agent_type,
         "scope": scope,
         "workspace": str(workspace),
         "agent_id": agent_id,
@@ -436,6 +550,10 @@ def plan_apply(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> dict[
 
 
 def _apply_for_scope(paths: dict[str, pathlib.Path], plan: dict[str, Any]) -> dict[str, Any]:
+    agent_type = str(plan.get("agent_type", "")).strip().lower()
+    if agent_type == "codex":
+        return _apply_for_scope_codex(paths, plan)
+
     workspace = pathlib.Path(str(plan["workspace"])).resolve()
     scope = str(plan["scope"])
     target = pathlib.Path(str(plan["target_path"])).expanduser().resolve()
@@ -493,6 +611,55 @@ def _apply_for_scope(paths: dict[str, pathlib.Path], plan: dict[str, Any]) -> di
     }
 
 
+def _apply_for_scope_codex(paths: dict[str, pathlib.Path], plan: dict[str, Any]) -> dict[str, Any]:
+    scope = str(plan["scope"]).strip().lower()
+    target = pathlib.Path(str(plan["target_path"])).expanduser().resolve()
+    agent_id = str(plan["agent_id"])
+    server_entry = _deep_copy(plan["server_entry"])
+
+    before_exists = target.exists()
+    if before_exists:
+        before_text = _read_text_strict(target)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        before_text = ""
+
+    cleaned_before, _ = _remove_codex_airg_sections(before_text)
+    block = _codex_airg_block(server_entry)
+    after_text = (cleaned_before.rstrip() + "\n\n" + block) if cleaned_before.strip() else block
+
+    if after_text == before_text:
+        return {
+            "scope": scope,
+            "target_path": str(target),
+            "changed": False,
+            "backup_path": "",
+            "created_by_airg": bool(plan["previous"] and plan["previous"].get("created_by_airg", False)),
+        }
+
+    backup = _backup_file(paths, target, agent_id)
+    try:
+        _write_codex_verified(target, after_text)
+    except Exception:
+        if before_exists and backup and backup.exists():
+            shutil.copy2(backup, target)
+        elif not before_exists and target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                pass
+        raise
+
+    return {
+        "scope": scope,
+        "target_path": str(target),
+        "changed": True,
+        "backup_path": str(backup) if backup else "",
+        "created_by_airg": not before_exists,
+        "before_missing": not before_exists,
+    }
+
+
 def _remove_from_last_applied(
     paths: dict[str, pathlib.Path],
     previous: dict[str, Any],
@@ -500,6 +667,7 @@ def _remove_from_last_applied(
     strict_missing_file: bool,
 ) -> dict[str, Any]:
     scope = str(previous.get("scope") or "").strip().lower()
+    previous_agent_type = str(previous.get("agent_type") or "").strip().lower()
     workspace_raw = str(previous.get("workspace") or "").strip()
     workspace = pathlib.Path(workspace_raw).expanduser().resolve() if workspace_raw else None
     target = pathlib.Path(str(previous.get("file_path") or "")).expanduser().resolve()
@@ -511,6 +679,36 @@ def _remove_from_last_applied(
         if strict_missing_file:
             raise RuntimeError(f"Failed to remove previous MCP config from `{target}`: file not found")
         return {"removed": False, "target_path": str(target), "backup_path": "", "deleted_file": False}
+
+    inferred_codex = target.suffix.lower() == ".toml" and target.name == "config.toml"
+    if previous_agent_type == "codex" or inferred_codex:
+        before_text = _read_text_strict(target)
+        cleaned_text, removed = _remove_codex_airg_sections(before_text)
+        if not removed:
+            return {"removed": False, "target_path": str(target), "backup_path": "", "deleted_file": False}
+        backup = _backup_file(paths, target, agent_id)
+        delete_file = bool(previous.get("created_by_airg", False)) and not cleaned_text.strip()
+        if delete_file:
+            try:
+                target.unlink()
+            except Exception as exc:
+                raise RuntimeError(f"Failed to remove previous MCP config from `{target}`: {exc}") from exc
+            return {
+                "removed": True,
+                "target_path": str(target),
+                "backup_path": str(backup) if backup else "",
+                "deleted_file": True,
+            }
+        try:
+            target.write_text(cleaned_text)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to write `{target}` after codex MCP cleanup: {exc}") from exc
+        return {
+            "removed": True,
+            "target_path": str(target),
+            "backup_path": str(backup) if backup else "",
+            "deleted_file": False,
+        }
 
     before_payload = _read_json_strict(target)
     if scope == "local" and workspace is None:
@@ -584,12 +782,13 @@ def apply_mcp_config(
             previous_removal = _remove_from_last_applied(paths, previous, strict_missing_file=True)
 
         applied = _apply_for_scope(paths, plan)
-        settings_local_sync = _sync_settings_local_allowlist(
-            paths,
-            pathlib.Path(str(plan["workspace"])).resolve(),
-            ensure_enabled=True,
-            agent_id=str(plan["agent_id"]),
-        )
+        if str(plan.get("agent_type", "")).strip().lower() == "claude_code":
+            settings_local_sync = _sync_settings_local_allowlist(
+                paths,
+                pathlib.Path(str(plan["workspace"])).resolve(),
+                ensure_enabled=True,
+                agent_id=str(plan["agent_id"]),
+            )
     except Exception as exc:
         if must_remove_previous and previous_removal is not None:
             return {
@@ -607,6 +806,7 @@ def apply_mcp_config(
         "timestamp": _now_iso(),
         "workspace": plan["workspace"],
         "agent_id": plan["agent_id"],
+        "agent_type": str(plan.get("agent_type") or "").strip().lower(),
         "created_by_airg": bool(applied.get("created_by_airg", False)),
     }
     profile_id = str(profile.get("profile_id") or "").strip()
@@ -641,7 +841,7 @@ def remove_applied_mcp(paths: dict[str, pathlib.Path], profile: dict[str, Any]) 
     else:
         removal = {"removed": False, "reason": "no_last_applied"}
 
-    if workspace_path is not None:
+    if workspace_path is not None and str(profile.get("agent_type", "")).strip().lower() == "claude_code":
         try:
             settings_local_cleanup = _sync_settings_local_allowlist(
                 paths,

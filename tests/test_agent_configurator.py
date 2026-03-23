@@ -214,10 +214,12 @@ class AgentConfiguratorTests(unittest.TestCase):
         options = {
             "tier1_guidance": True,
             "tier2_mirror": True,
-            "tier2_include_requires_confirmation": False,
+            "tier2_mirror_approvals_mode": "allow",
             "tier3_sandbox_mode": "workspace-write",
             "tier3_approval_policy": "on-request",
             "tier3_workspace_write_network_access": False,
+            "tier3_workspace_write_exclude_slash_tmp": True,
+            "tier3_workspace_write_exclude_tmpdir_env_var": True,
             "tier3_workspace_write_writable_roots": [],
         }
         self.paths["policy_path"].write_text(
@@ -260,6 +262,8 @@ class AgentConfiguratorTests(unittest.TestCase):
             self.assertIn('[mcp_servers.ai-runtime-guard]', cfg_text)
             self.assertIn('sandbox_mode = "workspace-write"', cfg_text)
             self.assertIn('approval_policy = "on-request"', cfg_text)
+            self.assertIn('exclude_slash_tmp = true', cfg_text)
+            self.assertIn('exclude_tmpdir_env_var = true', cfg_text)
 
             undone = agent_configurator.undo_hardening(self.paths, profile)
             self.assertTrue(undone.get("ok"), msg=undone)

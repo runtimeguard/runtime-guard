@@ -91,6 +91,7 @@ def _normalize_last_applied(raw_last_applied: Any) -> dict[str, Any] | None:
         "timestamp": timestamp,
         "workspace": workspace,
         "agent_id": agent_id,
+        "agent_type": str(raw_last_applied.get("agent_type") or "").strip().lower(),
         "created_by_airg": created_by_airg,
     }
 

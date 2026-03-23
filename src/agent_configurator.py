@@ -19,6 +19,7 @@ CLAUDE_TIER1_TOOLS = ["Bash", "Write", "Edit", "MultiEdit"]
 CLAUDE_TIER2_TOOLS = ["Read", "Glob", "Grep"]
 CODEX_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 CODEX_APPROVAL_POLICIES = {"untrusted", "on-request", "never"}
+CODEX_MIRROR_APPROVAL_MODES = {"allow", "approve", "deny"}
 CODEX_AGENT_DOC_BEGIN = "<!-- AIRG_CODEX_TIER1_BEGIN -->"
 CODEX_AGENT_DOC_END = "<!-- AIRG_CODEX_TIER1_END -->"
 CODEX_RULES_BEGIN = "# AIRG_CODEX_TIER2_BEGIN"
@@ -285,13 +286,19 @@ def _normalize_codex_hardening_options(options: dict[str, Any] | None) -> dict[s
     elif isinstance(roots_raw, list):
         roots = [str(part).strip() for part in roots_raw if str(part).strip()]
     dedup_roots = list(dict.fromkeys(roots))
+    raw_mirror_mode = str(payload.get("tier2_mirror_approvals_mode", "")).strip().lower()
+    if raw_mirror_mode not in CODEX_MIRROR_APPROVAL_MODES:
+        legacy_include_confirmation = bool(payload.get("tier2_include_requires_confirmation", False))
+        raw_mirror_mode = "approve" if legacy_include_confirmation else "allow"
     return {
         "tier1_guidance": bool(payload.get("tier1_guidance", True)),
         "tier2_mirror": bool(payload.get("tier2_mirror", True)),
-        "tier2_include_requires_confirmation": bool(payload.get("tier2_include_requires_confirmation", False)),
+        "tier2_mirror_approvals_mode": raw_mirror_mode,
         "tier3_sandbox_mode": sandbox_mode,
         "tier3_approval_policy": approval_policy,
         "tier3_workspace_write_network_access": bool(payload.get("tier3_workspace_write_network_access", False)),
+        "tier3_workspace_write_exclude_slash_tmp": bool(payload.get("tier3_workspace_write_exclude_slash_tmp", True)),
+        "tier3_workspace_write_exclude_tmpdir_env_var": bool(payload.get("tier3_workspace_write_exclude_tmpdir_env_var", True)),
         "tier3_workspace_write_writable_roots": dedup_roots,
     }
 
@@ -430,7 +437,7 @@ def _split_command_tokens(command: str) -> list[str]:
 def _compile_codex_rules(
     policy: dict[str, Any],
     *,
-    include_requires_confirmation: bool,
+    mirror_approvals_mode: str,
 ) -> tuple[list[str], list[list[str]], list[list[str]]]:
     blocked_section = policy.get("blocked", {}) if isinstance(policy, dict) else {}
     confirm_section = policy.get("requires_confirmation", {}) if isinstance(policy, dict) else {}
@@ -462,18 +469,29 @@ def _compile_codex_rules(
             f'prefix_rule(pattern={json.dumps(tokens)}, decision="forbidden", '
             f'justification={json.dumps("Blocked by AIRG policy. Use mcp__ai-runtime-guard__execute_command instead.")})'
         )
-    if include_requires_confirmation:
-        blocked_set = {tuple(tokens) for tokens in blocked_tokens}
-        for cmd in confirm_commands:
-            tokens = _split_command_tokens(cmd)
-            if not tokens:
-                continue
-            if tuple(tokens) in blocked_set:
-                continue
+    blocked_set = {tuple(tokens) for tokens in blocked_tokens}
+    mirror_mode = str(mirror_approvals_mode or "").strip().lower()
+    if mirror_mode not in CODEX_MIRROR_APPROVAL_MODES:
+        mirror_mode = "allow"
+    for cmd in confirm_commands:
+        tokens = _split_command_tokens(cmd)
+        if not tokens:
+            continue
+        token_key = tuple(tokens)
+        if token_key in blocked_set:
+            continue
+        if mirror_mode == "approve":
             prompted_tokens.append(tokens)
             lines.append(
                 f'prefix_rule(pattern={json.dumps(tokens)}, decision="prompt", '
                 f'justification={json.dumps("Confirmation required by AIRG policy. Prefer mcp__ai-runtime-guard__execute_command.")})'
+            )
+        elif mirror_mode == "deny":
+            blocked_tokens.append(tokens)
+            blocked_set.add(token_key)
+            lines.append(
+                f'prefix_rule(pattern={json.dumps(tokens)}, decision="forbidden", '
+                f'justification={json.dumps("Blocked by AIRG policy confirmation mirror. Use mcp__ai-runtime-guard__execute_command instead.")})'
             )
     return lines, blocked_tokens, prompted_tokens
 
@@ -696,6 +714,8 @@ def _render_codex_tier3_config(options: dict[str, Any]) -> str:
     sandbox_mode = str(options.get("tier3_sandbox_mode", "workspace-write")).strip().lower()
     approval_policy = str(options.get("tier3_approval_policy", "on-request")).strip().lower()
     network_access = bool(options.get("tier3_workspace_write_network_access", False))
+    exclude_slash_tmp = bool(options.get("tier3_workspace_write_exclude_slash_tmp", True))
+    exclude_tmpdir_env_var = bool(options.get("tier3_workspace_write_exclude_tmpdir_env_var", True))
     writable_roots = options.get("tier3_workspace_write_writable_roots", [])
     roots = writable_roots if isinstance(writable_roots, list) else []
     lines = [
@@ -708,6 +728,8 @@ def _render_codex_tier3_config(options: dict[str, Any]) -> str:
                 "",
                 "[sandbox_workspace_write]",
                 f"network_access = {_toml_bool(network_access)}",
+                f"exclude_slash_tmp = {_toml_bool(exclude_slash_tmp)}",
+                f"exclude_tmpdir_env_var = {_toml_bool(exclude_tmpdir_env_var)}",
                 f"writable_roots = {_toml_string_list([str(r) for r in roots if str(r).strip()])}",
             ]
         )
@@ -1319,19 +1341,22 @@ def _apply_codex(
 
         rules_path = _codex_rules_path()
         rules_before = _read_text_optional(rules_path)
-        include_confirmation = bool(selected_options.get("tier2_include_requires_confirmation", False))
+        mirror_approvals_mode = str(selected_options.get("tier2_mirror_approvals_mode", "allow")).strip().lower()
+        if mirror_approvals_mode not in CODEX_MIRROR_APPROVAL_MODES:
+            mirror_approvals_mode = "allow"
         policy = _effective_policy_for_agent(paths, agent_id)
         policy_hash = _sha256_text(_canonical(policy))
         if bool(selected_options.get("tier2_mirror", True)):
             rule_lines, blocked_tokens, prompted_tokens = _compile_codex_rules(
                 policy,
-                include_requires_confirmation=include_confirmation,
+                mirror_approvals_mode=mirror_approvals_mode,
             )
             meta = {
                 "agent_id": agent_id,
                 "workspace": str(workspace),
                 "policy_hash": policy_hash,
-                "include_requires_confirmation": include_confirmation,
+                "mirror_approvals_mode": mirror_approvals_mode,
+                "include_requires_confirmation": mirror_approvals_mode == "approve",
                 "generated_at": _now_iso(),
                 "generator": "airg",
             }

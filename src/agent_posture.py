@@ -387,6 +387,7 @@ def _codex_rules_state(path: pathlib.Path, agent_id: str) -> dict[str, Any]:
             "present": False,
             "in_sync": False,
             "include_requires_confirmation": False,
+            "mirror_approvals_mode": "",
             "policy_hash_match": False,
             "rules_hash_match": False,
             "metadata": {},
@@ -397,6 +398,7 @@ def _codex_rules_state(path: pathlib.Path, agent_id: str) -> dict[str, Any]:
             "present": False,
             "in_sync": False,
             "include_requires_confirmation": False,
+            "mirror_approvals_mode": "",
             "policy_hash_match": False,
             "rules_hash_match": False,
             "metadata": {},
@@ -407,6 +409,9 @@ def _codex_rules_state(path: pathlib.Path, agent_id: str) -> dict[str, Any]:
     generated_hash = str(metadata.get("generated_rules_hash", "")).strip()
     rules_hash_match = bool(generated_hash) and generated_hash == body_hash
     include_requires_confirmation = bool(metadata.get("include_requires_confirmation", False))
+    mirror_approvals_mode = str(metadata.get("mirror_approvals_mode", "")).strip().lower()
+    if mirror_approvals_mode not in {"allow", "approve", "deny"}:
+        mirror_approvals_mode = "approve" if include_requires_confirmation else "allow"
     effective_policy = _effective_policy_for_agent(agent_id)
     policy_hash = _sha256_text(json.dumps(effective_policy, sort_keys=True, separators=(",", ":"))) if effective_policy else ""
     policy_hash_match = bool(policy_hash) and str(metadata.get("policy_hash", "")).strip() == policy_hash
@@ -414,6 +419,7 @@ def _codex_rules_state(path: pathlib.Path, agent_id: str) -> dict[str, Any]:
         "present": True,
         "in_sync": bool(rules_hash_match and policy_hash_match),
         "include_requires_confirmation": include_requires_confirmation,
+        "mirror_approvals_mode": mirror_approvals_mode,
         "policy_hash_match": policy_hash_match,
         "rules_hash_match": rules_hash_match,
         "metadata": metadata,
@@ -428,6 +434,8 @@ def _codex_tier3_state(path: pathlib.Path) -> dict[str, Any]:
             "sandbox_mode": "",
             "approval_policy": "",
             "network_access": None,
+            "exclude_slash_tmp": None,
+            "exclude_tmpdir_env_var": None,
             "hardened": False,
         }
     try:
@@ -438,14 +446,22 @@ def _codex_tier3_state(path: pathlib.Path) -> dict[str, Any]:
             "sandbox_mode": "",
             "approval_policy": "",
             "network_access": None,
+            "exclude_slash_tmp": None,
+            "exclude_tmpdir_env_var": None,
             "hardened": False,
         }
     sandbox_mode = str(payload.get("sandbox_mode", "")).strip().lower()
     approval_policy = str(payload.get("approval_policy", "")).strip().lower()
     workspace_cfg = payload.get("sandbox_workspace_write", {})
     network_access = None
+    exclude_slash_tmp = None
+    exclude_tmpdir_env_var = None
     if isinstance(workspace_cfg, dict) and "network_access" in workspace_cfg:
         network_access = bool(workspace_cfg.get("network_access"))
+    if isinstance(workspace_cfg, dict) and "exclude_slash_tmp" in workspace_cfg:
+        exclude_slash_tmp = bool(workspace_cfg.get("exclude_slash_tmp"))
+    if isinstance(workspace_cfg, dict) and "exclude_tmpdir_env_var" in workspace_cfg:
+        exclude_tmpdir_env_var = bool(workspace_cfg.get("exclude_tmpdir_env_var"))
     present = bool(sandbox_mode) and bool(approval_policy)
     hardened = (
         sandbox_mode in {"read-only", "workspace-write"}
@@ -456,6 +472,8 @@ def _codex_tier3_state(path: pathlib.Path) -> dict[str, Any]:
         "sandbox_mode": sandbox_mode,
         "approval_policy": approval_policy,
         "network_access": network_access,
+        "exclude_slash_tmp": exclude_slash_tmp,
+        "exclude_tmpdir_env_var": exclude_tmpdir_env_var,
         "hardened": hardened,
     }
 
@@ -636,22 +654,35 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
     tier2_state = _codex_rules_state(tier2_path, str(profile.get("agent_id", "")).strip())
     tier2_present = bool(tier2_state.get("present", False))
     tier2_in_sync = bool(tier2_state.get("in_sync", False))
+    tier2_approvals_mode = str(tier2_state.get("mirror_approvals_mode", "")).strip().lower()
+    tier2_approvals_configured = tier2_approvals_mode in {"allow", "approve", "deny"}
     tier3_state = _codex_tier3_state(tier3_path)
     tier3_present = bool(tier3_state.get("present", False))
-    tier3_hardened = bool(tier3_state.get("hardened", False))
+    sandbox_mode = str(tier3_state.get("sandbox_mode", "")).strip().lower()
+    approval_policy = str(tier3_state.get("approval_policy", "")).strip().lower()
+    sandbox_mode_maximum = sandbox_mode == "read-only"
+    approval_policy_maximum = approval_policy == "untrusted"
+    network_access = tier3_state.get("network_access")
+    exclude_slash_tmp = tier3_state.get("exclude_slash_tmp")
+    exclude_tmpdir_env_var = tier3_state.get("exclude_tmpdir_env_var")
+    workspace_write_network_blocked = network_access is False
+    workspace_write_slash_tmp_blocked = exclude_slash_tmp is True
+    workspace_write_tmpdir_blocked = exclude_tmpdir_env_var is True
+    strict_ready = bool(has_mcp and tier1_guidance and tier2_in_sync and tier2_approvals_configured)
+    maximum_ready = bool(strict_ready and sandbox_mode_maximum and approval_policy_maximum)
 
     if not has_mcp:
         status = "gray"
         rationale = "No AIRG MCP server configuration detected."
-    elif tier1_guidance and tier2_in_sync and tier3_hardened:
+    elif maximum_ready:
         status = "green"
-        rationale = "Full Codex hardening detected: MCP + Tier 1 guidance + Tier 2 policy mirror + Tier 3 sandbox controls."
-    elif tier1_guidance or tier2_present or tier3_present:
+        rationale = "Maximum Codex enforcement detected: Standard + Strict + read-only sandbox + untrusted approvals."
+    elif strict_ready:
         status = "yellow"
-        rationale = "Partial Codex hardening detected. Complete Tier 1/2/3 controls to reach Green."
+        rationale = "Strict Codex enforcement detected: MCP + guidance + policy mirror."
     else:
         status = "red"
-        rationale = "AIRG MCP detected, but Codex hardening tiers are not configured."
+        rationale = "Standard Codex enforcement detected: AIRG MCP configured."
 
     detected_scopes: list[str] = []
     if has_global:
@@ -669,32 +700,43 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
         "tier1_guidance_present": tier1_guidance,
         "tier2_rules_present": tier2_present,
         "tier2_rules_in_sync": tier2_in_sync,
-        "sandbox_hardened": tier3_hardened,
+        "tier2_mirror_approvals_configured": tier2_approvals_configured,
+        "sandbox_mode_maximum": sandbox_mode_maximum,
+        "approval_policy_maximum": approval_policy_maximum,
+        "workspace_write_network_blocked": workspace_write_network_blocked,
+        "workspace_write_slash_tmp_blocked": workspace_write_slash_tmp_blocked,
+        "workspace_write_tmpdir_blocked": workspace_write_tmpdir_blocked,
     }
     missing_controls = []
     if not has_mcp:
         missing_controls.append("AIRG MCP configured")
     if has_mcp and not tier1_guidance:
-        missing_controls.append("Tier 1 Codex guidance")
+        missing_controls.append("Guidance configured")
     if has_mcp and not tier2_present:
-        missing_controls.append("Tier 2 rules mirror")
+        missing_controls.append("Policy mirror configured")
     if has_mcp and tier2_present and not tier2_in_sync:
-        missing_controls.append("Tier 2 rules in sync with policy")
-    if has_mcp and not tier3_hardened:
-        missing_controls.append("Tier 3 sandbox + approval hardening")
+        missing_controls.append("Policy mirror in sync")
+    if has_mcp and not tier2_approvals_configured:
+        missing_controls.append("Mirror approvals mode configured")
+    if has_mcp and strict_ready and not sandbox_mode_maximum:
+        missing_controls.append("Sandbox mode read-only")
+    if has_mcp and strict_ready and not approval_policy_maximum:
+        missing_controls.append("Approval policy untrusted")
 
     recommendations: list[str] = []
     if not has_mcp:
         recommendations.append("Add ai-runtime-guard MCP server to Codex config.toml (global or project scope).")
     else:
         if not tier1_guidance:
-            recommendations.append("Apply Codex Tier 1 guidance in ~/.codex/AGENTS.md.")
+            recommendations.append("Apply Codex guidance in ~/.codex/AGENTS.md.")
         if not tier2_present:
-            recommendations.append("Apply Codex Tier 2 AIRG policy mirror to ~/.codex/rules/default.rules.")
+            recommendations.append("Apply Codex AIRG policy mirror to ~/.codex/rules/default.rules.")
         elif not tier2_in_sync:
-            recommendations.append("Codex Tier 2 rules drifted from AIRG policy. Reapply hardening.")
-        if not tier3_hardened:
-            recommendations.append("Set Codex sandbox_mode and approval_policy to hardened values in ~/.codex/config.toml.")
+            recommendations.append("Codex policy mirror drifted from AIRG policy. Reapply enforcement.")
+        if strict_ready and not sandbox_mode_maximum:
+            recommendations.append("Set Codex sandbox_mode to read-only for maximum posture.")
+        if strict_ready and not approval_policy_maximum:
+            recommendations.append("Set Codex approval_policy to untrusted for maximum posture.")
 
     return {
         "status": status,
@@ -705,7 +747,12 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
             "tier1_guidance_present": (["global"] if tier1_guidance else []),
             "tier2_rules_present": (["global"] if tier2_present else []),
             "tier2_rules_in_sync": (["global"] if tier2_in_sync else []),
-            "sandbox_hardened": (["global"] if tier3_present else []),
+            "tier2_mirror_approvals_configured": (["global"] if tier2_present else []),
+            "sandbox_mode_maximum": (["global"] if tier3_present else []),
+            "approval_policy_maximum": (["global"] if tier3_present else []),
+            "workspace_write_network_blocked": (["global"] if tier3_present else []),
+            "workspace_write_slash_tmp_blocked": (["global"] if tier3_present else []),
+            "workspace_write_tmpdir_blocked": (["global"] if tier3_present else []),
         },
         "mcp_detected_scopes": detected_scopes,
         "mcp_detected_locations": locations,
@@ -716,11 +763,14 @@ def _build_codex_posture(profile: dict[str, Any]) -> dict[str, Any]:
         "paths_checked": [str(p) for p in paths + [tier1_path, tier2_path]],
         "existing_paths": [str(p) for p in paths + [tier1_path, tier2_path] if p.exists()],
         "codex_tier2_include_requires_confirmation": bool(tier2_state.get("include_requires_confirmation", False)),
+        "codex_tier2_mirror_approvals_mode": tier2_approvals_mode or "allow",
         "codex_tier2_policy_hash_match": bool(tier2_state.get("policy_hash_match", False)),
         "codex_tier2_rules_hash_match": bool(tier2_state.get("rules_hash_match", False)),
-        "codex_tier3_sandbox_mode": str(tier3_state.get("sandbox_mode", "")),
-        "codex_tier3_approval_policy": str(tier3_state.get("approval_policy", "")),
-        "codex_tier3_network_access": tier3_state.get("network_access"),
+        "codex_tier3_sandbox_mode": sandbox_mode,
+        "codex_tier3_approval_policy": approval_policy,
+        "codex_tier3_network_access": network_access,
+        "codex_tier3_exclude_slash_tmp": exclude_slash_tmp,
+        "codex_tier3_exclude_tmpdir_env_var": exclude_tmpdir_env_var,
     }
 
 

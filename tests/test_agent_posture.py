@@ -226,11 +226,13 @@ class AgentPostureTests(unittest.TestCase):
         codex_cfg = self.home / ".codex" / "config.toml"
         codex_cfg.parent.mkdir(parents=True, exist_ok=True)
         codex_cfg.write_text(
-            'sandbox_mode = "workspace-write"\n'
-            'approval_policy = "on-request"\n'
+            'sandbox_mode = "read-only"\n'
+            'approval_policy = "untrusted"\n'
             '\n'
             '[sandbox_workspace_write]\n'
             'network_access = false\n'
+            'exclude_slash_tmp = true\n'
+            'exclude_tmpdir_env_var = true\n'
             'writable_roots = []\n'
             '\n'
             '[mcp_servers.ai-runtime-guard]\n'
@@ -265,7 +267,7 @@ class AgentPostureTests(unittest.TestCase):
         rules_file.write_text(
             '# AIRG_CODEX_TIER2_BEGIN {"agent_id":"codex-1","policy_hash":"'
             + policy_hash
-            + '","include_requires_confirmation":false,"generated_rules_hash":"'
+            + '","mirror_approvals_mode":"allow","include_requires_confirmation":false,"generated_rules_hash":"'
             + rules_hash
             + '"}\n'
             + rules_body
@@ -291,7 +293,9 @@ class AgentPostureTests(unittest.TestCase):
         self.assertTrue(row.get("signals", {}).get("tier1_guidance_present"))
         self.assertTrue(row.get("signals", {}).get("tier2_rules_present"))
         self.assertTrue(row.get("signals", {}).get("tier2_rules_in_sync"))
-        self.assertTrue(row.get("signals", {}).get("sandbox_hardened"))
+        self.assertTrue(row.get("signals", {}).get("tier2_mirror_approvals_configured"))
+        self.assertTrue(row.get("signals", {}).get("sandbox_mode_maximum"))
+        self.assertTrue(row.get("signals", {}).get("approval_policy_maximum"))
 
 
 if __name__ == "__main__":

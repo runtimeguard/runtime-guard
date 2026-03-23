@@ -639,10 +639,12 @@ export default function App() {
         scope,
         tier1_guidance: true,
         tier2_mirror: true,
-        tier2_include_requires_confirmation: false,
+        tier2_mirror_approvals_mode: 'approve',
         tier3_sandbox_mode: 'workspace-write',
         tier3_approval_policy: 'on-request',
         tier3_workspace_write_network_access: false,
+        tier3_workspace_write_exclude_slash_tmp: true,
+        tier3_workspace_write_exclude_tmpdir_env_var: true,
         tier3_workspace_write_writable_roots: [],
       }
     }
@@ -5655,6 +5657,15 @@ export default function App() {
       const fallbackNormalized = ['gray', 'green', 'yellow', 'red'].includes(fallback) ? fallback : 'gray'
       const agentType = String(profile?.agent_type || '').trim().toLowerCase()
       const signals = posture?.signals || {}
+      if (agentType === 'codex') {
+        const hasMcp = Boolean(signals?.airg_mcp_present)
+        if (!hasMcp) return 'gray'
+        const strictReady = Boolean(signals?.tier1_guidance_present) && Boolean(signals?.tier2_rules_in_sync) && Boolean(signals?.tier2_mirror_approvals_configured)
+        const maximumReady = strictReady && Boolean(signals?.sandbox_mode_maximum) && Boolean(signals?.approval_policy_maximum)
+        if (maximumReady) return 'green'
+        if (strictReady) return 'yellow'
+        return 'red'
+      }
       if (agentType !== 'claude_code') return fallbackNormalized
       const hasMcp = Boolean(signals?.airg_mcp_present)
       if (!hasMcp) return 'gray'
@@ -5685,10 +5696,12 @@ export default function App() {
           ...defaults,
           tier1_guidance: Boolean(signals?.tier1_guidance_present),
           tier2_mirror: Boolean(signals?.tier2_rules_present),
-          tier2_include_requires_confirmation: Boolean(posture?.codex_tier2_include_requires_confirmation),
+          tier2_mirror_approvals_mode: String(posture?.codex_tier2_mirror_approvals_mode || defaults.tier2_mirror_approvals_mode || 'allow'),
           tier3_sandbox_mode: String(posture?.codex_tier3_sandbox_mode || defaults.tier3_sandbox_mode || 'workspace-write'),
           tier3_approval_policy: String(posture?.codex_tier3_approval_policy || defaults.tier3_approval_policy || 'on-request'),
-          tier3_workspace_write_network_access: Boolean(posture?.codex_tier3_workspace_write_network_access),
+          tier3_workspace_write_network_access: posture?.codex_tier3_network_access === true,
+          tier3_workspace_write_exclude_slash_tmp: posture?.codex_tier3_exclude_slash_tmp !== false,
+          tier3_workspace_write_exclude_tmpdir_env_var: posture?.codex_tier3_exclude_tmpdir_env_var !== false,
         }
       }
       return defaults
@@ -5740,7 +5753,12 @@ export default function App() {
           { key: 'tier1_guidance_present', label: 'Guidance present', failText: 'Missing AIRG managed block in ~/.codex/AGENTS.md' },
           { key: 'tier2_rules_present', label: 'Policy mirror present', failText: 'Missing AIRG managed block in ~/.codex/rules/default.rules' },
           { key: 'tier2_rules_in_sync', label: 'Policy mirror in sync', failText: 'Rules drift detected; reapply hardening' },
-          { key: 'sandbox_hardened', label: 'Sandbox hardened', failText: 'sandbox_mode/approval_policy not in hardened state' },
+          { key: 'tier2_mirror_approvals_configured', label: 'Mirror approvals configured', failText: 'Mirror approvals mode missing in managed rules metadata' },
+          { key: 'sandbox_mode_maximum', label: 'Sandbox mode', failText: 'Sandbox mode is not read-only' },
+          { key: 'approval_policy_maximum', label: 'Approval policy', failText: 'Approval policy is not untrusted' },
+          { key: 'workspace_write_network_blocked', label: 'Sandbox Settings: Network Access', failText: 'Network access enabled in workspace-write mode' },
+          { key: 'workspace_write_slash_tmp_blocked', label: 'Sandbox Settings: Access to /tmp', failText: '/tmp access not denied in workspace-write mode' },
+          { key: 'workspace_write_tmpdir_blocked', label: 'Sandbox Settings: Access to $TMPDIR', failText: '$TMPDIR access not denied in workspace-write mode' },
         ]
       : [
           {
@@ -5785,11 +5803,62 @@ export default function App() {
         : state === 'na'
           ? (optionalClaudeHook ? 'Optional control' : 'Not supported by this client')
           : row.failText
-      const codexTier3Detail = (row.key === 'sandbox_hardened' && state === 'pass')
-        ? `sandbox_mode=${String(selectedPosture?.codex_tier3_sandbox_mode || '')}, approval_policy=${String(selectedPosture?.codex_tier3_approval_policy || '')}`
-        : detail
-      return { ...row, state, detail: codexTier3Detail }
+      const codexDetail = (() => {
+        if (selectedAgentType !== 'codex') return detail
+        if (row.key === 'sandbox_mode_maximum') {
+          const mode = String(selectedPosture?.codex_tier3_sandbox_mode || '').trim() || 'not set'
+          if (mode === 'read-only') return 'Sandbox Mode is Read-only'
+          if (mode === 'workspace-write') return 'Sandbox Mode is Write Access'
+          if (mode === 'danger-full-access') return 'Sandbox Mode is Danger Full Access'
+          return `Sandbox Mode is ${mode}`
+        }
+        if (row.key === 'approval_policy_maximum') {
+          const policy = String(selectedPosture?.codex_tier3_approval_policy || '').trim() || 'not set'
+          if (policy === 'untrusted') return 'Approvals Mode is Untrusted'
+          if (policy === 'on-request') return 'Approvals Mode is On-request'
+          if (policy === 'never') return 'Approvals Mode is Never'
+          return `Approvals Mode is ${policy}`
+        }
+        if (row.key === 'workspace_write_network_blocked') {
+          const value = selectedPosture?.codex_tier3_network_access
+          return value === false ? 'Network access disabled' : value === true ? 'Network access enabled' : 'Network access not set'
+        }
+        if (row.key === 'workspace_write_slash_tmp_blocked') {
+          const value = selectedPosture?.codex_tier3_exclude_slash_tmp
+          return value === true ? '/tmp access denied' : value === false ? '/tmp access allowed' : '/tmp access not set'
+        }
+        if (row.key === 'workspace_write_tmpdir_blocked') {
+          const value = selectedPosture?.codex_tier3_exclude_tmpdir_env_var
+          return value === true ? '$TMPDIR access denied' : value === false ? '$TMPDIR access allowed' : '$TMPDIR access not set'
+        }
+        if (row.key === 'tier2_mirror_approvals_configured') {
+          const mode = String(selectedPosture?.codex_tier2_mirror_approvals_mode || '').trim() || 'not set'
+          return `Mode: ${mode}`
+        }
+        return detail
+      })()
+      return { ...row, state, detail: codexDetail }
     })
+    const signalSections = (() => {
+      if (selectedAgentType === 'claude_code') {
+        const byKeys = (keys) => signalRows.filter((row) => keys.includes(row.key))
+        return [
+          { title: 'Standard', rows: byKeys(['airg_mcp_present']) },
+          { title: 'Strict', rows: byKeys(['tier1_hook_active', 'native_tools_restricted']) },
+          { title: 'Maximum', rows: byKeys(['sandbox_enabled', 'sandbox_escape_closed']) },
+          { title: 'Optional', rows: byKeys(['tier2_hook_active']) },
+        ].filter((section) => section.rows.length > 0)
+      }
+      if (selectedAgentType === 'codex') {
+        const byKeys = (keys) => signalRows.filter((row) => keys.includes(row.key))
+        return [
+          { title: 'Standard', rows: byKeys(['airg_mcp_present']) },
+          { title: 'Strict', rows: byKeys(['tier1_guidance_present', 'tier2_rules_present', 'tier2_rules_in_sync', 'tier2_mirror_approvals_configured']) },
+          { title: 'Maximum', rows: byKeys(['sandbox_mode_maximum', 'approval_policy_maximum', 'workspace_write_network_blocked', 'workspace_write_slash_tmp_blocked', 'workspace_write_tmpdir_blocked']) },
+        ].filter((section) => section.rows.length > 0)
+      }
+      return [{ title: null, rows: signalRows }]
+    })()
 
     const selectedDirty = selectedProfile ? isProfileDirty(selectedProfile) : false
     const selectedHasSavedProfile = selectedProfile ? hasPersistedProfile(selectedProfile) : false
@@ -5814,10 +5883,12 @@ export default function App() {
           scope,
           tier1_guidance: Boolean(options?.tier1_guidance),
           tier2_mirror: Boolean(options?.tier2_mirror),
-          tier2_include_requires_confirmation: Boolean(options?.tier2_include_requires_confirmation),
+          tier2_mirror_approvals_mode: String(options?.tier2_mirror_approvals_mode || 'allow'),
           tier3_sandbox_mode: String(options?.tier3_sandbox_mode || ''),
           tier3_approval_policy: String(options?.tier3_approval_policy || ''),
           tier3_workspace_write_network_access: Boolean(options?.tier3_workspace_write_network_access),
+          tier3_workspace_write_exclude_slash_tmp: Boolean(options?.tier3_workspace_write_exclude_slash_tmp),
+          tier3_workspace_write_exclude_tmpdir_env_var: Boolean(options?.tier3_workspace_write_exclude_tmpdir_env_var),
         }
       }
       return { scope }
@@ -6285,11 +6356,13 @@ export default function App() {
                             open: true,
                             title: 'Enforcement Scope',
                             content: [
-                              'Scope controls which Claude settings location AIRG modifies for enforcement options.',
+                              'Controls which Claude settings location is modified for enforcement options.',
                               '',
                               '- Project: <workspace>/.claude/settings.json',
                               '- Local: <workspace>/.claude/settings.local.json',
                               '- User: ~/.claude/settings.json',
+                              '',
+                              'Recommended: Project (default)',
                             ].join('\n'),
                           })}
                         >
@@ -6329,8 +6402,10 @@ export default function App() {
                                 open: true,
                                 title: 'Hook Active',
                                 content: [
-                                  'Registers PreToolUse matchers for Bash, Write, Edit, and MultiEdit.',
-                                  'These native tools are denied and Claude is guided to AIRG MCP equivalents.',
+                                  'Registers a hook to deny native tools and redirect Claude to use AIRG tools. This provides policy enforcement, logging and automated backup.',
+                                  'The hook applies to Bash, Write, Edit, and MultiEdit.',
+                                  '',
+                                  'Reference: https://code.claude.com/docs/en/hooks',
                                 ].join('\n'),
                               })}
                             >
@@ -6366,7 +6441,14 @@ export default function App() {
                               onClick={() => setSettingsInfoModal({
                                 open: true,
                                 title: 'Sandbox Enabled',
-                                content: 'Enables Claude sandbox execution mode for stronger host-level containment where supported by client/runtime.',
+                                content: [
+                                  'Claude Code features native sandboxing to provide a more secure environment for agent execution while reducing the need for constant permission prompts. Instead of asking permission for each bash command, sandboxing creates defined boundaries upfront where Claude Code can work more freely with reduced risk.',
+                                  'The sandboxed bash tool uses OS-level primitives to enforce both filesystem and network isolation.',
+                                  '',
+                                  'Reference: https://code.claude.com/docs/en/sandboxing',
+                                  '',
+                                  'Note: while Sandboxing is highly recommended to prevent system access and potential damage to your files, in certain situations it could prevent the agent from doing the work that you need.',
+                                ].join('\n'),
                               })}
                             >
                               Info
@@ -6390,7 +6472,11 @@ export default function App() {
                               onClick={() => setSettingsInfoModal({
                                 open: true,
                                 title: 'Sandbox Escape Closed',
-                                content: 'Disables unsandboxed command escape routes when sandbox mode is enabled.',
+                                content: [
+                                  'Deny commands to run outside the sandbox via the dangerouslyDisableSandbox parameter. When the escape is Closed, the dangerouslyDisableSandbox escape hatch is completely disabled and all commands must run sandboxed (or be in excludedCommands). Useful for enterprise policies that require strict sandboxing. Default: true',
+                                  '',
+                                  'Reference: https://code.claude.com/docs/en/settings#sandbox-settings',
+                                ].join('\n'),
                               })}
                             >
                               Info
@@ -6422,9 +6508,8 @@ export default function App() {
                                 open: true,
                                 title: 'Optional Read/Glob/Grep Hook',
                                 content: [
-                                  'Applies path and extension checks before native Read/Glob/Grep calls.',
-                                  'Optional: does not increase or decrease enforcement level.',
-                                  'May increase latency in read/search-heavy sessions.',
+                                  'Enforce the AIRG hook for the Grep, Glob and Read calls',
+                                  'Useful to enforce agent access to read potential sensitive files (controlled through AIRG policy) but might increase latency in read/search-heavy sessions.',
                                 ].join('\n'),
                               })}
                             >
@@ -6442,189 +6527,296 @@ export default function App() {
                         ENFORCEMENT OPTIONS
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Guidance</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.tier1_guidance)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { tier1_guidance: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STANDARD
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Codex Guidance',
-                            content: 'Writes an AIRG-managed section to ~/.codex/AGENTS.md with deterministic instructions to prefer AIRG MCP tools over native shell/file tools.',
-                          })}
-                        >
-                          Info
-                        </button>
+                        <div style={{ padding: '10px 12px', fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                          Standard enforcement is MCP-only. Configure this using <span className="font-semibold">Apply MCP Config</span> above.
+                        </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Policy mirror</div>
-                        <div style={{ maxWidth: 120 }}>
-                          <SegControl
-                            value={Boolean(selectedHardeningOptions.tier2_mirror)}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { tier2_mirror: Boolean(value) })}
-                            options={[
-                              { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                              { label: 'No', value: false, activeClass: 'yn-no' },
-                            ]}
-                          />
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STRICT
                         </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Codex Policy Mirror',
-                            content: 'Compiles AIRG blocked commands into Codex execpolicy forbidden rules and keeps them in an AIRG-managed block in ~/.codex/rules/default.rules.',
-                          })}
-                        >
-                          Info
-                        </button>
-                      </div>
-
-                      {Boolean(selectedHardeningOptions.tier2_mirror) && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                          <div style={{ fontSize: 12, color: '#64748b' }}>Mirror requires_confirmation</div>
-                          <div style={{ maxWidth: 120 }}>
-                            <SegControl
-                              value={Boolean(selectedHardeningOptions.tier2_include_requires_confirmation)}
-                              onChange={(value) => setHardeningOption(selectedProfileId, { tier2_include_requires_confirmation: Boolean(value) })}
-                              options={[
-                                { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                                { label: 'No', value: false, activeClass: 'yn-no' },
-                              ]}
-                            />
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Guidance</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.tier1_guidance)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { tier1_guidance: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Guidance',
+                                content: 'Writes instructions to agents.md telling Codex to use Runtime Guard MCP tools instead of native Bash equivalents. Treated as guidance only - Codex may not always follow it. Pair with Policy Mirror for stronger coverage.',
+                              })}
+                            >
+                              Info
+                            </button>
                           </div>
-                          <button
-                            className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                            onClick={() => setSettingsInfoModal({
-                              open: true,
-                              title: 'Mirror Requires Confirmation',
-                              content: 'When enabled, AIRG requires_confirmation commands are mirrored as Codex execpolicy prompt rules.',
-                            })}
-                          >
-                            Info
-                          </button>
-                        </div>
-                      )}
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox mode</div>
-                        <div style={{ maxWidth: 360 }}>
-                          <SegControl
-                            value={String(selectedHardeningOptions.tier3_sandbox_mode || 'workspace-write')}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { tier3_sandbox_mode: String(value) })}
-                            options={[
-                              { label: 'Read-only', value: 'read-only', activeClass: 'm-blue' },
-                              { label: 'Workspace-write', value: 'workspace-write', activeClass: 'm-blue' },
-                              { label: 'Danger-full-access', value: 'danger-full-access', activeClass: 'm-blue' },
-                            ]}
-                          />
-                        </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Codex Sandbox Mode',
-                            content: 'Writes sandbox_mode in ~/.codex/config.toml. Recommended: workspace-write for practical containment.',
-                          })}
-                        >
-                          Info
-                        </button>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: '#64748b' }}>Approval policy</div>
-                        <div style={{ maxWidth: 360 }}>
-                          <SegControl
-                            value={String(selectedHardeningOptions.tier3_approval_policy || 'on-request')}
-                            onChange={(value) => setHardeningOption(selectedProfileId, { tier3_approval_policy: String(value) })}
-                            options={[
-                              { label: 'Untrusted', value: 'untrusted', activeClass: 'm-blue' },
-                              { label: 'On-request', value: 'on-request', activeClass: 'm-blue' },
-                              { label: 'Never', value: 'never', activeClass: 'm-blue' },
-                            ]}
-                          />
-                        </div>
-                        <button
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                          onClick={() => setSettingsInfoModal({
-                            open: true,
-                            title: 'Codex Approval Policy',
-                            content: 'Writes approval_policy in ~/.codex/config.toml. Recommended: on-request or untrusted.',
-                          })}
-                        >
-                          Info
-                        </button>
-                      </div>
-
-                      {String(selectedHardeningOptions.tier3_sandbox_mode || '') === 'workspace-write' && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
-                          <div style={{ fontSize: 12, color: '#64748b' }}>Workspace-write network access</div>
-                          <div style={{ maxWidth: 120 }}>
-                            <SegControl
-                              value={Boolean(selectedHardeningOptions.tier3_workspace_write_network_access)}
-                              onChange={(value) => setHardeningOption(selectedProfileId, { tier3_workspace_write_network_access: Boolean(value) })}
-                              options={[
-                                { label: 'Yes', value: true, activeClass: 'yn-yes' },
-                                { label: 'No', value: false, activeClass: 'yn-no' },
-                              ]}
-                            />
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Policy mirror</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.tier2_mirror)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { tier2_mirror: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Policy Mirror',
+                                content: 'Converts your Runtime Guard policy into native Codex rules and writes them to config. Blocked commands in AIRG policy become Codex block rules. Provides a second enforcement signal alongside the MCP layer.',
+                              })}
+                            >
+                              Info
+                            </button>
                           </div>
-                          <button
-                            className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
-                            onClick={() => setSettingsInfoModal({
-                              open: true,
-                              title: 'Workspace-write Network Access',
-                              content: 'Controls sandbox_workspace_write.network_access in Codex config.toml. Default is No.',
-                            })}
-                          >
-                            Info
-                          </button>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Mirror Approvals</div>
+                            <div style={{ maxWidth: 320 }}>
+                              <SegControl
+                                value={String(selectedHardeningOptions.tier2_mirror_approvals_mode || 'allow')}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { tier2_mirror_approvals_mode: String(value) })}
+                                options={[
+                                  { label: 'Allow', value: 'allow', activeClass: 'm-blue' },
+                                  { label: 'Deny', value: 'deny', activeClass: 'active-block' },
+                                  { label: 'Require Approval', value: 'approve', activeClass: 'active-confirm' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Mirror Approvals',
+                                content: 'Controls how commands marked for human approval in Runtime Guard policy are mirrored to Codex rules. Allow: commands are permitted without approval. Require Approval: mirrors the approval requirement as a Codex rule. Deny: commands are blocked outright in Codex config',
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
                         </div>
-                      )}
+                      </div>
+
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          MAXIMUM
+                        </div>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox mode</div>
+                            <div style={{ maxWidth: 360 }}>
+                              <SegControl
+                                value={String(selectedHardeningOptions.tier3_sandbox_mode || 'workspace-write')}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { tier3_sandbox_mode: String(value) })}
+                                options={[
+                                  { label: 'Read-only', value: 'read-only', activeClass: 'm-blue' },
+                                  { label: 'Workspace-write', value: 'workspace-write', activeClass: 'm-blue' },
+                                  { label: 'Danger-full-access', value: 'danger-full-access', activeClass: 'm-blue' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Sandbox mode',
+                                content: [
+                                  'Sets the Codex sandbox boundary.',
+                                  'read-only: Codex can inspect files, but it cannot edit files or run commands without approval.',
+                                  'workspace-write: Codex can read files, edit within the workspace, and run routine local commands inside that boundary. This is the default low-friction mode for local work.',
+                                  'danger-full-access: Codex runs without sandbox restrictions. This removes the filesystem and network boundaries and should be used only when you want Codex to act with full access.',
+                                ].join('\n'),
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Approval policy</div>
+                            <div style={{ maxWidth: 360 }}>
+                              <SegControl
+                                value={String(selectedHardeningOptions.tier3_approval_policy || 'on-request')}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { tier3_approval_policy: String(value) })}
+                                options={[
+                                  { label: 'Untrusted', value: 'untrusted', activeClass: 'm-blue' },
+                                  { label: 'On-request', value: 'on-request', activeClass: 'm-blue' },
+                                  { label: 'Never', value: 'never', activeClass: 'm-blue' },
+                                ]}
+                              />
+                            </div>
+                            <button
+                              className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                              onClick={() => setSettingsInfoModal({
+                                open: true,
+                                title: 'Approval Policy',
+                                content: [
+                                  'untrusted: Codex asks before running commands that are not in its trusted set.',
+                                  'on-request: Codex works inside the sandbox by default and asks when it needs to go beyond that boundary.',
+                                  'never: Codex does not stop for approval prompts.',
+                                ].join('\n'),
+                              })}
+                            >
+                              Info
+                            </button>
+                          </div>
+
+                          {String(selectedHardeningOptions.tier3_sandbox_mode || '') === 'workspace-write' && (
+                            <>
+                              <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox: Workspace-write network access</div>
+                                <div style={{ maxWidth: 120 }}>
+                                  <SegControl
+                                    value={Boolean(selectedHardeningOptions.tier3_workspace_write_network_access)}
+                                    onChange={(value) => setHardeningOption(selectedProfileId, { tier3_workspace_write_network_access: Boolean(value) })}
+                                    options={[
+                                      { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                      { label: 'No', value: false, activeClass: 'yn-no' },
+                                    ]}
+                                  />
+                                </div>
+                                <button
+                                  className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                                  onClick={() => setSettingsInfoModal({
+                                    open: true,
+                                    title: 'Sandbox: Workspace-write network access',
+                                    content: 'Allow outbound network access inside the workspace-write sandbox.',
+                                  })}
+                                >
+                                  Info
+                                </button>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox: Workspace-write deny /tmp access</div>
+                                <div style={{ maxWidth: 120 }}>
+                                  <SegControl
+                                    value={Boolean(selectedHardeningOptions.tier3_workspace_write_exclude_slash_tmp)}
+                                    onChange={(value) => setHardeningOption(selectedProfileId, { tier3_workspace_write_exclude_slash_tmp: Boolean(value) })}
+                                    options={[
+                                      { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                      { label: 'No', value: false, activeClass: 'yn-no' },
+                                    ]}
+                                  />
+                                </div>
+                                <button
+                                  className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                                  onClick={() => setSettingsInfoModal({
+                                    open: true,
+                                    title: 'Sandbox: Workspace-write deny /tmp access',
+                                    content: 'Allow or deny access to /tmp in workspace-write mode.',
+                                  })}
+                                >
+                                  Info
+                                </button>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center' }}>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox: Workspace-write deny $TMPDIR access</div>
+                                <div style={{ maxWidth: 120 }}>
+                                  <SegControl
+                                    value={Boolean(selectedHardeningOptions.tier3_workspace_write_exclude_tmpdir_env_var)}
+                                    onChange={(value) => setHardeningOption(selectedProfileId, { tier3_workspace_write_exclude_tmpdir_env_var: Boolean(value) })}
+                                    options={[
+                                      { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                      { label: 'No', value: false, activeClass: 'yn-no' },
+                                    ]}
+                                  />
+                                </div>
+                                <button
+                                  className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                                  onClick={() => setSettingsInfoModal({
+                                    open: true,
+                                    title: 'Sandbox: Workspace-write deny $TMPDIR access',
+                                    content: 'Allow or deny access to $TMPDIR in workspace-write mode.',
+                                  })}
+                                >
+                                  Info
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
-                  <div style={{ background: 'white' }}>
-                    {signalRows.map((row) => (
+                  <div style={{ background: 'white', padding: 10 }}>
+                    {signalSections.map((section, idx) => (
                       <div
-                        key={row.key}
+                        key={`section-${section.title || idx}`}
                         style={{
-                          display: 'grid',
-                          gridTemplateColumns: '20px minmax(0,1fr) minmax(0,220px)',
-                          gap: 10,
-                          alignItems: 'start',
-                          padding: '10px 14px',
-                          borderBottom: '1px solid #f1f5f9',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 10,
+                          overflow: 'hidden',
+                          marginBottom: idx === signalSections.length - 1 ? 0 : 10,
                         }}
                       >
-                        <span
-                          style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: '50%',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 11,
-                            marginTop: 2,
-                            background: row.state === 'pass' ? '#dcfce7' : row.state === 'na' ? '#f3f4f6' : '#fee2e2',
-                            color: row.state === 'pass' ? '#15803d' : row.state === 'na' ? '#94a3b8' : '#dc2626',
-                          }}
-                        >
-                          {row.state === 'pass' ? '✓' : row.state === 'na' ? '—' : '✕'}
-                        </span>
-                        <div style={{ fontSize: 12, color: '#1f2937', lineHeight: 1.3 }}>{row.label}</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.3 }}>{row.detail}</div>
+                        {section.title && (
+                          <div
+                            style={{
+                              background: '#f8fafc',
+                              borderBottom: '1px solid #e5e7eb',
+                              padding: '8px 10px',
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: '#64748b',
+                            }}
+                          >
+                            {section.title}
+                          </div>
+                        )}
+                        {section.rows.map((row) => (
+                          <div
+                            key={row.key}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '20px minmax(0,1fr) minmax(0,220px)',
+                              gap: 10,
+                              alignItems: 'start',
+                              padding: '10px 14px',
+                              borderBottom: '1px solid #f1f5f9',
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 18,
+                                height: 18,
+                                borderRadius: '50%',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 11,
+                                marginTop: 2,
+                                background: row.state === 'pass' ? '#dcfce7' : row.state === 'na' ? '#f3f4f6' : '#fee2e2',
+                                color: row.state === 'pass' ? '#15803d' : row.state === 'na' ? '#94a3b8' : '#dc2626',
+                              }}
+                            >
+                              {row.state === 'pass' ? '✓' : row.state === 'na' ? '—' : '✕'}
+                            </span>
+                            <div style={{ fontSize: 12, color: '#1f2937', lineHeight: 1.3 }}>{row.label}</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.3 }}>{row.detail}</div>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>

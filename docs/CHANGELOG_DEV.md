@@ -2,6 +2,32 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-23 (Claude Desktop MCP apply + posture alignment)
+- Extended MCP apply/remove runtime support to include `claude_desktop` profiles in `src/mcp_config_manager.py`.
+- Added Claude Desktop target-file handling:
+  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+  - Linux: `~/.config/Claude/claude_desktop_config.json`
+  - Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
+- Claude Desktop apply/remove preserves unrelated config keys and only manages `mcpServers.ai-runtime-guard`.
+- Updated posture logic for `claude_desktop` in `src/agent_posture.py` to MCP-only scoring:
+  - `gray`: MCP not configured
+  - `green`: AIRG MCP configured.
+- Updated Settings -> Agents posture panel rendering for Claude Desktop to show MCP-only checks (no hook/sandbox rows).
+- Added/updated tests:
+  - `tests/test_agent_posture.py` (Claude Desktop MCP detection + missing-config behavior)
+  - `tests/test_mcp_config_manager.py` (Claude Desktop apply/remove, preservation of unrelated keys).
+
+## 2026-03-23 (Codex MCP apply/remove runtime support)
+- Extended MCP apply/remove runtime support in `src/mcp_config_manager.py` to include `codex` profiles.
+- Added Codex scope handling:
+  - `global`: `~/.codex/config.toml`
+  - `project`: `<workspace>/.codex/config.toml`
+- AIRG now updates/removes only the `mcp_servers.ai-runtime-guard` TOML section and preserves unrelated config sections.
+- Added Codex posture detection in `src/agent_posture.py` from both global/project `config.toml` paths.
+- Added tests:
+  - `tests/test_mcp_config_manager.py` (Codex global/project apply coverage + remove behavior)
+  - `tests/test_agent_posture.py` (Codex global/project posture detection).
+
 ## 2026-03-22 (v2.0.dev6 agent MCP config manager + Settings apply flow)
 - Added dedicated MCP config manager runtime module: `src/mcp_config_manager.py`.
 - Added Claude MCP apply/remove runtime logic with strict scope targets:
