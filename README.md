@@ -6,6 +6,8 @@ AI agents with filesystem and shell access can delete files, leak credentials, o
 
 `ai-runtime-guard` is an MCP server that sits between your AI agent and your system, enforcing a policy layer before any file or shell action takes effect. No retraining, no prompt engineering, no changes to your agent workflow.
 
+[![runtime-guard MCP server](https://glama.ai/mcp/servers/runtimeguard/runtime-guard/badges/score.svg)](https://glama.ai/mcp/servers/runtimeguard/runtime-guard)
+
 ## What It Does
 1. **Blocks dangerous operations**: `rm -rf`, sensitive file access, privilege escalation, and other risky actions are denied before execution.
 2. **Gates risky commands behind human approval**: configurable commands require explicit operator sign-off via the local GUI/API before execution.
@@ -50,8 +52,35 @@ Python:
 2. Recommended on macOS: Python `3.12+` (Homebrew or python.org install).
 3. macOS system Python `3.9` is often too old and may fail dependency install.
 
+## Official Support
+Platforms:
+1. macOS
+2. Linux
+
+Supported agent integrations on both platforms:
+1. Claude Code
+2. Claude Desktop
+3. Codex
+4. Cursor
+
+Notes:
+1. Enforcement depth is agent-dependent (for example hooks/sandbox controls differ by client).
+2. AIRG MCP policy enforcement remains the primary universal layer across supported clients.
+
 ## How To Run
-Quick start (package install):
+Environment isolation recommendation:
+1. Use one of:
+   - Python virtual environment (`venv`)
+   - `pipx` isolated app install
+2. Avoid system-wide `pip install` without isolation to reduce dependency conflicts.
+
+Recommended quick start (`pipx`, isolated global CLI):
+1. `pipx install ai-runtime-guard`
+2. If prompted: `pipx ensurepath` and then open a new terminal session
+3. `airg-setup` (guided, recommended: select/create workspace during setup)
+4. `airg-doctor`
+
+Alternative quick start (`venv`):
 1. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
 2. `python -m pip install --upgrade pip`
 3. `python -m pip install ai-runtime-guard`
@@ -59,7 +88,16 @@ Quick start (package install):
 5. `airg-doctor`
 6. Open GUI `Settings -> Agents`, add agents manually, and apply MCP config/hardening from there.
 
-Unattended automation-only setup:
+Source-clone path:
+1. `git clone --branch main https://github.com/runtimeguard/runtime-guard.git`
+2. `cd runtime-guard`
+3. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
+4. `python -m pip install --upgrade pip`
+5. `python -m pip install .`
+6. `airg-setup`
+7. `airg-doctor`
+
+Unattended automation-only setup (CI/non-interactive):
 1. `airg-setup --defaults --yes --workspace /absolute/path/to/workspace`
 
 For source-clone setup, TestPyPI flow, and service details, see [`docs/INSTALL.md`](docs/INSTALL.md).

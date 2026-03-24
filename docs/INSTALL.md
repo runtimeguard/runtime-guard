@@ -6,6 +6,37 @@ This guide covers the standard AIRG install: runtime + Web GUI service.
 1. Python `>=3.10` (recommended `3.12+`).
 2. Git.
 3. Node.js 18+ only if you are actively rebuilding frontend assets in development.
+4. Recommended install isolation: `venv` or `pipx`.
+
+## Supported platforms and agents
+Platforms officially supported:
+1. macOS
+2. Linux
+
+Agents supported on both platforms:
+1. Claude Code
+2. Claude Desktop
+3. Codex
+4. Cursor
+
+Note: security posture depth is client-dependent; AIRG MCP enforcement is the universal base layer.
+
+## Isolation options (recommended)
+Choose one:
+1. `pipx` (recommended for operators): install AIRG in an isolated app environment with global CLI shims.
+2. `venv` (recommended for development/source workflows): install AIRG in a project/user virtual environment.
+
+`pipx` may not be installed by default on Linux. Example install options:
+1. Ubuntu/Debian: `sudo apt install pipx` (or `python3 -m pip install --user pipx`)
+2. Fedora/RHEL: `sudo dnf install pipx`
+3. macOS (Homebrew): `brew install pipx`
+
+After running `pipx ensurepath`, open a new terminal (or restart your shell session) before using `airg*` commands.
+
+Why isolation matters:
+1. Prevents conflicts with system Python and unrelated packages.
+2. Makes upgrades/uninstalls cleaner and predictable.
+3. Reduces permission/sudo friction on Linux and macOS.
 
 ## Runtime Model
 1. Install folder: package/repo location.
@@ -17,7 +48,16 @@ Default runtime state roots:
 2. Linux config: `${XDG_CONFIG_HOME:-~/.config}/ai-runtime-guard/`
 3. Linux state: `${XDG_STATE_HOME:-~/.local/state}/ai-runtime-guard/`
 
-## Quick Start (package install)
+## Quick Start (package install via pipx)
+```bash
+pipx install ai-runtime-guard
+pipx ensurepath   # run once if needed
+# open a new terminal after ensurepath
+airg-setup
+airg-doctor
+```
+
+## Alternative Quick Start (package install via venv)
 ```bash
 python3 -m venv .venv-airg
 source .venv-airg/bin/activate
@@ -66,9 +106,17 @@ airg-service uninstall
 1. AIRG not detected by client:
    - ensure MCP command path is absolute or resolvable in client PATH.
    - verify with `airg-doctor`.
-2. GUI does not reflect frontend changes:
+2. `airg`/`airg-setup` command not found after `pipx ensurepath`:
+   - open a new terminal or re-login so PATH changes are loaded.
+   - verify with `which airg`.
+3. Agent still points to old AIRG build/location:
+   - reapply MCP config from `Settings -> Agents`.
+   - verify active server path/version using `server_info` from the MCP client.
+4. Multiple AIRG installs caused path confusion:
+   - remove old installs and keep one install method per host (`pipx` or one dedicated `venv`).
+5. GUI does not reflect frontend changes:
    - rebuild frontend only if source changed: `cd ui_v3 && npm install && npm run build`.
-3. Repeated approval prompts:
+6. Repeated approval prompts:
    - verify approvals DB and HMAC key paths/permissions via `airg-doctor`.
-4. Wrong policy file being edited:
+7. Wrong policy file being edited:
    - runtime reads `AIRG_POLICY_PATH` if set, otherwise user runtime config path.
