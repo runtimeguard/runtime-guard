@@ -13,9 +13,14 @@
       "poweroff",
       "fdisk",
       "parted",
+      "wipefs",
       "diskutil erasedisk",
       "format",
       "dd",
+      "init 0",
+      "init 6",
+      "systemctl poweroff",
+      "systemctl reboot",
       "sudo",
       "su",
       "doas",
@@ -119,9 +124,9 @@
 
   "script_sentinel": {
     "_comment": "Policy-intent continuity for script-mediated execution paths. When enabled, script artifacts written through write_file are flagged and checked during execute_command.",
-    "enabled": false,
+    "enabled": true,
     "mode": "match_original",
-    "scan_mode": "exec_context",
+    "scan_mode": "exec_context_plus_mentions",
     "max_scan_bytes": 1048576,
     "include_wrappers": true
   },

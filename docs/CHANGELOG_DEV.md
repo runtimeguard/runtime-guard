@@ -2,6 +2,34 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-24 (default policy baseline + guided setup docs)
+- Updated default Script Sentinel baseline in shipped policy/template:
+  - `script_sentinel.enabled: true`
+  - `script_sentinel.mode: match_original`
+  - `script_sentinel.scan_mode: exec_context_plus_mentions`
+  - `script_sentinel.include_wrappers: true`.
+- Expanded default blocked-command baseline with additional high-risk destructive patterns:
+  - `wipefs`
+  - `init 0`
+  - `init 6`
+  - `systemctl poweroff`
+  - `systemctl reboot`.
+- Synced fallback policy template in `src/airg_cli.py` closer to repository baseline for packaged installs:
+  - stronger blocked command/path defaults
+  - network command list + enforce mode baseline
+  - default audit redaction patterns.
+- Expanded command catalog in `src/ui/catalog.json` with common safe/default-allowed commands for easier policy review in GUI (for example `ls`, `pwd`, `cat`, `grep`, `git status`, `git diff`, `git log`).
+- Updated install docs to recommend guided setup as default:
+  - `README.md`
+  - `docs/INSTALL.md`
+  - unattended `--defaults --yes` kept as automation/CI-only flow with explicit workspace.
+- Hardened publish workflow for PyPI/TestPyPI (`.github/workflows/publish-pypi.yml`):
+  - builds frontend assets (`ui_v3`) before packaging to avoid stale/missing UI in published wheels
+  - validates stable tag/version alignment (`vX.Y.Z` must match `pyproject.toml project.version`) on tag-driven publish.
+- Updated release/operator docs to use guided setup in smoke/preflight paths:
+  - `docs/RELEASE.md`
+  - `docs/RELEASE_CHECKLIST.md`
+
 ## 2026-03-23 (setup/service install simplification)
 - Simplified setup/install flow in `src/airg_cli.py`:
   - removed optional GUI toggles from setup (`--gui`, `--no-gui`)

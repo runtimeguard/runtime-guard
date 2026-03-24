@@ -32,7 +32,7 @@ Use semantic versions:
    - `python3 -m pip install --upgrade twine`
    - `twine check dist/*`
 5. Validate setup-first packaged behavior:
-   - `airg-setup --defaults --yes`
+   - `airg-setup` (guided; choose/create workspace)
    - `airg-doctor`
 6. Optional low-level bootstrap check:
    - `airg-init`
@@ -82,7 +82,7 @@ Use semantic versions:
    - `source .venv-testpypi/bin/activate`
    - `python -m pip install --index-url https://test.pypi.org/simple --extra-index-url https://pypi.org/simple ai-runtime-guard`
 3. Run smoke checks:
-   - `airg-setup --defaults --yes`
+   - `airg-setup` (guided; choose/create workspace)
    - `airg-doctor`
    - `airg-server` (startup smoke, Ctrl+C)
    - `airg-ui` (startup smoke, Ctrl+C)
@@ -95,11 +95,14 @@ Use a fresh virtual environment:
 4. `python -m build`
 5. `python -m pip install dist/*.whl`
 6. Smoke-test entrypoints:
-   - `airg-setup --defaults --yes`
+   - `airg-setup` (guided; choose/create workspace)
    - `airg-doctor`
    - `airg-server` (startup smoke, Ctrl+C)
    - `airg-ui` (startup smoke, Ctrl+C)
    - `airg-up` (startup smoke, Ctrl+C)
+
+Automation-only (CI/non-interactive) alternative:
+1. `airg-setup --defaults --yes --workspace /absolute/path/to/workspace`
 
 ## Post-release tasks
 1. Update `STATUS.md` current snapshot if needed.

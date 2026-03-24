@@ -23,11 +23,12 @@ python3 -m venv .venv-airg
 source .venv-airg/bin/activate
 python -m pip install --upgrade pip
 python -m pip install ai-runtime-guard
-airg-setup --defaults --yes
+airg-setup
 airg-doctor
 ```
 
 Then open `http://127.0.0.1:5001` and add agents from `Settings -> Agents`.
+Guided setup asks for workspace and creates it if missing.
 
 ## Source Install
 ```bash
@@ -37,8 +38,13 @@ python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install .
-airg-setup --defaults --yes
+airg-setup
 airg-doctor
+```
+
+For unattended automation/CI only:
+```bash
+airg-setup --defaults --yes --workspace /absolute/path/to/workspace
 ```
 
 ## Service Commands

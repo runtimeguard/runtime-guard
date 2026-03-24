@@ -214,9 +214,9 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
         raise ValueError("reports.prune_interval_seconds must be >= 300")
 
     script_sentinel = _ensure_dict("script_sentinel")
-    script_sentinel.setdefault("enabled", False)
+    script_sentinel.setdefault("enabled", True)
     script_sentinel.setdefault("mode", "match_original")
-    script_sentinel.setdefault("scan_mode", "exec_context")
+    script_sentinel.setdefault("scan_mode", "exec_context_plus_mentions")
     script_sentinel.setdefault("max_scan_bytes", 1048576)
     script_sentinel.setdefault("include_wrappers", True)
     if not isinstance(script_sentinel["enabled"], bool):

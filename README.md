@@ -55,9 +55,12 @@ Quick start (package install):
 1. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
 2. `python -m pip install --upgrade pip`
 3. `python -m pip install ai-runtime-guard`
-4. `airg-setup` (guided) or `airg-setup --defaults --yes` (unattended defaults)
+4. `airg-setup` (guided, recommended: select/create workspace during setup)
 5. `airg-doctor`
 6. Open GUI `Settings -> Agents`, add agents manually, and apply MCP config/hardening from there.
+
+Unattended automation-only setup:
+1. `airg-setup --defaults --yes --workspace /absolute/path/to/workspace`
 
 For source-clone setup, TestPyPI flow, and service details, see [`docs/INSTALL.md`](docs/INSTALL.md).
 
