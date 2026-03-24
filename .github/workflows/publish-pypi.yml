@@ -58,7 +58,11 @@ jobs:
       - name: Build UI (production)
         run: |
           cd ui_v3
-          npm ci
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            npm ci
+          else
+            npm install
+          fi
           npm run build
 
       - name: Build distribution artifacts
