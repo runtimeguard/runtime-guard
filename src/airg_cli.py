@@ -336,14 +336,16 @@ def _resolve_server_command_for_env() -> str:
         candidate = pathlib.Path(venv) / "bin" / "airg-server"
         if candidate.exists() and os.access(candidate, os.X_OK):
             return str(candidate.resolve())
-    exe_dir = pathlib.Path(sys.executable).resolve().parent
+    # Preserve venv launcher path; resolving symlinks can collapse to system Python.
+    current_python = pathlib.Path(sys.executable).absolute()
+    exe_dir = current_python.parent
     sibling = exe_dir / "airg-server"
     if sibling.exists() and os.access(sibling, os.X_OK):
         return str(sibling.resolve())
     which = shutil.which("airg-server")
     if which:
         return str(pathlib.Path(which).resolve())
-    return f"{pathlib.Path(sys.executable).resolve()} -m airg_cli server"
+    return f"{current_python} -m airg_cli server"
 
 
 def _preflight_checks() -> tuple[list[str], list[str]]:
@@ -519,7 +521,8 @@ def _service_env_file(paths: dict[str, pathlib.Path]) -> pathlib.Path:
 def _service_install(paths: dict[str, pathlib.Path], workspace: pathlib.Path, agent_id: str) -> None:
     env = _runtime_env_for_process(paths=paths, workspace=workspace, agent_id=agent_id)
     env_file = _write_runtime_env_file(_service_env_file(paths), env)
-    python_exec = pathlib.Path(sys.executable).resolve()
+    # Preserve venv launcher path; resolving symlinks can collapse to system Python.
+    python_exec = pathlib.Path(sys.executable).absolute()
     label = "com.ai-runtime-guard.ui"
 
     if _is_macos():
