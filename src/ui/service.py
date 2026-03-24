@@ -132,8 +132,6 @@ def validate_policy(candidate: dict) -> tuple[bool, dict[str, Any]]:
 
 def command_tier_map(policy: dict) -> dict[str, str]:
     out: dict[str, str] = {}
-    for cmd in policy.get("requires_simulation", {}).get("commands", []):
-        out[str(cmd)] = "requires_simulation"
     for cmd in policy.get("requires_confirmation", {}).get("commands", []):
         out[str(cmd)] = "requires_confirmation"
     for cmd in policy.get("blocked", {}).get("commands", []):
@@ -143,7 +141,7 @@ def command_tier_map(policy: dict) -> dict[str, str]:
 
 def all_known_commands(policy: dict, catalog: dict) -> list[str]:
     commands: set[str] = set()
-    for section in ["blocked", "requires_confirmation", "requires_simulation", "network"]:
+    for section in ["blocked", "requires_confirmation", "network"]:
         commands.update(str(x) for x in policy.get(section, {}).get("commands", []))
     for tab in catalog.get("tabs", []):
         commands.update(str(x) for x in tab.get("commands", []))
@@ -193,20 +191,16 @@ def get_command_override(policy: dict, command: str) -> dict:
     )
 
 
-def set_command_override(policy: dict, command: str, retry: int | None, budget: dict | None) -> dict:
+def set_command_override(policy: dict, command: str, retry: int | None) -> dict:
     result = copy.deepcopy(policy)
     root = result.setdefault("ui_overrides", {})
     commands = root.setdefault("commands", {})
-    if retry is None and not budget:
+    if retry is None:
         commands.pop(command, None)
         return result
     entry: dict[str, Any] = {}
     if retry is not None and int(retry) >= 0:
         entry["retry_override"] = int(retry)
-    if budget:
-        budget_clean = {k: int(v) for k, v in budget.items() if isinstance(v, int) and v >= 0}
-        if budget_clean:
-            entry["budget"] = budget_clean
     if not entry:
         commands.pop(command, None)
         return result
@@ -219,14 +213,12 @@ def apply_tier_command(policy: dict, command: str, tier: str) -> dict:
     lists = {
         "blocked": result.setdefault("blocked", {}).setdefault("commands", []),
         "requires_confirmation": result.setdefault("requires_confirmation", {}).setdefault("commands", []),
-        "requires_simulation": result.setdefault("requires_simulation", {}).setdefault("commands", []),
     }
     for name, values in lists.items():
         lists[name] = [x for x in values if x != command]
 
     result["blocked"]["commands"] = lists["blocked"]
     result["requires_confirmation"]["commands"] = lists["requires_confirmation"]
-    result["requires_simulation"]["commands"] = lists["requires_simulation"]
 
     if tier in lists:
         lists[tier].append(command)
@@ -241,7 +233,7 @@ def summarize_diff(before: dict, after: dict) -> dict:
         if before.get(key) != after.get(key):
             summary["top_level_changed"].append(key)
 
-    for section in ["blocked", "requires_confirmation", "requires_simulation"]:
+    for section in ["blocked", "requires_confirmation"]:
         old = set(before.get(section, {}).get("commands", []))
         new = set(after.get(section, {}).get("commands", []))
         added = sorted(new - old)

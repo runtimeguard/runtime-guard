@@ -4,52 +4,47 @@
 
 AI agents with filesystem and shell access can delete files, leak credentials, or execute destructive commands, often without the user realizing it until it is too late.
 
-`ai-runtime-guard` is an MCP server that sits between your AI agent and your system, enforcing a policy layer before any file or shell action takes effect. No retraining, no prompt engineering, no changes to your agent or workflow, just install, configure once, and your agent operates within the boundaries you set.
+`ai-runtime-guard` is an MCP server that sits between your AI agent and your system, enforcing a policy layer before any file or shell action takes effect. No retraining, no prompt engineering, no changes to your agent workflow.
 
-[![Glama Score](https://glama.ai/mcp/servers/jimmyracheta/ai-runtime-guard/badges/score.svg)](https://glama.ai/mcp/servers/jimmyracheta/ai-runtime-guard)
+[![runtime-guard MCP server](https://glama.ai/mcp/servers/runtimeguard/runtime-guard/badges/score.svg)](https://glama.ai/mcp/servers/runtimeguard/runtime-guard)
 
-## What it does
-1. **Blocks dangerous operations**: `rm -rf`, sensitive file access, privilege escalation, and more are denied before execution.
-2. **Gates risky commands behind human approval (optional)**: configurable commands require explicit operator sign-off via a web GUI before the agent can proceed.
-3. **Simulates blast radius**: wildcard operations like `rm *.tmp` are evaluated against real files before running, and blocked if they exceed a safe threshold.
-4. **Controls network behavior**: configure command-level network policy with monitor-only mode, domain allowlist/denylist, and optional unknown-domain blocking.
-5. **Supports multi-agent policy isolation**: apply per-agent policy overrides keyed by `AIRG_AGENT_ID` while keeping shared runtime controls.
-6. **Backs up before it acts**: destructive or overwrite operations create automatic backups with full restore support.
-7. **Provides robust logging and reporting**: all allowed/blocked actions are logged to `activity.log` and indexed into `reports.db` for dashboard/log views.
+## What It Does
+1. **Blocks dangerous operations**: `rm -rf`, sensitive file access, privilege escalation, and other risky actions are denied before execution.
+2. **Gates risky commands behind human approval**: configurable commands require explicit operator sign-off via the local GUI/API before execution.
+3. **Controls network behavior**: supports command-level network policy with monitor/enforce behavior, allowlists, and denylists.
+4. **Enforces workspace boundaries**: file and command operations are evaluated against `AIRG_WORKSPACE` and path policy.
+5. **Backs up before it acts**: destructive and overwrite operations create recoverable backups automatically.
+6. **Provides robust logging and reporting**: all allowed/blocked actions are written to `activity.log` and indexed into `reports.db`.
+7. **Supports per-agent policy overlays**: applies policy overrides keyed by `AIRG_AGENT_ID`.
+8. **Script Sentinel**: flags dangerous command patterns at write time in executable context (for example scripts) to preserve policy intent and reduce bypass attempts.
+9. **Universal AI agent Policy Orchestrator**: comprehensive GUI-driven security posture enforcement for AI agents (hooks, sandboxing, native tool restrictions, and policy mirroring depending on agent support).
 
-## Current state
-1. Policy management is available in the local GUI (commands, paths, extensions, network, advanced policy).
-2. Agent management is available in the GUI (`Settings -> Agents`), including profile-based MCP config generation.
-3. Per-agent policy overrides are supported and enforced by `AIRG_AGENT_ID`.
-4. Full runtime visibility is available through `activity.log` and reports/dashboard views (`reports.db`).
-5. Stable release notes are tracked in `CHANGELOG.md`, with in-progress work in `docs/CHANGELOG_DEV.md`.
+## Current State
+1. Policy management is available in the local GUI (commands, paths, extensions, network, script sentinel, advanced policy).
+2. Agent management is available in the GUI (`Settings -> Agents`), including profile-based MCP configuration and posture checks.
+3. Full runtime visibility is available through `activity.log` and reports views backed by `reports.db`.
+4. Stable release notes are tracked in `CHANGELOG.md`, with in-progress work in `docs/CHANGELOG_DEV.md`.
 
-## Who it is for
-Developers and power users running AI agents (Claude Desktop, Cursor, Codex, or any MCP-compatible client) who want guardrails on what the agent can actually do to their system.
+## Who It Is For
+Developers and power users running AI agents (Claude Code, Claude Desktop, Cursor, Codex, and other MCP-compatible clients) who want guardrails on what an agent can do to their system.
 
-## Known boundary
+## Known Boundary
 1. AIRG enforces policy only for actions that pass through AIRG MCP tools.
-2. Native client tools outside MCP (for example Claude Code `Glob`, `Read`, `Write`, `Edit`, `Bash`) are outside AIRG enforcement and can bypass workspace/path restrictions.
-3. For AIRG policy boundaries to be effective, operators must disable native shell/file tools in the client using official configuration methods.
-4. Treat this as a deployment requirement, not optional hardening.
-5. For Claude Code, an MCP-only sample skill is provided at `docs/mcp-only.md` and can be saved to `<workspace>/.claude/skills/mcp-only.md`.
+2. Native client tools outside MCP (for example Claude Code `Glob`, `Read`, `Write`, `Edit`, `Bash`) are outside AIRG enforcement and can bypass policy.
+3. Clients differ in what hardening controls they support (hooks, native tool restrictions, sandbox settings).
+4. Enforcement options and posture controls are available in AIRG GUI under `Settings -> Agents`.
+5. For strict enforcement, configure the client to route operations through AIRG MCP tools and disable risky native tools where supported.
 
-## Design scope
-1. AIRG is designed to reduce accidental damage from AI agent mistakes or hallucinations.
-2. AIRG is not positioned as a full malicious-actor containment system.
+## Design Scope
+1. AIRG is designed to reduce accidental damage from AI agent mistakes and policy-evasion patterns.
+2. AIRG is not positioned as a full malicious-actor containment platform.
 3. Core controls:
-   - block high-risk destructive/exfiltration commands and paths
-   - enforce workspace boundaries
-   - gate mass/wildcard actions with simulation and budget limits
-   - optionally require human approval for selected risky actions
-   - automatically back up destructive/overwrite targets before applying changes
-   - log allowed/blocked actions and operator decisions to an audit trail
-
-## How it works
-- Python MCP server with policy-driven enforcement loaded from `policy.json`
-- Default profile is **basic protection**: severe actions blocked, everything else allowed
-- Advanced controls available for opt-in: simulation gating, human approval workflows, cumulative budget limits, and shell workspace containment modes (`off`/`monitor`/`enforce`)
-- Local web GUI for policy editing, approval management, and audit log review
+   - block high-risk destructive and exfiltration actions
+   - enforce workspace and path boundaries
+   - require explicit approval for selected risky actions
+   - auto-backup destructive and overwrite targets
+   - preserve policy intent through Script Sentinel for indirect execution attempts
+   - maintain an auditable trail of agent and operator actions
 
 ## Requirements
 Python:
@@ -57,98 +52,116 @@ Python:
 2. Recommended on macOS: Python `3.12+` (Homebrew or python.org install).
 3. macOS system Python `3.9` is often too old and may fail dependency install.
 
-## How to run
-Quick start (package install):
+## Official Support
+Platforms:
+1. macOS
+2. Linux
+
+Supported agent integrations on both platforms:
+1. Claude Code
+2. Claude Desktop
+3. Codex
+4. Cursor
+
+Notes:
+1. Enforcement depth is agent-dependent (for example hooks/sandbox controls differ by client).
+2. AIRG MCP policy enforcement remains the primary universal layer across supported clients.
+
+## How To Run
+Environment isolation recommendation:
+1. Use one of:
+   - Python virtual environment (`venv`)
+   - `pipx` isolated app install
+2. Avoid system-wide `pip install` without isolation to reduce dependency conflicts.
+
+Recommended quick start (`pipx`, isolated global CLI):
+1. `pipx install ai-runtime-guard`
+2. If prompted: `pipx ensurepath` and then open a new terminal session
+3. `airg-setup` (guided, recommended: select/create workspace during setup)
+4. `airg-doctor`
+
+Alternative quick start (`venv`):
 1. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
 2. `python -m pip install --upgrade pip`
 3. `python -m pip install ai-runtime-guard`
-4. `airg-setup` (guided) or `airg-setup --defaults --yes` (unattended defaults)
+4. `airg-setup` (guided, recommended: select/create workspace during setup)
 5. `airg-doctor`
+6. Open GUI `Settings -> Agents`, add agents manually, and apply MCP config/hardening from there.
 
-For source-clone setup, TestPyPI flow, and advanced options, see [`docs/INSTALL.md`](docs/INSTALL.md).
+Source-clone path:
+1. `git clone --branch main https://github.com/runtimeguard/runtime-guard.git`
+2. `cd runtime-guard`
+3. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
+4. `python -m pip install --upgrade pip`
+5. `python -m pip install .`
+6. `airg-setup`
+7. `airg-doctor`
 
-## What is optional
-1. Web GUI is optional, but strongly recommended for policy operations, approvals, agent profile management, and reporting.
-2. GUI background service (`airg-service`) is optional; `airg-ui` can run manually.
-3. `airg-init` is optional and low-level; `airg-setup` is the recommended onboarding path.
+Unattended automation-only setup (CI/non-interactive):
+1. `airg-setup --defaults --yes --workspace /absolute/path/to/workspace`
 
-## Web GUI (optional)
-A local web interface is available for:
-1. Policy editing and per-agent overrides.
-2. Approval management.
-3. Agent profile/config management (`Settings -> Agents`).
-4. Reports dashboard and event log.
+For source-clone setup, TestPyPI flow, and service details, see [`docs/INSTALL.md`](docs/INSTALL.md).
 
-Prebuilt UI assets are shipped for normal installs, so no frontend build is required unless you are modifying UI source.
+## Web GUI
+AIRG includes a local web control plane for:
+1. policy editing and per-agent overrides
+2. approval management
+3. agent profile/config management (`Settings -> Agents`)
+4. reports dashboard and event log
 
-Start it with:
-```bash
-airg-ui
-```
-Open `http://127.0.0.1:5001`
+Open:
+1. `http://127.0.0.1:5001` (service started by `airg-setup`)
 
-For persistent background run:
+Manual lifecycle commands:
 ```bash
 airg-service install --workspace /absolute/path/to/airg-workspace
 airg-service start
+airg-service status
+airg-service stop
+airg-service restart
+airg-service uninstall
 ```
 
-See [INSTALL.md](docs/INSTALL.md) for advanced setup, service management, and frontend rebuild instructions.
-
-## MCP client configuration (example)
-Use generated profile config from GUI `Settings -> Agents` whenever possible.
-That view generates client-ready JSON/CLI snippets with your runtime paths, workspace, and agent ID.
-
-If you configure manually, use an absolute server command path (not a bare `airg-server` unless PATH is guaranteed):
-
-```json
-{
-  "mcpServers": {
-    "ai-runtime-guard": {
-      "command": "/absolute/path/to/airg-server",
-      "args": [],
-      "env": {
-        "AIRG_AGENT_ID": "claude-desktop",
-        "AIRG_WORKSPACE": "/absolute/path/to/agent-workspace",
-        "AIRG_POLICY_PATH": "/absolute/path/to/policy.json",
-        "AIRG_APPROVAL_DB_PATH": "/absolute/path/to/approvals.db",
-        "AIRG_APPROVAL_HMAC_KEY_PATH": "/absolute/path/to/approvals.db.hmac.key",
-        "AIRG_LOG_PATH": "/absolute/path/to/activity.log",
-        "AIRG_REPORTS_DB_PATH": "/absolute/path/to/reports.db",
-        "AIRG_SERVER_COMMAND": "/absolute/path/to/airg-server"
-      }
-    }
-  }
-}
-```
-
-Best practice:
-1. Run `airg-setup`, then open GUI `Settings -> Agents` and copy generated config for your profile.
-2. Keep explicit `AIRG_*` paths in client config so launches are deterministic across restarts.
-
-## AIRG_WORKSPACE (important)
-`AIRG_WORKSPACE` is the default project root for agent operations.
-In unattended defaults mode, AIRG creates/uses `~/airg-workspace` unless you set another path.
+## AIRG_WORKSPACE (Important)
+`AIRG_WORKSPACE` is the default project root for guarded agent operations.
 
 How it works:
-1. `execute_command` starts from `AIRG_WORKSPACE` as its working directory.
-2. File tools (`read_file`, `write_file`, `delete_file`, `list_directory`) enforce workspace/path policy relative to this root.
+1. `execute_command` runs from `AIRG_WORKSPACE`.
+2. File tools (`read_file`, `write_file`, `edit_file`, `delete_file`, `list_directory`) enforce path/workspace policy relative to that root.
 3. Traversal attempts outside this root are blocked by policy checks.
 
 Workspace model:
 1. You can use an existing folder as workspace.
 2. Multiple workspaces are supported.
-3. You can run multiple agents against the same workspace or separate workspaces per agent profile.
+3. You can run multiple agents against one workspace or one agent per workspace.
 4. Each agent profile should set workspace explicitly in generated MCP config.
 
-## Deployment model FAQ
+## AIRG_AGENT_ID (Important)
+`AIRG_AGENT_ID` is the runtime identity key used for:
+1. activity and report attribution (`activity.log`, `reports.db`)
+2. per-agent policy override resolution (`policy.agent_overrides`)
+3. posture and hardening state in `Settings -> Agents`
+
+## Multi-Agent Setup (STDIO Limitation)
+AIRG currently runs as a local STDIO MCP server. Under current MCP client behavior, identity is usually tied to profile config, not per-instance runtime auth.
+
+Practical implication:
+1. The effective identity is typically the configured combination of `AIRG_AGENT_ID` + `AIRG_WORKSPACE`.
+2. Multiple instances of the same client type in the same workspace commonly share the same MCP registration and therefore the same `AIRG_AGENT_ID`.
+3. This is a known limitation for local STDIO deployments.
+4. Per-instance identity and stronger separation require an authenticated HTTP/SSE model (future architecture direction).
+
+## Deployment Model FAQ
 1. Do I need to run `source scripts/setup_runtime_env.sh`?
-   - If you use packaged flow with `airg-setup`, no. Setup initializes secure default paths and files.
-   - If you run directly from source (`PYTHONPATH=src python -m server`, `PYTHONPATH=src python -m ui.backend_flask`), yes, it is recommended.
+   - With packaged flow (`airg-setup`), no. Setup initializes secure runtime paths and service env.
+   - For direct source/manual runs, it is still useful.
 2. What folders are involved?
-   - Install folder (`airg-install`): where the code/package lives.
-   - Runtime state folder: where `policy.json`, `approvals.db`, HMAC key, logs, reports DB, and backups live.
-   - Workspace folder (`AIRG_WORKSPACE`, often `airg-workspace`): where agent actions are intended to run.
-3. Does the agent only work inside one workspace?
-   - By default, yes, it is anchored to `AIRG_WORKSPACE`.
-   - Additional allowed roots can be configured with `policy.allowed.paths_whitelist`.
+   - Install folder: where package/repo code lives.
+   - Runtime state folder: `policy.json`, approvals DB/HMAC key, logs, reports DB, backups.
+   - Workspace folder (`AIRG_WORKSPACE`): where guarded agent operations run.
+3. Does setup auto-create an agent profile?
+   - No. Agents are added manually in GUI `Settings -> Agents`.
+4. Does AIRG hot-reload policy?
+   - Yes, policy changes are picked up on subsequent tool calls.
+5. Is restart still needed sometimes?
+   - MCP clients can cache process/env state. Restart the client or AIRG service after major config changes if behavior looks stale.

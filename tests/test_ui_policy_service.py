@@ -20,22 +20,7 @@ class UIPolicyServiceTests(unittest.TestCase):
                 "session_whitelist_enabled": True,
                 "approval_security": {"max_failed_attempts_per_token": 5, "failed_attempt_window_seconds": 600, "token_ttl_seconds": 600},
             },
-            "requires_simulation": {
-                "commands": ["rm"],
-                "bulk_file_threshold": 10,
-                "max_retries": 3,
-                "cumulative_budget": {
-                    "enabled": True,
-                    "scope": "session",
-                    "limits": {"max_unique_paths": 50, "max_total_operations": 100, "max_total_bytes_estimate": 104857600},
-                    "counting": {"mode": "affected_paths", "dedupe_paths": True, "include_noop_attempts": False, "commands_included": ["rm"]},
-                    "reset": {"mode": "sliding_window", "window_seconds": 3600, "idle_reset_seconds": 900, "reset_on_server_restart": True},
-                    "on_exceed": {"decision_tier": "blocked", "matched_rule": "requires_simulation.cumulative_budget_exceeded", "message": "x"},
-                    "overrides": {"enabled": True, "require_confirmation_tool": "out_of_band_operator_approval", "token_ttl_seconds": 300, "max_override_actions": 1, "audit_reason_required": True, "allowed_roles": ["human-operator"]},
-                    "audit": {"log_budget_state": True, "fields": ["budget_scope"]},
-                },
-            },
-            "allowed": {"paths_whitelist": [], "max_files_per_operation": 10, "max_file_size_mb": 10, "max_directory_depth": 5},
+            "allowed": {"paths_whitelist": [], "max_directory_depth": 5},
             "network": {
                 "enforcement_mode": "off",
                 "commands": [],
@@ -44,9 +29,16 @@ class UIPolicyServiceTests(unittest.TestCase):
                 "block_unknown_domains": False,
             },
             "execution": {"max_command_timeout_seconds": 30, "max_output_chars": 200000},
-            "backup_access": {"block_agent_tools": True, "allowed_tools": ["restore_backup"]},
+            "backup_access": {"block_agent_tools": True},
             "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
             "audit": {"backup_enabled": True, "backup_on_content_change_only": True, "max_versions_per_file": 5, "backup_root": str(self.base / "backups"), "backup_retention_days": 30, "log_level": "verbose", "redact_patterns": []},
+            "script_sentinel": {
+                "enabled": False,
+                "mode": "match_original",
+                "scan_mode": "exec_context",
+                "max_scan_bytes": 1048576,
+                "include_wrappers": True,
+            },
         }
         self.policy_path.write_text(json.dumps(self.initial))
 
@@ -91,7 +83,6 @@ class UIPolicyServiceTests(unittest.TestCase):
         commands = service.all_known_commands(self.initial, catalog)
         self.assertIn("dd", commands)
         self.assertIn("cat", commands)
-        self.assertIn("rm", commands)
         self.assertIn("xargs", commands)
 
     def test_set_command_override_round_trip(self):
@@ -99,14 +90,11 @@ class UIPolicyServiceTests(unittest.TestCase):
             self.initial,
             "git clone",
             retry=2,
-            budget={"max_ops_per_session": 5, "max_bytes_per_session": 1024},
         )
         ov = updated.get("ui_overrides", {}).get("commands", {}).get("git clone", {})
         self.assertEqual(ov.get("retry_override"), 2)
-        self.assertEqual(ov.get("budget", {}).get("max_ops_per_session"), 5)
-        self.assertEqual(ov.get("budget", {}).get("max_bytes_per_session"), 1024)
 
-        cleared = service.set_command_override(updated, "git clone", retry=None, budget=None)
+        cleared = service.set_command_override(updated, "git clone", retry=None)
         self.assertNotIn("git clone", cleared.get("ui_overrides", {}).get("commands", {}))
 
 

@@ -27,6 +27,44 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          ref = os.environ.get("GITHUB_REF", "")
+          tag = ref.split("/")[-1].strip()
+          if not tag.startswith("v"):
+              raise SystemExit(f"Unexpected tag ref: {ref}")
+          tag_version = tag[1:]
+          pyproject = pathlib.Path("pyproject.toml")
+          data = tomllib.loads(pyproject.read_text())
+          pkg_version = str(data.get("project", {}).get("version", "")).strip()
+          if not pkg_version:
+              raise SystemExit("Could not read project.version from pyproject.toml")
+          if pkg_version != tag_version:
+              raise SystemExit(f"Tag/version mismatch: tag={tag_version} project.version={pkg_version}")
+          print(f"Tag/version match: {tag_version}")
+          PY
+
+      - name: Build UI (production)
+        run: |
+          cd ui_v3
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          npm run build
+
       - name: Build distribution artifacts
         run: |
           python -m pip install --upgrade pip

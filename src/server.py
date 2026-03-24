@@ -5,6 +5,7 @@ from mcp.server.fastmcp import FastMCP
 import approvals
 from tools import (
     delete_file,
+    edit_file,
     execute_command,
     list_directory,
     read_file,
@@ -23,6 +24,7 @@ for tool in [
     execute_command,
     read_file,
     write_file,
+    edit_file,
     delete_file,
     list_directory,
 ]:

@@ -1,0 +1,16 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="24" fill="#000000"/>
+
+  <!-- Center line -->
+  <line x1="20" y1="64" x2="108" y2="64" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Top row squares -->
+  <rect x="24" y="28" width="16" height="16" fill="#5B8CFF"/>
+  <rect x="56" y="28" width="16" height="16" fill="#7E73FF"/>
+  <rect x="88" y="28" width="16" height="16" fill="#B06CFF"/>
+
+  <!-- Bottom row squares -->
+  <rect x="24" y="84" width="16" height="16" fill="#4E7DFF"/>
+  <rect x="56" y="84" width="16" height="16" fill="#7A69FF"/>
+  <rect x="88" y="84" width="16" height="16" fill="#C06BFF"/>
+</svg>

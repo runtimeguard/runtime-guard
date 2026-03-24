@@ -64,7 +64,7 @@ git push origin vX.Y.Z
 python3 -m venv .venv-testpypi
 source .venv-testpypi/bin/activate
 python -m pip install --index-url https://test.pypi.org/simple --extra-index-url https://pypi.org/simple ai-runtime-guard
-airg-setup --defaults --yes
+airg-setup
 airg-doctor
 ```
 
@@ -78,10 +78,15 @@ git rev-parse vX.Y.Z
 3. Confirm branch protections are still enabled on `main`.
 4. Run packaged CLI smoke checks:
 ```bash
-airg-setup --defaults --yes
+airg-setup
 airg-doctor
 airg-server   # startup smoke (Ctrl+C)
 airg-ui       # startup smoke (Ctrl+C)
+```
+
+Automation-only (CI/non-interactive) alternative:
+```bash
+airg-setup --defaults --yes --workspace /absolute/path/to/workspace
 ```
 5. Confirm policy baseline reflects current runtime:
    - contains `network.block_unknown_domains`

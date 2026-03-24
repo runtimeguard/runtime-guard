@@ -9,8 +9,12 @@ from flask import Flask, jsonify, request, send_from_directory
 
 import approvals
 import agent_configs
+import agent_configurator
+import agent_posture
 import config
+import mcp_config_manager
 import reports
+import script_sentinel
 from audit import append_log_entry, build_operator_log_entry
 from ui import service
 
@@ -60,6 +64,45 @@ approvals.init_approval_store()
 reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
+
+
+def _agent_paths() -> dict[str, pathlib.Path]:
+    return {
+        "policy_path": POLICY_PATH,
+        "approval_db_path": APPROVAL_DB_PATH,
+        "approval_hmac_key_path": pathlib.Path(
+            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
+        ).expanduser().resolve(),
+        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        "reports_db_path": REPORTS_DB_PATH,
+    }
+
+
+def _agent_profiles(paths: dict[str, pathlib.Path]) -> list[dict[str, object]]:
+    registry = agent_configs.load_registry(paths)
+    profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
+    return profiles if isinstance(profiles, list) else []
+
+
+def _profile_by_id(profiles: list[dict[str, object]], profile_id: str) -> dict[str, object] | None:
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        if str(profile.get("profile_id", "")).strip() == profile_id:
+            return profile
+    return None
+
+
+def _posture_summary_with_state(profiles: list[dict[str, object]], paths: dict[str, pathlib.Path]) -> dict[str, object]:
+    summary = agent_posture.build_posture_summary(profiles if isinstance(profiles, list) else [])
+    rows = summary.get("profiles", []) if isinstance(summary, dict) else []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            profile_id = str(row.get("profile_id", "")).strip()
+            row["undo_available"] = bool(profile_id) and agent_configurator.undo_available(paths, profile_id)
+    return summary
 
 
 def _runtime_env_file_path() -> pathlib.Path:
@@ -343,6 +386,18 @@ def pending_approvals():
     return jsonify({"pending": items, "count": len(items)})
 
 
+@app.route("/approvals/history", methods=["GET", "OPTIONS"])
+def approvals_history():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    try:
+        limit = int(str(request.args.get("limit", "200")))
+    except Exception:
+        limit = 200
+    items = approvals.list_approval_history(limit=limit)
+    return jsonify({"history": items, "count": len(items)})
+
+
 @app.route("/approvals/approve", methods=["POST", "OPTIONS"])
 def approve_pending():
     if request.method == "OPTIONS":
@@ -350,10 +405,18 @@ def approve_pending():
     payload = request.get_json(silent=True) or {}
     token = str(payload.get("token", "")).strip()
     command = str(payload.get("command", "")).strip()
+    approver = str(payload.get("approver") or request.headers.get("X-Actor") or "User").strip() or "User"
+    approved_via = str(payload.get("approved_via") or "gui").strip() or "gui"
     if not token or not command:
         return jsonify({"error": "Expected {token, command}"}), 400
     pending = next((item for item in approvals.list_pending_approvals() if item["token"] == token), None)
-    ok, reason, matched_rule = approvals.consume_command_approval(command, token, source="flask.approvals")
+    ok, reason, matched_rule = approvals.consume_command_approval(
+        command,
+        token,
+        source="flask.approvals",
+        approver=approver,
+        approved_via=approved_via,
+    )
     if not ok:
         status = 410 if matched_rule == "approval_token" else 403
         return jsonify({"approved": False, "error": reason, "matched_rule": matched_rule}), status
@@ -366,7 +429,8 @@ def approve_pending():
             decision_tier="allowed",
             command=command,
             approval_token=token,
-            approved_via="gui",
+            approved_via=approved_via,
+            approver=approver,
         )
     )
     return jsonify({"approved": True, "message": "Approval accepted"})
@@ -378,10 +442,17 @@ def deny_pending():
         return ("", 204)
     payload = request.get_json(silent=True) or {}
     token = str(payload.get("token", "")).strip()
+    approver = str(payload.get("approver") or request.headers.get("X-Actor") or "User").strip() or "User"
+    approved_via = str(payload.get("approved_via") or "gui").strip() or "gui"
     if not token:
         return jsonify({"error": "Expected {token}"}), 400
     pending = next((item for item in approvals.list_pending_approvals() if item["token"] == token), None)
-    ok, message = approvals.deny_command_approval(token)
+    ok, message = approvals.deny_command_approval(
+        token,
+        approver=approver,
+        approved_via=approved_via,
+        source="flask.approvals",
+    )
     if not ok:
         return jsonify({"denied": False, "error": message}), 404
     append_log_entry(
@@ -393,7 +464,8 @@ def deny_pending():
             decision_tier="blocked",
             command=(pending or {}).get("command", ""),
             approval_token=token,
-            approved_via="gui",
+            approved_via=approved_via,
+            approver=approver,
         )
     )
     return jsonify({"denied": True, "message": message})
@@ -403,17 +475,49 @@ def deny_pending():
 def settings_agents():
     if request.method == "OPTIONS":
         return ("", 204)
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     payload = agent_configs.list_profiles(paths)
     return jsonify(payload)
+
+
+@app.route("/settings/agents/detect", methods=["GET", "OPTIONS"])
+def settings_agents_detect():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    paths = _agent_paths()
+    registry = agent_configs.load_registry(paths)
+    profiles = registry.get("profiles", []) if isinstance(registry, dict) else []
+    discovered = agent_posture.detect_unregistered_for_profiles(profiles if isinstance(profiles, list) else [])
+    return jsonify(
+        {
+            "ok": True,
+            "errors": [],
+            "known_profiles": profiles,
+            "discovered_unregistered": discovered,
+        }
+    )
+
+
+@app.route("/settings/agents/posture", methods=["GET", "OPTIONS"])
+def settings_agents_posture():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    paths = _agent_paths()
+    try:
+        profiles = _agent_profiles(paths)
+        summary = _posture_summary_with_state(profiles, paths)
+        return jsonify(summary)
+    except Exception as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": f"Failed to build agent posture: {exc}",
+                "errors": [str(exc)],
+                "profiles": [],
+                "discovered_unregistered": [],
+                "totals": {"green": 0, "yellow": 0, "red": 0},
+            }
+        ), 500
 
 
 @app.route("/settings/agents/upsert", methods=["POST", "OPTIONS"])
@@ -425,15 +529,7 @@ def settings_agents_upsert():
     create_workspace = bool(payload.get("create_workspace", False))
     if not isinstance(profile, dict):
         return jsonify({"ok": False, "errors": ["Expected JSON payload with 'profile' object"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.upsert_profile(paths, profile, create_workspace=create_workspace)
     if not result.get("ok"):
         return jsonify(result), 400
@@ -446,20 +542,26 @@ def settings_agents_delete():
         return ("", 204)
     payload = request.get_json(silent=True) or {}
     profile_id = str(payload.get("profile_id", "")).strip()
+    remove_mode = str(payload.get("remove_mode", "agent_only") or "agent_only").strip().lower()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    if remove_mode == "everything":
+        removed = mcp_config_manager.remove_applied_mcp(paths, profile)
+        if not removed.get("ok"):
+            return jsonify(removed), 400
+    elif remove_mode not in {"agent_only", "everything"}:
+        return jsonify({"ok": False, "errors": ["Invalid remove_mode"]}), 400
+
     result = agent_configs.delete_profile(paths, profile_id)
     if not result.get("ok"):
         return jsonify(result), 404
+    if remove_mode == "everything":
+        result["cleanup"] = removed
     return jsonify(result)
 
 
@@ -472,15 +574,7 @@ def settings_agents_generate():
     save_to_file = bool(payload.get("save_to_file", False))
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.generate_config(paths, profile_id, save_to_file=save_to_file)
     if not result.get("ok"):
         return jsonify(result), 400
@@ -494,15 +588,7 @@ def settings_agents_open_file():
     profile_id = str(request.args.get("profile_id", "")).strip()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
+    paths = _agent_paths()
     result = agent_configs.open_saved_file(paths, profile_id)
     if not result.get("ok"):
         return jsonify(result), 404
@@ -517,18 +603,9 @@ def settings_agents_reconfigure_runtime():
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
-    paths = {
-        "policy_path": POLICY_PATH,
-        "approval_db_path": APPROVAL_DB_PATH,
-        "approval_hmac_key_path": pathlib.Path(
-            os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{APPROVAL_DB_PATH}.hmac.key")
-        ).expanduser().resolve(),
-        "log_path": pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
-        "reports_db_path": REPORTS_DB_PATH,
-    }
-    registry = agent_configs.load_registry(paths)
-    profiles = registry.get("profiles", [])
-    profile = next((p for p in profiles if str(p.get("profile_id", "")).strip() == profile_id), None)
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
     if not isinstance(profile, dict):
         return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
     if profile_id != "default-agent":
@@ -550,6 +627,152 @@ def settings_agents_reconfigure_runtime():
             "message": "Runtime env updated. Restart airg-ui service to apply changes.",
         }
     )
+
+
+@app.route("/settings/agents/mcp-apply", methods=["POST", "OPTIONS"])
+def settings_agents_mcp_apply():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    dry_run = bool(payload.get("dry_run", False))
+    remove_previous = payload.get("remove_previous", None)
+    if remove_previous is not None:
+        remove_previous = bool(remove_previous)
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+
+    result = mcp_config_manager.apply_mcp_config(
+        paths,
+        profile,
+        remove_previous=remove_previous,
+        dry_run=dry_run,
+    )
+    if not result.get("ok"):
+        status = 409 if result.get("requires_previous_choice") else 400
+        return jsonify(result), status
+
+    current_profiles = result.get("profiles", profiles)
+    result["posture"] = _posture_summary_with_state(current_profiles, paths)
+    return jsonify(result)
+
+
+@app.route("/settings/agents/config-apply", methods=["POST", "OPTIONS"])
+def settings_agents_config_apply():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    auto_add_mcp = bool(payload.get("auto_add_mcp", False))
+    options = payload.get("options", {})
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    result = agent_configurator.apply_hardening(
+        paths,
+        profile,
+        options=options if isinstance(options, dict) else None,
+        auto_add_mcp=auto_add_mcp,
+    )
+    if not result.get("ok"):
+        status = 409 if result.get("requires_mcp") else 400
+        return jsonify(result), status
+    result["posture"] = _posture_summary_with_state(profiles, paths)
+    return jsonify(result)
+
+
+@app.route("/settings/agents/config-undo", methods=["POST", "OPTIONS"])
+def settings_agents_config_undo():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    profile_id = str(payload.get("profile_id", "")).strip()
+    if not profile_id:
+        return jsonify({"ok": False, "errors": ["profile_id is required"]}), 400
+    paths = _agent_paths()
+    profiles = _agent_profiles(paths)
+    profile = _profile_by_id(profiles, profile_id)
+    if not isinstance(profile, dict):
+        return jsonify({"ok": False, "errors": ["Profile not found"]}), 404
+    result = agent_configurator.undo_hardening(paths, profile)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    result["posture"] = _posture_summary_with_state(profiles, paths)
+    return jsonify(result)
+
+
+@app.route("/settings/agents/script-sentinel", methods=["GET", "OPTIONS"])
+def settings_agents_script_sentinel():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    limit = int(request.args.get("limit", "200") or "200")
+    offset = int(request.args.get("offset", "0") or "0")
+    hours = int(request.args.get("hours", "24") or "24")
+    artifacts = script_sentinel.list_flagged_artifacts(limit=limit, offset=offset)
+    summary = script_sentinel.execution_summary(hours=hours)
+    return jsonify({"ok": True, "artifacts": artifacts, "summary": summary})
+
+
+@app.route("/settings/agents/script-sentinel/dismiss-once", methods=["POST", "OPTIONS"])
+def settings_agents_script_sentinel_dismiss_once():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    content_hash = str(payload.get("content_hash", "")).strip().lower()
+    reason = str(payload.get("reason", "")).strip()
+    ttl_seconds = int(payload.get("ttl_seconds", 600) or 600)
+    target_agent = str(payload.get("agent_id", "")).strip() or str(config.AGENT_ID or "Unknown")
+    if not content_hash:
+        return jsonify({"ok": False, "errors": ["content_hash is required"]}), 400
+    if not reason:
+        return jsonify({"ok": False, "errors": ["reason is required"]}), 400
+    try:
+        created = script_sentinel.create_allowance(
+            agent_id=target_agent,
+            content_hash=content_hash,
+            allowance_type="once",
+            reason=reason,
+            created_by="gui-operator",
+            ttl_seconds=ttl_seconds,
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)]}), 400
+    return jsonify({"ok": True, "allowance": created})
+
+
+@app.route("/settings/agents/script-sentinel/trust", methods=["POST", "OPTIONS"])
+def settings_agents_script_sentinel_trust():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    payload = request.get_json(silent=True) or {}
+    content_hash = str(payload.get("content_hash", "")).strip().lower()
+    reason = str(payload.get("reason", "")).strip()
+    target_agent = str(payload.get("agent_id", "")).strip() or str(config.AGENT_ID or "Unknown")
+    if not content_hash:
+        return jsonify({"ok": False, "errors": ["content_hash is required"]}), 400
+    if not reason:
+        return jsonify({"ok": False, "errors": ["reason is required"]}), 400
+    try:
+        created = script_sentinel.create_allowance(
+            agent_id=target_agent,
+            content_hash=content_hash,
+            allowance_type="persistent",
+            reason=reason,
+            created_by="gui-operator",
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "errors": [str(exc)]}), 400
+    return jsonify({"ok": True, "allowance": created})
 
 
 def _ui_dist_ready() -> bool:

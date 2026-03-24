@@ -2,6 +2,243 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-03-24 (default policy baseline + guided setup docs)
+- Updated default Script Sentinel baseline in shipped policy/template:
+  - `script_sentinel.enabled: true`
+  - `script_sentinel.mode: match_original`
+  - `script_sentinel.scan_mode: exec_context_plus_mentions`
+  - `script_sentinel.include_wrappers: true`.
+- Expanded default blocked-command baseline with additional high-risk destructive patterns:
+  - `wipefs`
+  - `init 0`
+  - `init 6`
+  - `systemctl poweroff`
+  - `systemctl reboot`.
+- Synced fallback policy template in `src/airg_cli.py` closer to repository baseline for packaged installs:
+  - stronger blocked command/path defaults
+  - network command list + enforce mode baseline
+  - default audit redaction patterns.
+- Expanded command catalog in `src/ui/catalog.json` with common safe/default-allowed commands for easier policy review in GUI (for example `ls`, `pwd`, `cat`, `grep`, `git status`, `git diff`, `git log`).
+- Updated install docs to recommend guided setup as default:
+  - `README.md`
+  - `docs/INSTALL.md`
+  - unattended `--defaults --yes` kept as automation/CI-only flow with explicit workspace.
+- Hardened publish workflow for PyPI/TestPyPI (`.github/workflows/publish-pypi.yml`):
+  - builds frontend assets (`ui_v3`) before packaging to avoid stale/missing UI in published wheels
+  - validates stable tag/version alignment (`vX.Y.Z` must match `pyproject.toml project.version`) on tag-driven publish.
+- Updated release/operator docs to use guided setup in smoke/preflight paths:
+  - `docs/RELEASE.md`
+  - `docs/RELEASE_CHECKLIST.md`
+
+## 2026-03-23 (setup/service install simplification)
+- Simplified setup/install flow in `src/airg_cli.py`:
+  - removed optional GUI toggles from setup (`--gui`, `--no-gui`)
+  - removed setup-time agent arguments (`--agent`, `--agent-id`)
+  - setup now always provisions GUI service and starts it.
+- Removed setup-time default agent bootstrap:
+  - no auto-created Settings agent profile during `airg-setup`
+  - no auto-created Settings agent profile during `airg-service install`.
+- Updated `airg-service install` arguments:
+  - removed `--agent-id`; service env now defaults to `AIRG_AGENT_ID=Unknown` unless explicitly exported in process env.
+- Updated docs to align with current install model:
+  - `README.md`
+  - `docs/INSTALL.md`
+  - `docs/MANUAL.md`.
+
+## 2026-03-23 (Claude Desktop MCP apply + posture alignment)
+- Extended MCP apply/remove runtime support to include `claude_desktop` profiles in `src/mcp_config_manager.py`.
+- Added Claude Desktop target-file handling:
+  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+  - Linux: `~/.config/Claude/claude_desktop_config.json`
+  - Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
+- Claude Desktop apply/remove preserves unrelated config keys and only manages `mcpServers.ai-runtime-guard`.
+- Updated posture logic for `claude_desktop` in `src/agent_posture.py` to MCP-only scoring:
+  - `gray`: MCP not configured
+  - `green`: AIRG MCP configured.
+- Updated Settings -> Agents posture panel rendering for Claude Desktop to show MCP-only checks (no hook/sandbox rows).
+- Added/updated tests:
+  - `tests/test_agent_posture.py` (Claude Desktop MCP detection + missing-config behavior)
+  - `tests/test_mcp_config_manager.py` (Claude Desktop apply/remove, preservation of unrelated keys).
+
+## 2026-03-23 (Codex MCP apply/remove runtime support)
+- Extended MCP apply/remove runtime support in `src/mcp_config_manager.py` to include `codex` profiles.
+- Added Codex scope handling:
+  - `global`: `~/.codex/config.toml`
+  - `project`: `<workspace>/.codex/config.toml`
+- AIRG now updates/removes only the `mcp_servers.ai-runtime-guard` TOML section and preserves unrelated config sections.
+- Added Codex posture detection in `src/agent_posture.py` from both global/project `config.toml` paths.
+- Added tests:
+  - `tests/test_mcp_config_manager.py` (Codex global/project apply coverage + remove behavior)
+  - `tests/test_agent_posture.py` (Codex global/project posture detection).
+
+## 2026-03-22 (v2.0.dev6 agent MCP config manager + Settings apply flow)
+- Added dedicated MCP config manager runtime module: `src/mcp_config_manager.py`.
+- Added Claude MCP apply/remove runtime logic with strict scope targets:
+  - `project` (default): `<workspace>/.mcp.json` (create if missing)
+  - `local`: `~/.claude.json` at `projects.<workspace>.mcpServers`
+  - `user`: `~/.claude.json` at `mcpServers`.
+- Added pre-write safety and integrity checks:
+  - strict JSON parsing with explicit invalid JSON errors
+  - post-write re-read verification
+  - centralized backups under `<state_dir>/mcp-configs/backups/`.
+- Added profile `last_applied` metadata persistence in registry (`agents.json`) to track last applied scope/path/timestamp and support safe cleanup.
+- Added new backend endpoint: `POST /settings/agents/mcp-apply`:
+  - dry-run planning
+  - required/optional previous-config removal decisions
+  - apply result + posture refresh payload.
+- Updated delete endpoint behavior: `POST /settings/agents/delete` now supports `remove_mode`:
+  - `agent_only`
+  - `everything` (attempt MCP cleanup first, abort delete on cleanup failure).
+- Updated Settings -> Agents UI flow:
+  - Claude default scope changed to `project`
+  - top actions now use `Save` + `Revert`
+  - `Copy MCP JSON` / `Copy CLI command` require saved, clean profile state
+  - added `Apply MCP Config` modal flow (confirm/applying/result)
+  - added delete modal with `Remove Everything` vs `Remove Agent Only` paths and shared-workspace warning
+  - auto-copy behavior added to copy modals when clipboard API is available.
+- Polished Settings -> Agents UX:
+  - save-on-change now triggers posture refresh so MCP/hardening state is re-evaluated immediately
+  - MCP re-apply warning now uses an action modal (`Apply Config` / `Understood`) instead of close-only notice
+  - Apply MCP success result now explicitly reminds user to restart the AI agent for changes to take effect
+  - Agent scope moved under collapsed `Advanced Options` in agent configuration panel.
+- Expanded Claude apply/remove behavior:
+  - Apply MCP now also syncs `<workspace>/.claude/settings.local.json` with AIRG entries:
+    - adds `ai-runtime-guard` to `enabledMcpjsonServers`
+    - adds `mcp__ai-runtime-guard__*` entries to `permissions.allow`
+  - Remove-everything now removes AIRG-specific `settings.local.json` entries while preserving unrelated settings.
+- Updated runtime build metadata exposure:
+  - `server_info` build now resolves from package version (`v<package-version>`) with optional `AIRG_SERVER_BUILD` override, replacing stale hardcoded build string.
+- Added packaging metadata for new module and bumped package/dev version to `2.0.dev6`.
+
+## 2026-03-22 (hook audit stream unified into activity.log)
+- Updated `airg-hook` logging to append directly into `activity.log` instead of creating `hook_activity.log`.
+- Hook audit events now follow the runtime-compatible base schema:
+  - `timestamp`, `source`, `agent_id`, `session_id`, `agent_session_id`, `tool`, `workspace`, `policy_decision`, `decision_tier`, `event`
+  - hook-specific metadata is appended as optional fields (`hook_reason`, `hook_redirect_tool`, `hook_detail`, `hook_version`, etc.).
+- Removed hook-log path split behavior so hook events flow into the same ingest pipeline used by reports.
+- Preserved fail-open hook behavior (logging failures do not block tool execution).
+
+## 2026-03-20 (v2.0.dev5 policy model simplification)
+- Removed simulation tier and cumulative budget logic from runtime enforcement.
+- Simplified runtime decision model to:
+  - `blocked`
+  - `requires_confirmation`
+  - `allowed`
+- Removed simulation/budget controls from policy schema and defaults:
+  - dropped `requires_simulation` from active policy surface
+  - retained migration compatibility by folding legacy `requires_simulation.commands` into `requires_confirmation.commands` on load.
+- Removed budget enforcement hooks from MCP tools:
+  - `execute_command`
+  - `write_file`
+  - `delete_file`.
+- Removed Simulation tier from UI command matrix and agent-override editing.
+- Removed Advanced Policy simulation/budget cards from GUI.
+- Updated packaging/runtime defaults and tests for the simplified model.
+- Bumped package/dev surface version to `2.0.dev5`.
+
+## 2026-03-20 (v2.0.dev4 Script Sentinel context modes + runtime hot-reload)
+- Added runtime policy hot-reload support in `config.py`:
+  - tool entry points refresh effective policy when `policy.json` mtime changes
+  - Script Sentinel and tier changes take effect without server restart after apply.
+- Tightened Script Sentinel write-time matching in `src/script_sentinel.py`:
+  - added `script_sentinel.scan_mode`:
+    - `exec_context` (default)
+    - `exec_context_plus_mentions`
+  - policy-command hits are now context-classified (`exec_context` vs `mention_only`)
+  - mention-only hits can be recorded for audit mode without becoming enforceable by default.
+- Updated Script Sentinel enforcement behavior:
+  - execute-time decisions now consider `enforceable` signatures only
+  - mention-only signatures remain audit metadata and do not trigger block/approval by default.
+- Added Advanced Policy GUI controls for Script Sentinel:
+  - `enabled`, `mode`, `scan_mode`, `max_scan_bytes`, `include_wrappers`.
+- Updated `Settings -> Agents -> Script Sentinel` table:
+  - added `Execution Context` visibility column
+  - signature preview includes per-signature context tag.
+- Updated policy/config defaults and validation:
+  - `script_sentinel.scan_mode` added to defaults in `policy.json` and `airg_cli.py`
+  - validation accepts `exec_context|exec_context_plus_mentions`.
+- Added/updated tests:
+  - mention-only behavior in default scan mode is ignored
+  - mention-only behavior in extended scan mode is flagged but not enforced.
+- Bumped package/dev surface version to `2.0.dev4`.
+
+## 2026-03-19 (v2.0.dev3 Script Sentinel policy-intent continuity)
+- Added Script Sentinel runtime module (`src/script_sentinel.py`) with:
+  - `flag-at-write` detection for files written through `write_file`
+  - `check-at-execute` enforcement for common script invocation forms in `execute_command`
+  - global hash-based artifact tracking (`content_hash`) and path mapping persistence
+  - per-agent trust controls (`dismiss once`, `trust artifact`) with allowance storage.
+- Added Script Sentinel policy section defaults/validation:
+  - `script_sentinel.enabled`
+  - `script_sentinel.mode` (`match_original|block|requires_confirmation`)
+  - `script_sentinel.max_scan_bytes`
+  - `script_sentinel.include_wrappers`.
+- Added Script Sentinel runtime integration:
+  - `write_file` now records `script_sentinel_flagged` events on matched content
+  - `execute_command` now evaluates tagged artifacts and applies policy-intent continuity decisions
+  - added audit events:
+    - `script_sentinel_execute_checked`
+    - `script_sentinel_blocked`
+    - `script_sentinel_requires_confirmation`
+    - `script_sentinel_dismissed_once`
+    - `script_sentinel_trusted`.
+- Added Script Sentinel control-plane APIs in Flask backend:
+  - `GET /settings/agents/script-sentinel`
+  - `POST /settings/agents/script-sentinel/dismiss-once`
+  - `POST /settings/agents/script-sentinel/trust`.
+- Added Script Sentinel UI surface under `Settings -> Agents`:
+  - 24h summary counters
+  - flagged artifact list
+  - per-hash `Dismiss Once` and `Trust Artifact` actions.
+- Added regression tests for sentinel behavior in `tests/test_attacker_suite.py`:
+  - write-time tagging and execute-time blocking
+  - union-based detection with executor-specific enforcement
+  - stale-hash non-enforcement after out-of-band overwrite
+  - one-time and persistent allowance behavior.
+- Bumped package/dev surface version to `2.0.dev3`.
+
+## 2026-03-19 (v2.0.dev2 config-writer apply/undo)
+- Added dev2 agent config writer module:
+  - `src/agent_configurator.py`
+  - safe write with `.airg-backup` snapshots and post-write verification
+  - per-profile undo state tracking in runtime state.
+- Added backend apply/undo endpoints for agent hardening:
+  - `POST /settings/agents/config-apply`
+  - `POST /settings/agents/config-undo`
+  - automatic posture response refresh after apply/undo.
+- Added Claude preflight behavior before deny-rule apply:
+  - checks AIRG MCP presence in known Claude MCP config paths
+  - optional workspace `.mcp.json` auto-add path when operator confirms.
+- Added UI actions under `Settings -> Agents -> Agent Security Posture`:
+  - `Apply Hardening` per supported profile (`claude_code`, `claude_desktop`, `cursor`)
+  - `Undo Last Apply` using stored AIRG backup state
+  - diff summary modal after apply.
+- Added configurator unit tests:
+  - `tests/test_agent_configurator.py`.
+- Bumped package/dev surface version to `2.0.dev2`.
+
+## 2026-03-19 (v2.0.dev1 posture + hook foundation)
+- Added read-only Agent Security Posture under `Settings -> Agents`:
+  - traffic-light totals (`green/yellow/red`)
+  - per-agent posture rows with rationale + signal chips
+  - missing-control summary + recommended next actions
+  - detected unregistered local agent config files.
+- Added posture backend module and endpoints:
+  - `src/agent_posture.py`
+  - `GET /settings/agents/posture`
+  - `GET /settings/agents/detect`
+- Standardized posture API response contract:
+  - includes `ok`, `errors`, `profiles`, `totals`, `discovered_unregistered`.
+- Added `airg-hook` standalone PreToolUse interceptor:
+  - deterministic redirect mapping for `Bash/Write/Edit/MultiEdit`
+  - sensitive native `Read` path block guard (`.env/.key/.pem` + `/secrets/`)
+  - fail-open safety on runtime/parser errors
+  - structured `hook_activity.log` events.
+- Added `airg-hook` package entrypoint in `pyproject.toml`.
+- Added copy-assist snippets in GUI for:
+  - Claude hook wiring (`PreToolUse -> airg-hook`)
+  - baseline Claude hardening template (`deny` + sandbox knobs).
+
 ## 2026-03-08 (v1.5.0 bump + documentation reconciliation)
 - Bumped package version in `pyproject.toml` from `1.4.dev1` to `1.5.0` on `dev` for release preparation.
 - Reconciled root/public changelog:

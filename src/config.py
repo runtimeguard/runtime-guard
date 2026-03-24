@@ -4,7 +4,11 @@ import json
 import os
 import pathlib
 import platform
+import threading
 import uuid
+from importlib.metadata import PackageNotFoundError, version
+
+DEFAULT_MAX_RETRIES = 3
 
 
 def _module_base_dir() -> pathlib.Path:
@@ -71,13 +75,18 @@ POLICY_PATH = pathlib.Path(
 
 
 def _load_policy() -> dict:
+    path = _policy_source_path()
+    with open(path) as f:
+        return json.load(f)
+
+
+def _policy_source_path() -> pathlib.Path:
     path = POLICY_PATH
     if not path.exists():
         fallback = BASE_DIR / "policy.json"
         if fallback.exists():
             path = fallback
-    with open(path) as f:
-        return json.load(f)
+    return path
 
 
 def _validate_and_normalize_policy(policy: dict) -> dict:
@@ -98,6 +107,13 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
         section[key] = value
         return value
 
+    legacy_sim = policy.pop("requires_simulation", None)
+    legacy_sim_commands: list[str] = []
+    if isinstance(legacy_sim, dict):
+        raw_sim_commands = legacy_sim.get("commands", [])
+        if isinstance(raw_sim_commands, list):
+            legacy_sim_commands = [str(cmd).strip() for cmd in raw_sim_commands if str(cmd).strip()]
+
     blocked = _ensure_dict("blocked")
     _ensure_list(blocked, "commands")
     _ensure_list(blocked, "paths")
@@ -106,6 +122,8 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     conf = _ensure_dict("requires_confirmation")
     _ensure_list(conf, "commands")
     _ensure_list(conf, "paths")
+    if legacy_sim_commands:
+        conf["commands"] = sorted(set(list(conf["commands"]) + legacy_sim_commands))
     conf.setdefault("session_whitelist_enabled", True)
     if not isinstance(conf["session_whitelist_enabled"], bool):
         raise ValueError("requires_confirmation.session_whitelist_enabled must be boolean")
@@ -116,82 +134,8 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     sec.setdefault("failed_attempt_window_seconds", 600)
     sec.setdefault("token_ttl_seconds", 600)
 
-    sim = _ensure_dict("requires_simulation")
-    _ensure_list(sim, "commands")
-    sim.setdefault("bulk_file_threshold", 10)
-    sim.setdefault("max_retries", 3)
-    if int(sim["bulk_file_threshold"]) < 0:
-        raise ValueError("requires_simulation.bulk_file_threshold must be >= 0")
-    if int(sim["max_retries"]) < 1:
-        raise ValueError("requires_simulation.max_retries must be >= 1")
-    budget = sim.setdefault("cumulative_budget", {})
-    if not isinstance(budget, dict):
-        raise ValueError("requires_simulation.cumulative_budget must be an object")
-    budget.setdefault("enabled", False)
-    budget.setdefault("scope", "session")
-    budget.setdefault("limits", {})
-    budget.setdefault("counting", {})
-    budget.setdefault("reset", {})
-    budget.setdefault("on_exceed", {})
-    budget.setdefault("overrides", {})
-    budget.setdefault("audit", {})
-    limits = budget["limits"]
-    if not isinstance(limits, dict):
-        raise ValueError("requires_simulation.cumulative_budget.limits must be an object")
-    limits.setdefault("max_unique_paths", 50)
-    limits.setdefault("max_total_operations", 100)
-    limits.setdefault("max_total_bytes_estimate", 104857600)
-    counting = budget["counting"]
-    if not isinstance(counting, dict):
-        raise ValueError("requires_simulation.cumulative_budget.counting must be an object")
-    counting.setdefault("mode", "affected_paths")
-    counting.setdefault("dedupe_paths", True)
-    counting.setdefault("include_noop_attempts", False)
-    counting.setdefault("commands_included", ["rm", "mv", "write_file", "delete_file"])
-    if not isinstance(counting["commands_included"], list):
-        raise ValueError("requires_simulation.cumulative_budget.counting.commands_included must be an array")
-    reset = budget["reset"]
-    if not isinstance(reset, dict):
-        raise ValueError("requires_simulation.cumulative_budget.reset must be an object")
-    reset.setdefault("mode", "sliding_window")
-    reset.setdefault("window_seconds", 3600)
-    reset.setdefault("idle_reset_seconds", 900)
-    reset.setdefault("reset_on_server_restart", True)
-    on_exceed = budget["on_exceed"]
-    if not isinstance(on_exceed, dict):
-        raise ValueError("requires_simulation.cumulative_budget.on_exceed must be an object")
-    on_exceed.setdefault("decision_tier", "blocked")
-    on_exceed.setdefault("matched_rule", "requires_simulation.cumulative_budget_exceeded")
-    on_exceed.setdefault("message", "Cumulative blast-radius budget exceeded for current scope.")
-    overrides = budget["overrides"]
-    if not isinstance(overrides, dict):
-        raise ValueError("requires_simulation.cumulative_budget.overrides must be an object")
-    overrides.setdefault("enabled", True)
-    overrides.setdefault("require_confirmation_tool", "out_of_band_operator_approval")
-    overrides.setdefault("token_ttl_seconds", 300)
-    overrides.setdefault("max_override_actions", 1)
-    overrides.setdefault("audit_reason_required", True)
-    overrides.setdefault("allowed_roles", ["human-operator"])
-    audit_cfg = budget["audit"]
-    if not isinstance(audit_cfg, dict):
-        raise ValueError("requires_simulation.cumulative_budget.audit must be an object")
-    audit_cfg.setdefault("log_budget_state", True)
-    audit_cfg.setdefault(
-        "fields",
-        [
-            "budget_scope",
-            "budget_key",
-            "cumulative_unique_paths",
-            "cumulative_total_operations",
-            "cumulative_total_bytes_estimate",
-            "budget_remaining",
-        ],
-    )
-
     allowed = _ensure_dict("allowed")
     _ensure_list(allowed, "paths_whitelist")
-    allowed.setdefault("max_files_per_operation", 10)
-    allowed.setdefault("max_file_size_mb", 10)
     allowed.setdefault("max_directory_depth", 100)
 
     network = _ensure_dict("network")
@@ -227,7 +171,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
 
     backup_access = _ensure_dict("backup_access")
     backup_access.setdefault("block_agent_tools", True)
-    _ensure_list(backup_access, "allowed_tools")
     if not isinstance(backup_access["block_agent_tools"], bool):
         raise ValueError("backup_access.block_agent_tools must be boolean")
 
@@ -270,6 +213,23 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if int(reports["prune_interval_seconds"]) < 300:
         raise ValueError("reports.prune_interval_seconds must be >= 300")
 
+    script_sentinel = _ensure_dict("script_sentinel")
+    script_sentinel.setdefault("enabled", True)
+    script_sentinel.setdefault("mode", "match_original")
+    script_sentinel.setdefault("scan_mode", "exec_context_plus_mentions")
+    script_sentinel.setdefault("max_scan_bytes", 1048576)
+    script_sentinel.setdefault("include_wrappers", True)
+    if not isinstance(script_sentinel["enabled"], bool):
+        raise ValueError("script_sentinel.enabled must be boolean")
+    if str(script_sentinel["mode"]).strip() not in {"match_original", "block", "requires_confirmation"}:
+        raise ValueError("script_sentinel.mode must be one of: match_original, block, requires_confirmation")
+    if str(script_sentinel["scan_mode"]).strip() not in {"exec_context", "exec_context_plus_mentions"}:
+        raise ValueError("script_sentinel.scan_mode must be one of: exec_context, exec_context_plus_mentions")
+    if int(script_sentinel["max_scan_bytes"]) < 1024:
+        raise ValueError("script_sentinel.max_scan_bytes must be >= 1024")
+    if not isinstance(script_sentinel["include_wrappers"], bool):
+        raise ValueError("script_sentinel.include_wrappers must be boolean")
+
     agent_overrides = policy.get("agent_overrides", {})
     if agent_overrides is None:
         agent_overrides = {}
@@ -278,7 +238,6 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     allowed_override_sections = {
         "blocked",
         "requires_confirmation",
-        "requires_simulation",
         "allowed",
         "network",
         "execution",
@@ -333,6 +292,13 @@ def _resolve_effective_policy(base_policy: dict, agent_id: str) -> dict:
     return merged
 
 
+_POLICY_LOCK = threading.RLock()
+_POLICY_SOURCE_PATH: pathlib.Path = _policy_source_path()
+try:
+    _POLICY_SOURCE_MTIME_NS = _POLICY_SOURCE_PATH.stat().st_mtime_ns
+except OSError:
+    _POLICY_SOURCE_MTIME_NS = -1
+
 _BASE_POLICY: dict = _validate_and_normalize_policy(_load_policy())
 _EFFECTIVE_POLICY_DOC = _resolve_effective_policy(_BASE_POLICY, AGENT_ID)
 POLICY: dict = _validate_and_normalize_policy(_EFFECTIVE_POLICY_DOC)
@@ -341,13 +307,25 @@ BACKUP_DIR = str(
     .expanduser()
     .resolve()
 )
-MAX_RETRIES: int = POLICY.get("requires_simulation", {}).get("max_retries", 3)
+MAX_RETRIES: int = DEFAULT_MAX_RETRIES
 
 SESSION_ID: str = str(uuid.uuid4())
 _workspace_from_env = str(os.environ.get("AIRG_WORKSPACE", "") or "").strip()
 _workspace_selected = _workspace_from_env or str(_default_workspace_root())
 WORKSPACE_ROOT: str = str(pathlib.Path(_workspace_selected).expanduser().resolve())
-SERVER_BUILD = "2026-02-23T22:10Z-simfix-check"
+
+
+def _resolve_server_build() -> str:
+    env_override = str(os.environ.get("AIRG_SERVER_BUILD", "")).strip()
+    if env_override:
+        return env_override
+    try:
+        return f"v{version('ai-runtime-guard')}"
+    except PackageNotFoundError:
+        return "dev"
+
+
+SERVER_BUILD = _resolve_server_build()
 
 APPROVAL_TTL_SECONDS: int = POLICY.get("requires_confirmation", {}).get(
     "approval_security", {}
@@ -356,3 +334,45 @@ APPROVAL_TTL_SECONDS: int = POLICY.get("requires_confirmation", {}).get(
 RESTORE_CONFIRMATION_TTL_SECONDS: int = POLICY.get("restore", {}).get(
     "confirmation_ttl_seconds", 300
 )
+
+
+def _apply_runtime_policy(effective_policy: dict) -> None:
+    global BACKUP_DIR, MAX_RETRIES, APPROVAL_TTL_SECONDS, RESTORE_CONFIRMATION_TTL_SECONDS
+    normalized = _validate_and_normalize_policy(copy.deepcopy(effective_policy))
+    POLICY.clear()
+    POLICY.update(normalized)
+    BACKUP_DIR = str(
+        pathlib.Path(POLICY.get("audit", {}).get("backup_root", str(_default_backup_root())))
+        .expanduser()
+        .resolve()
+    )
+    MAX_RETRIES = DEFAULT_MAX_RETRIES
+    APPROVAL_TTL_SECONDS = int(
+        POLICY.get("requires_confirmation", {}).get("approval_security", {}).get("token_ttl_seconds", 600)
+    )
+    RESTORE_CONFIRMATION_TTL_SECONDS = int(
+        POLICY.get("restore", {}).get("confirmation_ttl_seconds", 300)
+    )
+
+
+def refresh_policy_if_changed(*, force: bool = False) -> bool:
+    global _POLICY_SOURCE_PATH, _POLICY_SOURCE_MTIME_NS
+    with _POLICY_LOCK:
+        source = _policy_source_path()
+        try:
+            mtime_ns = source.stat().st_mtime_ns
+        except OSError:
+            return False
+        unchanged = (
+            source == _POLICY_SOURCE_PATH
+            and int(mtime_ns) == int(_POLICY_SOURCE_MTIME_NS)
+        )
+        if unchanged and not force:
+            return False
+
+        loaded = _validate_and_normalize_policy(_load_policy())
+        effective = _resolve_effective_policy(loaded, AGENT_ID)
+        _apply_runtime_policy(effective)
+        _POLICY_SOURCE_PATH = source
+        _POLICY_SOURCE_MTIME_NS = int(mtime_ns)
+        return True

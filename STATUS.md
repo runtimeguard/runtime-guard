@@ -1,44 +1,31 @@
 # STATUS
 
-Last updated: 2026-03-08 (v1.5 prep)
+Last updated: 2026-03-23 (v2.0.0)
 
-## Current branch
+## Branches
 1. Active integration branch: `dev`
-2. Release branch: `main`
+2. Stable release branch: `main`
 
-## Current release state
-1. Latest stable release is `v1.3` from `main`.
-2. `dev` currently carries `v1.5.0` release-prep and packaging hardening work.
-3. Stable release notes are in `CHANGELOG.md`.
-4. In-progress development notes are in `docs/CHANGELOG_DEV.md`.
+## Release state
+1. Current release target: `v2.0.0`
+2. Package version in source: `2.0.0`
+3. Stable release notes: `CHANGELOG.md`
+4. Development history: `docs/CHANGELOG_DEV.md`
 
-## Current runtime snapshot
-1. Setup and runtime
-   - `airg-setup` is the primary onboarding command.
-   - `airg-service` manages optional GUI service lifecycle.
-   - `airg-doctor` validates runtime paths, permissions, UI availability, and reports DB health.
-2. Policy and enforcement
-   - default profile is accidental-safety-first basic protection.
-   - advanced controls include simulation, confirmation, cumulative budgets, network domain controls, and shell workspace containment.
-3. Reporting
-   - reports ingest from `activity.log` into `reports.db`.
-   - UI includes dashboard and log tabs with filtering and drill-down behavior.
-4. Approvals
-   - approvals are out-of-band via GUI/API.
-   - no in-band MCP self-approval tool is exposed.
-
-## Active workstreams
-1. Final PyPI/TestPyPI publish validation and release execution.
-2. Container channel hardening (path model + persistence + CI checks).
-3. SSE/transport expansion planning after policy isolation is complete.
-4. Documentation simplification and public-release hygiene.
+## Runtime snapshot
+1. AIRG is a local STDIO MCP policy enforcement server with Web GUI included.
+2. Active policy tiers are `blocked`, `requires_confirmation`, and `allowed`.
+3. Script Sentinel is active in runtime policy model (write-time detection, execute-time enforcement continuity).
+4. Per-agent overrides are supported through `policy.agent_overrides` keyed by `AIRG_AGENT_ID`.
+5. Reports ingest from `activity.log` into `reports.db` for dashboard and log views.
+6. Setup flow is `airg-setup` plus manual agent onboarding in `Settings -> Agents`.
 
 ## Known boundary
-1. AIRG enforces actions routed through AIRG MCP tools.
-2. Native client tools outside MCP can bypass AIRG policy.
-3. Disabling native shell/file tools in clients is a deployment requirement for strict boundary guarantees.
+1. AIRG enforces only operations routed through AIRG MCP tools.
+2. Native client tools outside MCP can bypass AIRG policy unless client hardening is applied.
+3. In STDIO deployments, identity separation is effectively the MCP profile tuple (`AIRG_AGENT_ID` + workspace), not per-instance authenticated identity.
 
-## Historical notes
-Detailed historical change logs and completed gate history were moved to:
-1. `CHANGELOG.md`
-2. `docs/CHANGELOG_DEV.md`
+## Next focus areas
+1. Agent hardening quality and posture signal accuracy across supported clients.
+2. Continued documentation/runtime parity as v2.x features evolve.
+3. Future research: authenticated HTTP/SSE transport for stronger per-instance identity.
