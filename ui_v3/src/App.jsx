@@ -722,8 +722,9 @@ export default function App() {
   function scopeOptionsForAgentType(agentType) {
     const normalized = String(agentType || '').trim().toLowerCase()
     const configured = Array.isArray(agentScopeOptions?.[normalized]) ? agentScopeOptions[normalized] : []
-    if (configured.length) return configured
     if (normalized === 'claude_code') {
+      const hasExpected = configured.some((opt) => ['project', 'local', 'user'].includes(String(opt?.id || '').trim().toLowerCase()))
+      if (hasExpected) return configured
       return [
         { id: 'project', label: 'Project' },
         { id: 'local', label: 'Local' },
@@ -731,17 +732,22 @@ export default function App() {
       ]
     }
     if (normalized === 'codex') {
+      const hasExpected = configured.some((opt) => ['project', 'global'].includes(String(opt?.id || '').trim().toLowerCase()))
+      if (hasExpected) return configured
       return [
         { id: 'global', label: 'Global' },
         { id: 'project', label: 'Project' },
       ]
     }
     if (normalized === 'cursor') {
+      const hasExpected = configured.some((opt) => ['project', 'global'].includes(String(opt?.id || '').trim().toLowerCase()))
+      if (hasExpected) return configured
       return [
         { id: 'project', label: 'Project' },
         { id: 'global', label: 'Global' },
       ]
     }
+    if (configured.length) return configured
     return [{ id: 'default', label: 'Default' }]
   }
 
