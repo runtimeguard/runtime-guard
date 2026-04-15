@@ -729,12 +729,18 @@
   }
 
   .top-list-item .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: 0.75rem;
     color: var(--text-primary);
   }
 
   .top-list-item .count {
+    flex-shrink: 0;
     font-family: var(--font-mono);
     color: var(--text-tertiary);
     font-size: 0.6875rem;

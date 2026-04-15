@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.1] - 2026-04-15
+
+### Fixed
+- Reports dashboard top lists now truncate long command/path/rule strings so oversized entries do not consume full card width.
+- Policy -> Network domain input focus stability improved by using stable component instances; periodic refresh/re-render no longer drops cursor focus while typing.
+- Reports dashboard event-card deltas now handle inactivity gaps with clearer messaging (for example first activity after a quiet week) instead of always showing `vs yesterday`.
+
 ## [2.1.0] - 2026-04-15
 
 ### Security
