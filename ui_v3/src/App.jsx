@@ -749,6 +749,24 @@ export default function App() {
   function defaultHardeningOptionsForProfile(profile) {
     const agentType = String(profile?.agent_type || '').trim().toLowerCase()
     const scope = normalizeScopeForAgentType(agentType, profile?.agent_scope || defaultScopeForAgentType(agentType))
+    if (agentType === 'cursor') {
+      return {
+        scope,
+        strict_enforcement: true,
+        advanced_enforcement: false,
+        fail_closed: true,
+        permissions_enabled: true,
+        permissions_allow_airg_mcp: true,
+        permissions_lock_terminal: true,
+        sandbox_enabled: true,
+        sandbox_type: 'workspace_readwrite',
+        sandbox_disable_tmp_write: true,
+        sandbox_enable_shared_build_cache: false,
+        sandbox_sync_network_from_policy: true,
+        sandbox_network_default: 'deny',
+        cursorignore_sync: false,
+      }
+    }
     if (agentType === 'codex') {
       return {
         scope,
@@ -5584,9 +5602,12 @@ export default function App() {
       } catch (err) {
         const payload = err?.payload || {}
         if (payload?.requires_mcp) {
-          const mcpLocationHint = String(row?.agent_type || '').toLowerCase() === 'codex'
+          const normalizedAgentType = String(row?.agent_type || '').toLowerCase()
+          const mcpLocationHint = normalizedAgentType === 'codex'
             ? 'Codex config.toml'
-            : 'workspace .mcp.json'
+            : normalizedAgentType === 'cursor'
+              ? 'Cursor .cursor/mcp.json'
+              : 'workspace .mcp.json'
           const confirmAutoAdd = window.confirm(
             `AIRG MCP server was not detected for ${row?.name || row?.agent_id || profileId}.\n\nAdd AIRG MCP to ${mcpLocationHint} and continue?`
           )
@@ -5666,6 +5687,15 @@ export default function App() {
         if (strictReady) return 'yellow'
         return 'red'
       }
+      if (agentType === 'cursor') {
+        const hasMcp = Boolean(signals?.airg_mcp_present)
+        if (!hasMcp) return 'gray'
+        const strictReady = Boolean(signals?.hook_enforcement_active)
+        const maximumReady = strictReady && Boolean(signals?.hook_fail_closed_active) && Boolean(signals?.sandbox_hardened)
+        if (maximumReady) return 'green'
+        if (strictReady) return 'yellow'
+        return 'red'
+      }
       if (agentType !== 'claude_code') return fallbackNormalized
       const hasMcp = Boolean(signals?.airg_mcp_present)
       if (!hasMcp) return 'gray'
@@ -5704,6 +5734,22 @@ export default function App() {
           tier3_workspace_write_exclude_tmpdir_env_var: posture?.codex_tier3_exclude_tmpdir_env_var !== false,
         }
       }
+      if (String(profile?.agent_type || '').trim().toLowerCase() === 'cursor') {
+        return {
+          ...defaults,
+          strict_enforcement: Boolean(signals?.hook_enforcement_active),
+          advanced_enforcement: Boolean(signals?.optional_read_hooks_active),
+          fail_closed: Boolean(signals?.hook_fail_closed_active),
+          permissions_enabled: Boolean(signals?.permissions_airg_allowlist_configured),
+          permissions_allow_airg_mcp: Boolean(signals?.permissions_airg_allowlist_configured),
+          permissions_lock_terminal: Boolean(signals?.permissions_terminal_allowlist_locked),
+          sandbox_enabled: Boolean(signals?.sandbox_hardened),
+          sandbox_type: String(posture?.cursor_sandbox_type || defaults.sandbox_type || 'workspace_readwrite'),
+          sandbox_disable_tmp_write: posture?.cursor_sandbox_disable_tmp_write !== false,
+          sandbox_network_default: String(posture?.cursor_sandbox_network_default || defaults.sandbox_network_default || 'deny'),
+          cursorignore_sync: Boolean(signals?.cursorignore_synced),
+        }
+      }
       return defaults
     }
     const selectedHardeningBaseline = hardeningBaselineForProfile(selectedProfile || {}, selectedPosture || {})
@@ -5722,7 +5768,8 @@ export default function App() {
     const selectedTheme = postureCardTheme[selectedStatusNormalized]
     const supportsClaudeHardening = selectedAgentType === 'claude_code'
     const supportsCodexHardening = selectedAgentType === 'codex'
-    const supportsConfigHardening = supportsClaudeHardening || supportsCodexHardening
+    const supportsCursorHardening = selectedAgentType === 'cursor'
+    const supportsConfigHardening = supportsClaudeHardening || supportsCodexHardening || supportsCursorHardening
     const trafficLegend = [
       { id: 'gray', label: 'None', color: '#94a3b8' },
       { id: 'red', label: 'Standard', color: '#ef4444' },
@@ -5760,32 +5807,42 @@ export default function App() {
           { key: 'workspace_write_slash_tmp_blocked', label: 'Sandbox Settings: Access to /tmp', failText: '/tmp access not denied in workspace-write mode' },
           { key: 'workspace_write_tmpdir_blocked', label: 'Sandbox Settings: Access to $TMPDIR', failText: '$TMPDIR access not denied in workspace-write mode' },
         ]
-      : [
-          {
-            key: 'airg_mcp_present',
-            label: 'AIRG MCP configured',
-            failText: selectedAgentType === 'claude_desktop'
-              ? 'Not found in Claude Desktop config'
-              : selectedAgentType === 'cursor'
-                ? 'Not found in Cursor project/global mcp.json scopes'
+      : selectedAgentType === 'cursor'
+        ? [
+            { key: 'airg_mcp_present', label: 'AIRG MCP configured', failText: 'Not found in Cursor project/global mcp.json scopes' },
+            { key: 'hook_enforcement_active', label: 'Hook enforcement active', failText: 'Missing AIRG hook coverage for Shell/Write/Delete with before gates' },
+            { key: 'hook_fail_closed_active', label: 'Fail-closed hook gates', failText: 'beforeShellExecution and beforeMCPExecution must both use failClosed' },
+            { key: 'sandbox_hardened', label: 'Sandbox hardened', failText: 'sandbox.json hardening is not active' },
+            { key: 'permissions_airg_allowlist_configured', label: 'permissions.json MCP allowlist', failText: 'Optional control' },
+            { key: 'permissions_terminal_allowlist_locked', label: 'permissions.json terminal lock', failText: 'Optional control' },
+            { key: 'optional_read_hooks_active', label: 'Optional Read/Grep hooks', failText: 'Optional control' },
+            { key: 'cursorignore_synced', label: 'Optional .cursorignore sync', failText: 'Optional control' },
+          ]
+        : [
+            {
+              key: 'airg_mcp_present',
+              label: 'AIRG MCP configured',
+              failText: selectedAgentType === 'claude_desktop'
+                ? 'Not found in Claude Desktop config'
                 : 'Not found in project/local/user/managed MCP config scopes',
-          },
-          { key: 'tier1_hook_active', label: 'Hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
-          { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
-          { key: 'tier2_hook_active', label: 'Optional Read/Glob/Grep hook', failText: 'Missing hook matchers for Read/Glob/Grep' },
-          { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
-          { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
-        ]
-    const signalRows = ((selectedAgentType === 'claude_desktop' || selectedAgentType === 'cursor' || selectedAgentType === 'custom')
+            },
+            { key: 'tier1_hook_active', label: 'Hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
+            { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
+            { key: 'tier2_hook_active', label: 'Optional Read/Glob/Grep hook', failText: 'Missing hook matchers for Read/Glob/Grep' },
+            { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
+            { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
+          ]
+    const signalRows = ((selectedAgentType === 'claude_desktop' || selectedAgentType === 'custom')
       ? signalRowsBase.filter((row) => row.key === 'airg_mcp_present')
       : signalRowsBase
     ).map((row) => {
       const notSupported = !supportsConfigHardening && row.key !== 'airg_mcp_present'
       const rawValue = selectedSignals?.[row.key]
       const optionalClaudeHook = selectedAgentType === 'claude_code' && row.key === 'tier2_hook_active'
+      const optionalCursorSignal = selectedAgentType === 'cursor' && ['permissions_airg_allowlist_configured', 'permissions_terminal_allowlist_locked', 'optional_read_hooks_active', 'cursorignore_synced'].includes(row.key)
       const state = notSupported
         ? 'na'
-        : (rawValue ? 'pass' : (optionalClaudeHook ? 'na' : 'fail'))
+        : (rawValue ? 'pass' : ((optionalClaudeHook || optionalCursorSignal) ? 'na' : 'fail'))
       const scopeList = Array.isArray(selectedSignalScopes?.[row.key]) ? selectedSignalScopes[row.key] : []
       const scopeDetail = scopeList.length
         ? `Configured in ${scopeList.map((scope) => mcpScopeLabels[scope] || scope).join(', ')} scope${scopeList.length === 1 ? '' : 's'}`
@@ -5803,7 +5860,7 @@ export default function App() {
               : scopeDetail
         )
         : state === 'na'
-          ? (optionalClaudeHook ? 'Optional control' : 'Not supported by this client')
+          ? ((optionalClaudeHook || optionalCursorSignal) ? 'Optional control' : 'Not supported by this client')
           : row.failText
       const codexDetail = (() => {
         if (selectedAgentType !== 'codex') return detail
@@ -5859,6 +5916,15 @@ export default function App() {
           { title: 'Maximum', rows: byKeys(['sandbox_mode_maximum', 'approval_policy_maximum', 'workspace_write_network_blocked', 'workspace_write_slash_tmp_blocked', 'workspace_write_tmpdir_blocked']) },
         ].filter((section) => section.rows.length > 0)
       }
+      if (selectedAgentType === 'cursor') {
+        const byKeys = (keys) => signalRows.filter((row) => keys.includes(row.key))
+        return [
+          { title: 'Standard', rows: byKeys(['airg_mcp_present']) },
+          { title: 'Strict', rows: byKeys(['hook_enforcement_active', 'hook_fail_closed_active']) },
+          { title: 'Maximum', rows: byKeys(['sandbox_hardened']) },
+          { title: 'Optional', rows: byKeys(['permissions_airg_allowlist_configured', 'permissions_terminal_allowlist_locked', 'optional_read_hooks_active', 'cursorignore_synced']) },
+        ].filter((section) => section.rows.length > 0)
+      }
       return [{ title: null, rows: signalRows }]
     })()
 
@@ -5891,6 +5957,24 @@ export default function App() {
           tier3_workspace_write_network_access: Boolean(options?.tier3_workspace_write_network_access),
           tier3_workspace_write_exclude_slash_tmp: Boolean(options?.tier3_workspace_write_exclude_slash_tmp),
           tier3_workspace_write_exclude_tmpdir_env_var: Boolean(options?.tier3_workspace_write_exclude_tmpdir_env_var),
+        }
+      }
+      if (normalized === 'cursor') {
+        return {
+          scope,
+          strict_enforcement: Boolean(options?.strict_enforcement),
+          advanced_enforcement: Boolean(options?.advanced_enforcement),
+          fail_closed: Boolean(options?.fail_closed),
+          permissions_enabled: Boolean(options?.permissions_enabled),
+          permissions_allow_airg_mcp: Boolean(options?.permissions_allow_airg_mcp),
+          permissions_lock_terminal: Boolean(options?.permissions_lock_terminal),
+          sandbox_enabled: Boolean(options?.sandbox_enabled),
+          sandbox_type: String(options?.sandbox_type || 'workspace_readwrite'),
+          sandbox_disable_tmp_write: Boolean(options?.sandbox_disable_tmp_write),
+          sandbox_enable_shared_build_cache: Boolean(options?.sandbox_enable_shared_build_cache),
+          sandbox_sync_network_from_policy: Boolean(options?.sandbox_sync_network_from_policy),
+          sandbox_network_default: String(options?.sandbox_network_default || 'deny'),
+          cursorignore_sync: Boolean(options?.cursorignore_sync),
         }
       }
       return { scope }
@@ -6517,6 +6601,244 @@ export default function App() {
                             >
                               Info
                             </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedHardeningOpen && selectedHardeningOptions && selectedAgentType === 'cursor' && (
+                    <div style={{ background: '#ffffff', borderBottom: `1px solid ${selectedTheme.border}`, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 10 }}>
+                        ENFORCEMENT OPTIONS
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr) auto', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, color: '#64748b' }}>Config scope</div>
+                        <div style={{ maxWidth: 280 }}>
+                          <SegControl
+                            value={normalizeScopeForAgentType(selectedAgentType, selectedHardeningOptions.scope || selectedScopeValue)}
+                            onChange={(value) => setHardeningOption(selectedProfileId, { scope: value })}
+                            options={selectedScopeOptions.map((opt) => ({ label: opt.label, value: opt.id, activeClass: 'm-blue' }))}
+                          />
+                        </div>
+                        <button
+                          className="px-2 py-1 text-xs border border-slate-300 rounded-[8px] bg-white hover:bg-slate-50"
+                          onClick={() => setSettingsInfoModal({
+                            open: true,
+                            title: 'Cursor Scope',
+                            content: [
+                              'Controls which Cursor config files are modified for enforcement options.',
+                              '',
+                              '- Project: <workspace>/.cursor/*.json',
+                              '- Global: ~/.cursor/*.json',
+                              '',
+                              'Recommended: Project',
+                            ].join('\n'),
+                          })}
+                        >
+                          Info
+                        </button>
+                      </div>
+
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STANDARD
+                        </div>
+                        <div style={{ padding: '10px 12px', fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                          Standard enforcement is MCP-only. Configure this using <span className="font-semibold">Apply MCP Config</span> above.
+                        </div>
+                      </div>
+
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          STRICT
+                        </div>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Hook enforcement</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.strict_enforcement)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { strict_enforcement: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Read/Grep hooks</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.advanced_enforcement)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { advanced_enforcement: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Fail closed</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.fail_closed)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { fail_closed: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          MAXIMUM
+                        </div>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox enabled</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_enabled)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_enabled: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sandbox mode</div>
+                            <div style={{ maxWidth: 240 }}>
+                              <SegControl
+                                value={String(selectedHardeningOptions.sandbox_type || 'workspace_readwrite')}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_type: String(value || 'workspace_readwrite') })}
+                                options={[
+                                  { label: 'Read/Write', value: 'workspace_readwrite', activeClass: 'm-blue' },
+                                  { label: 'Read Only', value: 'workspace_readonly', activeClass: 'm-blue' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Disable tmp write</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_disable_tmp_write)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_disable_tmp_write: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Network default</div>
+                            <div style={{ maxWidth: 180 }}>
+                              <SegControl
+                                value={String(selectedHardeningOptions.sandbox_network_default || 'deny')}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_network_default: String(value || 'deny') })}
+                                options={[
+                                  { label: 'Deny', value: 'deny', activeClass: 'm-blue' },
+                                  { label: 'Allow', value: 'allow', activeClass: 'm-blue' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sync network from AIRG policy</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_sync_network_from_policy)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_sync_network_from_policy: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Shared build cache</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.sandbox_enable_shared_build_cache)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { sandbox_enable_shared_build_cache: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e5e7eb', padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#64748b' }}>
+                          OPTIONAL
+                        </div>
+                        <div style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Manage permissions.json</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.permissions_enabled)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { permissions_enabled: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Allow AIRG MCP auto-run</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.permissions_allow_airg_mcp)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { permissions_allow_airg_mcp: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Lock terminal allowlist</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.permissions_lock_terminal)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { permissions_lock_terminal: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)', gap: 8, alignItems: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>Sync .cursorignore from policy</div>
+                            <div style={{ maxWidth: 120 }}>
+                              <SegControl
+                                value={Boolean(selectedHardeningOptions.cursorignore_sync)}
+                                onChange={(value) => setHardeningOption(selectedProfileId, { cursorignore_sync: Boolean(value) })}
+                                options={[
+                                  { label: 'Yes', value: true, activeClass: 'yn-yes' },
+                                  { label: 'No', value: false, activeClass: 'yn-no' },
+                                ]}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>

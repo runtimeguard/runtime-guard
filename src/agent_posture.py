@@ -16,13 +16,23 @@ CLAUDE_SIGNAL_LABELS = {
     "sandbox_enabled": "Sandbox enabled",
     "sandbox_escape_closed": "Sandbox unsandboxed-command escape disabled",
 }
+CURSOR_SIGNAL_LABELS = {
+    "airg_mcp_present": "AIRG MCP configured",
+    "hook_enforcement_active": "AIRG hook enforcement active",
+    "hook_fail_closed_active": "Fail-closed hook gates active",
+    "sandbox_hardened": "Sandbox hardened",
+}
 CLAUDE_NATIVE_TOOLS = {"Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER1_TOOLS = {"Bash", "Write", "Edit", "MultiEdit"}
 CLAUDE_TIER2_TOOLS = {"Read", "Glob", "Grep"}
+CURSOR_TIER1_TOOLS = {"Shell", "Write", "Delete"}
+CURSOR_TIER2_TOOLS = {"Read", "Grep"}
 CODEX_AGENT_DOC_BEGIN = "<!-- AIRG_CODEX_TIER1_BEGIN -->"
 CODEX_AGENT_DOC_END = "<!-- AIRG_CODEX_TIER1_END -->"
 CODEX_RULES_BEGIN = "# AIRG_CODEX_TIER2_BEGIN"
 CODEX_RULES_END = "# AIRG_CODEX_TIER2_END"
+CURSORIGNORE_MANAGED_BEGIN = "# AIRG_CURSORIGNORE_BEGIN"
+CURSORIGNORE_MANAGED_END = "# AIRG_CURSORIGNORE_END"
 _CODEX_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
 
@@ -31,6 +41,67 @@ def _read_json(path: pathlib.Path) -> dict[str, Any]:
         if not path.exists() or not path.is_file():
             return {}
         payload = json.loads(path.read_text())
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    out: list[str] = []
+    in_string = False
+    escape = False
+    in_line_comment = False
+    in_block_comment = False
+    idx = 0
+    while idx < len(text):
+        ch = text[idx]
+        nxt = text[idx + 1] if idx + 1 < len(text) else ""
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+                out.append(ch)
+            idx += 1
+            continue
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                idx += 2
+            else:
+                idx += 1
+            continue
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            idx += 1
+            continue
+        if ch == "/" and nxt == "/":
+            in_line_comment = True
+            idx += 2
+            continue
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            idx += 2
+            continue
+        out.append(ch)
+        if ch == '"':
+            in_string = True
+        idx += 1
+    return "".join(out)
+
+
+def _read_jsonc(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        if not path.exists() or not path.is_file():
+            return {}
+        raw = path.read_text()
+        if not raw.strip():
+            return {}
+        payload = json.loads(_strip_jsonc_comments(raw))
         return payload if isinstance(payload, dict) else {}
     except Exception:
         return {}
@@ -147,10 +218,20 @@ def _score_claude(
     return "red", "Standard enforcement detected: AIRG MCP is configured."
 
 
-def _score_cursor(*, has_mcp: bool) -> tuple[str, str]:
-    if has_mcp:
-        return "red", "AIRG MCP detected. Advanced client-side hardening is not available for this agent."
-    return "gray", "No AIRG MCP server configuration detected."
+def _score_cursor(
+    *,
+    has_mcp: bool,
+    hook_enforcement_active: bool,
+    hook_fail_closed_active: bool,
+    sandbox_hardened: bool,
+) -> tuple[str, str]:
+    if not has_mcp:
+        return "gray", "No AIRG MCP server configuration detected."
+    if hook_enforcement_active and hook_fail_closed_active and sandbox_hardened:
+        return "green", "Maximum Cursor hardening detected: MCP + hooks + fail-closed + sandbox."
+    if hook_enforcement_active:
+        return "yellow", "Strict Cursor hardening detected: MCP + hook enforcement."
+    return "red", "Standard Cursor enforcement detected: AIRG MCP configured."
 
 
 def _missing_controls_from_signals(signals: dict[str, Any], *, labels: dict[str, str]) -> list[str]:
@@ -179,9 +260,20 @@ def _claude_recommendations(signals: dict[str, Any]) -> list[str]:
 
 
 def _cursor_recommendations(signals: dict[str, Any]) -> list[str]:
-    if bool(signals.get("airg_mcp_present", False)):
-        return ["Cursor is MCP-layer protected; client-native hook/permission hardening is limited."]
-    return ["Add ai-runtime-guard MCP server to Cursor mcp.json for this workspace."]
+    rec: list[str] = []
+    if not bool(signals.get("airg_mcp_present", False)):
+        rec.append("Add ai-runtime-guard MCP server to Cursor mcp.json for this workspace.")
+    if not bool(signals.get("hook_enforcement_active", False)):
+        rec.append("Enable Cursor hooks to deny native tools and route actions through AIRG MCP tools.")
+    if not bool(signals.get("hook_fail_closed_active", False)):
+        rec.append("Enable failClosed on beforeShellExecution and beforeMCPExecution hooks.")
+    if not bool(signals.get("sandbox_hardened", False)):
+        rec.append("Enable sandbox hardening with deny-by-default network policy and disableTmpWrite.")
+    if not bool(signals.get("permissions_airg_allowlist_configured", False)):
+        rec.append("Optional: set ~/.cursor/permissions.json mcpAllowlist to ai-runtime-guard:* for safer auto-run behavior.")
+    if not bool(signals.get("cursorignore_synced", False)):
+        rec.append("Optional: sync AIRG blocked paths/extensions into .cursorignore.")
+    return rec
 
 
 def _home() -> pathlib.Path:
@@ -225,6 +317,30 @@ def _cursor_paths(workspace: pathlib.Path) -> list[pathlib.Path]:
         workspace / ".cursor" / "mcp.json",
         home / ".cursor" / "mcp.json",
     ]
+
+
+def _cursor_hooks_paths(workspace: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    home = _home()
+    return [
+        ("project", workspace / ".cursor" / "hooks.json"),
+        ("global", home / ".cursor" / "hooks.json"),
+    ]
+
+
+def _cursor_permissions_path() -> pathlib.Path:
+    return _home() / ".cursor" / "permissions.json"
+
+
+def _cursor_sandbox_paths(workspace: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    home = _home()
+    return [
+        ("global", home / ".cursor" / "sandbox.json"),
+        ("project", workspace / ".cursor" / "sandbox.json"),
+    ]
+
+
+def _cursorignore_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".cursorignore"
 
 
 def _claude_managed_paths() -> list[pathlib.Path]:
@@ -565,6 +681,169 @@ def _detect_claude_mcp_locations(workspace: pathlib.Path) -> list[dict[str, str]
     return deduped
 
 
+def _is_airg_hook_command(value: Any) -> bool:
+    cmd = str(value or "").strip()
+    if not cmd:
+        return False
+    if cmd == "airg-hook":
+        return True
+    head = cmd.split()[0]
+    return pathlib.Path(head).name == "airg-hook"
+
+
+def _cursor_matcher_matches_tool(matcher: str, tool: str) -> bool:
+    raw = str(matcher or "").strip()
+    if not raw:
+        return True
+    segments = [segment.strip() for segment in raw.split("|") if segment.strip()]
+    if segments and tool in segments:
+        return True
+    try:
+        return bool(re.search(raw, tool))
+    except Exception:
+        return False
+
+
+def _cursor_hook_signals_for_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    hooks = payload.get("hooks")
+    if not isinstance(hooks, dict):
+        return {
+            "pretool_tools": set(),
+            "before_shell": False,
+            "before_shell_fail_closed": False,
+            "before_mcp": False,
+            "before_mcp_fail_closed": False,
+        }
+
+    pretool_tools: set[str] = set()
+    pre_tool_use = hooks.get("preToolUse", [])
+    if isinstance(pre_tool_use, list):
+        for entry in pre_tool_use:
+            if not isinstance(entry, dict) or not _is_airg_hook_command(entry.get("command")):
+                continue
+            matcher = str(entry.get("matcher", "")).strip()
+            for tool in (CURSOR_TIER1_TOOLS | CURSOR_TIER2_TOOLS):
+                if _cursor_matcher_matches_tool(matcher, tool):
+                    pretool_tools.add(tool)
+
+    before_shell = False
+    before_shell_fail_closed = False
+    before_shell_entries = hooks.get("beforeShellExecution", [])
+    if isinstance(before_shell_entries, list):
+        for entry in before_shell_entries:
+            if not isinstance(entry, dict) or not _is_airg_hook_command(entry.get("command")):
+                continue
+            before_shell = True
+            before_shell_fail_closed = before_shell_fail_closed or bool(entry.get("failClosed", False))
+
+    before_mcp = False
+    before_mcp_fail_closed = False
+    before_mcp_entries = hooks.get("beforeMCPExecution", [])
+    if isinstance(before_mcp_entries, list):
+        for entry in before_mcp_entries:
+            if not isinstance(entry, dict) or not _is_airg_hook_command(entry.get("command")):
+                continue
+            before_mcp = True
+            before_mcp_fail_closed = before_mcp_fail_closed or bool(entry.get("failClosed", False))
+
+    return {
+        "pretool_tools": pretool_tools,
+        "before_shell": before_shell,
+        "before_shell_fail_closed": before_shell_fail_closed,
+        "before_mcp": before_mcp,
+        "before_mcp_fail_closed": before_mcp_fail_closed,
+    }
+
+
+def _cursor_permissions_signals(payload: dict[str, Any]) -> dict[str, bool]:
+    mcp_allowlist = payload.get("mcpAllowlist", [])
+    mcp_entries = [str(item).strip().lower() for item in mcp_allowlist if isinstance(item, str)]
+    mcp_allow = any(entry in {"*:*", "ai-runtime-guard:*"} for entry in mcp_entries)
+    terminal_allowlist = payload.get("terminalAllowlist", [])
+    terminal_entries = [str(item).strip() for item in terminal_allowlist if isinstance(item, str)]
+    return {
+        "permissions_airg_allowlist_configured": mcp_allow,
+        "permissions_terminal_allowlist_locked": isinstance(terminal_allowlist, list) and len(terminal_entries) == 0,
+    }
+
+
+def _cursor_sandbox_effective(workspace: pathlib.Path) -> dict[str, Any]:
+    effective: dict[str, Any] = {
+        "type": "workspace_readwrite",
+        "additionalReadwritePaths": [],
+        "additionalReadonlyPaths": [],
+        "disableTmpWrite": False,
+        "enableSharedBuildCache": False,
+        "networkPolicy": {"default": "deny", "allow": [], "deny": []},
+    }
+    for _, path in _cursor_sandbox_paths(workspace):
+        payload = _read_jsonc(path)
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("type", "")).strip():
+            effective["type"] = str(payload.get("type")).strip()
+        rw = payload.get("additionalReadwritePaths", [])
+        if isinstance(rw, list):
+            current = [str(item).strip() for item in effective.get("additionalReadwritePaths", []) if str(item).strip()]
+            additions = [str(item).strip() for item in rw if str(item).strip()]
+            effective["additionalReadwritePaths"] = list(dict.fromkeys(current + additions))
+        ro = payload.get("additionalReadonlyPaths", [])
+        if isinstance(ro, list):
+            current = [str(item).strip() for item in effective.get("additionalReadonlyPaths", []) if str(item).strip()]
+            additions = [str(item).strip() for item in ro if str(item).strip()]
+            effective["additionalReadonlyPaths"] = list(dict.fromkeys(current + additions))
+        if bool(payload.get("disableTmpWrite", False)):
+            effective["disableTmpWrite"] = True
+        if bool(payload.get("enableSharedBuildCache", False)):
+            effective["enableSharedBuildCache"] = True
+
+        net = payload.get("networkPolicy", {})
+        if isinstance(net, dict):
+            net_eff = effective.get("networkPolicy", {})
+            if not isinstance(net_eff, dict):
+                net_eff = {"default": "deny", "allow": [], "deny": []}
+            this_default = str(net.get("default", "")).strip().lower()
+            prev_default = str(net_eff.get("default", "deny")).strip().lower()
+            if this_default == "deny" or prev_default == "deny":
+                net_eff["default"] = "deny"
+            elif this_default == "allow":
+                net_eff["default"] = "allow"
+            allow = net.get("allow", [])
+            if isinstance(allow, list):
+                merged_allow = [str(item).strip() for item in net_eff.get("allow", []) if str(item).strip()]
+                merged_allow.extend([str(item).strip() for item in allow if str(item).strip()])
+                net_eff["allow"] = list(dict.fromkeys(merged_allow))
+            deny = net.get("deny", [])
+            if isinstance(deny, list):
+                merged_deny = [str(item).strip() for item in net_eff.get("deny", []) if str(item).strip()]
+                merged_deny.extend([str(item).strip() for item in deny if str(item).strip()])
+                net_eff["deny"] = list(dict.fromkeys(merged_deny))
+            effective["networkPolicy"] = net_eff
+    return effective
+
+
+def _cursor_sandbox_hardened(effective: dict[str, Any]) -> bool:
+    sandbox_type = str(effective.get("type", "")).strip().lower()
+    if sandbox_type == "insecure_none":
+        return False
+    if sandbox_type not in {"workspace_readwrite", "workspace_readonly"}:
+        return False
+    if not bool(effective.get("disableTmpWrite", False)):
+        return False
+    net = effective.get("networkPolicy", {})
+    if not isinstance(net, dict):
+        return False
+    return str(net.get("default", "deny")).strip().lower() == "deny"
+
+
+def _cursorignore_synced(path: pathlib.Path) -> bool:
+    text = _read_text_optional(path)
+    if not text:
+        return False
+    start, end = _find_managed_block(text, CURSORIGNORE_MANAGED_BEGIN, CURSORIGNORE_MANAGED_END)
+    return start >= 0 and end >= 0
+
+
 def _build_claude_posture(profile: dict[str, Any]) -> dict[str, Any]:
     workspace = _workspace_from_profile(profile)
     settings_by_scope = _claude_paths_by_scope(workspace)
@@ -628,7 +907,6 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
     has_project = _contains_airg_mcp(_read_json(paths[0]))
     has_global = _contains_airg_mcp(_read_json(paths[1]))
     has_mcp = has_project or has_global
-    status, rationale = _score_cursor(has_mcp=has_mcp)
     detected_scopes: list[str] = []
     locations: list[dict[str, str]] = []
     signal_scopes: dict[str, list[str]] = {}
@@ -640,12 +918,103 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
         locations.append({"scope": "global", "path": str(paths[1])})
     if detected_scopes:
         signal_scopes["airg_mcp_present"] = list(detected_scopes)
+
+    pretool_tools: set[str] = set()
+    before_shell = False
+    before_shell_fail_closed = False
+    before_mcp = False
+    before_mcp_fail_closed = False
+    hook_scopes: dict[str, list[str]] = {
+        "hook_enforcement_active": [],
+        "hook_fail_closed_active": [],
+        "optional_read_hooks_active": [],
+    }
+    hook_paths = _cursor_hooks_paths(workspace)
+    for scope, path in hook_paths:
+        payload = _read_jsonc(path)
+        if not payload:
+            continue
+        hook_state = _cursor_hook_signals_for_payload(payload)
+        scoped_tools = hook_state.get("pretool_tools", set())
+        if isinstance(scoped_tools, set):
+            pretool_tools.update(scoped_tools)
+            if CURSOR_TIER2_TOOLS.issubset(scoped_tools):
+                hook_scopes["optional_read_hooks_active"].append(scope)
+        if bool(hook_state.get("before_shell", False)):
+            before_shell = True
+        if bool(hook_state.get("before_shell_fail_closed", False)):
+            before_shell_fail_closed = True
+        if bool(hook_state.get("before_mcp", False)):
+            before_mcp = True
+        if bool(hook_state.get("before_mcp_fail_closed", False)):
+            before_mcp_fail_closed = True
+
+        scoped_hook_active = bool(CURSOR_TIER1_TOOLS.issubset(scoped_tools) and hook_state.get("before_shell") and hook_state.get("before_mcp"))
+        if scoped_hook_active:
+            hook_scopes["hook_enforcement_active"].append(scope)
+        scoped_fail_closed = bool(hook_state.get("before_shell_fail_closed") and hook_state.get("before_mcp_fail_closed"))
+        if scoped_fail_closed:
+            hook_scopes["hook_fail_closed_active"].append(scope)
+
+    hook_enforcement_active = bool(CURSOR_TIER1_TOOLS.issubset(pretool_tools) and before_shell and before_mcp)
+    hook_fail_closed_active = bool(before_shell_fail_closed and before_mcp_fail_closed)
+    optional_read_hooks_active = bool(CURSOR_TIER2_TOOLS.issubset(pretool_tools))
+    if hook_scopes["hook_enforcement_active"]:
+        signal_scopes["hook_enforcement_active"] = list(dict.fromkeys(hook_scopes["hook_enforcement_active"]))
+    if hook_scopes["hook_fail_closed_active"]:
+        signal_scopes["hook_fail_closed_active"] = list(dict.fromkeys(hook_scopes["hook_fail_closed_active"]))
+    if hook_scopes["optional_read_hooks_active"]:
+        signal_scopes["optional_read_hooks_active"] = list(dict.fromkeys(hook_scopes["optional_read_hooks_active"]))
+
+    permissions_payload = _read_jsonc(_cursor_permissions_path())
+    permissions_signals = _cursor_permissions_signals(permissions_payload)
+    if bool(permissions_signals.get("permissions_airg_allowlist_configured", False)):
+        signal_scopes["permissions_airg_allowlist_configured"] = ["global"]
+    if bool(permissions_signals.get("permissions_terminal_allowlist_locked", False)):
+        signal_scopes["permissions_terminal_allowlist_locked"] = ["global"]
+
+    sandbox_effective = _cursor_sandbox_effective(workspace)
+    sandbox_hardened = _cursor_sandbox_hardened(sandbox_effective)
+    if sandbox_hardened:
+        signal_scopes["sandbox_hardened"] = [
+            scope
+            for scope, path in _cursor_sandbox_paths(workspace)
+            if path.exists()
+        ]
+
+    cursorignore_path = _cursorignore_path(workspace)
+    cursorignore_synced = _cursorignore_synced(cursorignore_path)
+    if cursorignore_synced:
+        signal_scopes["cursorignore_synced"] = ["project"]
+
+    status, rationale = _score_cursor(
+        has_mcp=has_mcp,
+        hook_enforcement_active=hook_enforcement_active,
+        hook_fail_closed_active=hook_fail_closed_active,
+        sandbox_hardened=sandbox_hardened,
+    )
     expected_scope = str(profile.get("agent_scope", "")).strip().lower() or "project"
     if expected_scope not in {"project", "global"}:
         expected_scope = "project"
     signals = {
         "airg_mcp_present": has_mcp,
+        "hook_enforcement_active": hook_enforcement_active,
+        "hook_fail_closed_active": hook_fail_closed_active,
+        "optional_read_hooks_active": optional_read_hooks_active,
+        "permissions_airg_allowlist_configured": bool(permissions_signals.get("permissions_airg_allowlist_configured", False)),
+        "permissions_terminal_allowlist_locked": bool(permissions_signals.get("permissions_terminal_allowlist_locked", False)),
+        "sandbox_hardened": sandbox_hardened,
+        "cursorignore_synced": cursorignore_synced,
     }
+    missing_controls = _missing_controls_from_signals(
+        {
+            "airg_mcp_present": signals["airg_mcp_present"],
+            "hook_enforcement_active": signals["hook_enforcement_active"],
+            "hook_fail_closed_active": signals["hook_fail_closed_active"],
+            "sandbox_hardened": signals["sandbox_hardened"],
+        },
+        labels=CURSOR_SIGNAL_LABELS,
+    )
     return {
         "status": status,
         "rationale": rationale,
@@ -655,10 +1024,25 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
         "mcp_detected_locations": locations,
         "mcp_expected_scope": expected_scope,
         "mcp_scope_match": (expected_scope in detected_scopes) if has_mcp else False,
-        "missing_controls": [] if has_mcp else ["AIRG MCP configured"],
+        "missing_controls": missing_controls,
         "recommended_actions": _cursor_recommendations(signals),
-        "paths_checked": [str(p) for p in paths],
-        "existing_paths": [str(p) for p in paths if p.exists()],
+        "paths_checked": [
+            *(str(p) for p in paths),
+            *(str(path) for _, path in hook_paths),
+            str(_cursor_permissions_path()),
+            *(str(path) for _, path in _cursor_sandbox_paths(workspace)),
+            str(cursorignore_path),
+        ],
+        "existing_paths": [
+            *(str(p) for p in paths if p.exists()),
+            *(str(path) for _, path in hook_paths if path.exists()),
+            *([str(_cursor_permissions_path())] if _cursor_permissions_path().exists() else []),
+            *(str(path) for _, path in _cursor_sandbox_paths(workspace) if path.exists()),
+            *([str(cursorignore_path)] if cursorignore_path.exists() else []),
+        ],
+        "cursor_sandbox_type": str(sandbox_effective.get("type", "")).strip().lower(),
+        "cursor_sandbox_disable_tmp_write": bool(sandbox_effective.get("disableTmpWrite", False)),
+        "cursor_sandbox_network_default": str((sandbox_effective.get("networkPolicy", {}) or {}).get("default", "")).strip().lower(),
     }
 
 

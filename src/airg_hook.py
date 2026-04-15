@@ -10,9 +10,11 @@ from typing import Any
 
 REDIRECTS = {
     "Bash": "mcp__ai-runtime-guard__execute_command",
+    "Shell": "mcp__ai-runtime-guard__execute_command",
     "Write": "mcp__ai-runtime-guard__write_file",
     "Edit": "mcp__ai-runtime-guard__edit_file",
     "MultiEdit": "mcp__ai-runtime-guard__edit_file",
+    "Delete": "mcp__ai-runtime-guard__delete_file",
 }
 ALWAYS_ALLOW = {
     "Read",
@@ -120,10 +122,13 @@ def _append_log(entry: dict[str, Any]) -> None:
         pass
 
 
-def _emit_deny(reason: str) -> int:
+def _emit_deny(reason: str, *, hook_event_name: str = "PreToolUse") -> int:
     payload = {
+        "permission": "deny",
+        "user_message": reason,
+        "agent_message": reason,
         "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
+            "hookEventName": hook_event_name,
             "permissionDecision": "deny",
             "permissionDecisionReason": reason,
         },
@@ -138,7 +143,7 @@ def _emit_deny(reason: str) -> int:
 
 
 def _extract_detail(tool_name: str, tool_input: dict[str, Any]) -> str:
-    if tool_name == "Bash":
+    if tool_name in {"Bash", "Shell"}:
         return str(tool_input.get("command", "")).strip()
     if tool_name == "Read":
         return str(tool_input.get("file_path", "")).strip()
@@ -272,6 +277,21 @@ def _allow() -> int:
     return 0
 
 
+def _hook_event_name(payload: dict[str, Any]) -> str:
+    return str(payload.get("hook_event_name") or payload.get("hookEventName") or "").strip().lower()
+
+
+def _is_airg_mcp_tool(tool_name: str) -> bool:
+    raw = str(tool_name or "").strip().lower()
+    if not raw:
+        return False
+    if raw.startswith("mcp__ai-runtime-guard__"):
+        return True
+    if raw.startswith("mcp:"):
+        return "ai-runtime-guard" in raw
+    return raw.startswith("ai-runtime-guard:") or ("ai-runtime-guard" in raw and ":" in raw)
+
+
 def main() -> int:
     payload: dict[str, Any] = {}
     tool_name = "unknown"
@@ -280,13 +300,87 @@ def main() -> int:
         payload = json.loads(raw) if raw else {}
         if not isinstance(payload, dict):
             return _allow()
+        hook_event = _hook_event_name(payload)
+
+        if hook_event == "beforeshellexecution":
+            command = str(payload.get("command", "")).strip()
+            reason = "AIRG policy: native shell execution is restricted. Use mcp__ai-runtime-guard__execute_command instead."
+            _append_log(
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name="Shell",
+                    allowed=False,
+                    event="hook_before_shell_blocked",
+                    hook_reason=reason,
+                    hook_detail=command,
+                )
+            )
+            return _emit_deny(reason, hook_event_name="beforeShellExecution")
+
+        if hook_event == "beforemcpexecution":
+            tool_name = str(payload.get("tool_name", "")).strip()
+            if _is_airg_mcp_tool(tool_name):
+                _append_log(
+                    _build_activity_entry(
+                        payload=payload,
+                        tool_name=tool_name,
+                        allowed=True,
+                        event="hook_before_mcp_allowed",
+                        hook_reason="airg_mcp_tool",
+                    )
+                )
+                return _allow()
+            reason = "AIRG policy: non-AIRG MCP tool is restricted. Use ai-runtime-guard MCP tools only."
+            _append_log(
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name=tool_name or "mcp",
+                    allowed=False,
+                    event="hook_before_mcp_blocked",
+                    hook_reason=reason,
+                )
+            )
+            return _emit_deny(reason, hook_event_name="beforeMCPExecution")
+
+        if hook_event == "beforereadfile":
+            file_path = str(payload.get("file_path", "")).strip()
+            lowered = file_path.lower()
+            violated = _blocked_by_policy(file_path) if file_path else None
+            if not violated and lowered:
+                if any(lowered.endswith(suffix) for suffix in SENSITIVE_READ_SUFFIXES) or "/secrets/" in lowered:
+                    violated = "sensitive read target"
+            if violated:
+                reason = f"AIRG policy: read blocked ({violated}). Use AIRG MCP tools within allowed path policy."
+                _append_log(
+                    _build_activity_entry(
+                        payload=payload,
+                        tool_name="Read",
+                        allowed=False,
+                        event="hook_before_read_blocked",
+                        hook_reason=reason,
+                        hook_detail=file_path,
+                    )
+                )
+                return _emit_deny(reason, hook_event_name="beforeReadFile")
+            _append_log(
+                _build_activity_entry(
+                    payload=payload,
+                    tool_name="Read",
+                    allowed=True,
+                    event="hook_before_read_allowed",
+                    hook_reason="read_allowed",
+                    hook_detail=file_path,
+                )
+            )
+            return _allow()
+
         tool_name = str(payload.get("tool_name", "")).strip()
         tool_input = payload.get("tool_input", {})
         if not isinstance(tool_input, dict):
             tool_input = {}
 
         # Always allow AIRG MCP tool calls.
-        if tool_name.startswith("mcp__ai-runtime-guard__"):
+        if _is_airg_mcp_tool(tool_name):
             _append_log(
                 _build_activity_entry(
                     payload=payload,
@@ -358,7 +452,7 @@ def main() -> int:
         _append_log(
             _build_activity_entry(
                 payload=payload,
-                tool_name=tool_name,
+                tool_name=tool_name or (hook_event or "hook"),
                 allowed=True,
                 hook_reason="unmapped_tool",
             )

@@ -17,6 +17,10 @@ CLAUDE_NATIVE_TOOLS = ["Bash", "Glob", "Grep", "Read", "Write", "Edit", "MultiEd
 CLAUDE_SCOPES = {"local", "project", "user"}
 CLAUDE_TIER1_TOOLS = ["Bash", "Write", "Edit", "MultiEdit"]
 CLAUDE_TIER2_TOOLS = ["Read", "Glob", "Grep"]
+CURSOR_TIER1_TOOLS = ["Shell", "Write", "Delete"]
+CURSOR_TIER2_TOOLS = ["Read", "Grep"]
+CURSOR_SANDBOX_TYPES = {"workspace_readwrite", "workspace_readonly", "insecure_none"}
+CURSOR_NETWORK_DEFAULTS = {"allow", "deny"}
 CODEX_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 CODEX_APPROVAL_POLICIES = {"untrusted", "on-request", "never"}
 CODEX_MIRROR_APPROVAL_MODES = {"allow", "approve", "deny"}
@@ -25,6 +29,8 @@ CODEX_AGENT_DOC_BEGIN = "<!-- AIRG_CODEX_TIER1_BEGIN -->"
 CODEX_AGENT_DOC_END = "<!-- AIRG_CODEX_TIER1_END -->"
 CODEX_RULES_BEGIN = "# AIRG_CODEX_TIER2_BEGIN"
 CODEX_RULES_END = "# AIRG_CODEX_TIER2_END"
+CURSORIGNORE_MANAGED_BEGIN = "# AIRG_CURSORIGNORE_BEGIN"
+CURSORIGNORE_MANAGED_END = "# AIRG_CURSORIGNORE_END"
 _CODEX_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
 
 
@@ -309,6 +315,44 @@ def _normalize_cursor_scope(raw_scope: Any) -> str:
     if scope in CURSOR_SCOPES:
         return scope
     return "project"
+
+
+def _normalize_cursor_hardening_options(profile: dict[str, Any], options: dict[str, Any] | None) -> dict[str, Any]:
+    payload = options if isinstance(options, dict) else {}
+    selected_scope = _normalize_cursor_scope(payload.get("scope") or profile.get("agent_scope") or "project")
+    sandbox_type = str(payload.get("sandbox_type", "workspace_readwrite")).strip().lower()
+    if sandbox_type not in CURSOR_SANDBOX_TYPES:
+        sandbox_type = "workspace_readwrite"
+    network_default = str(payload.get("sandbox_network_default", "deny")).strip().lower()
+    if network_default not in CURSOR_NETWORK_DEFAULTS:
+        network_default = "deny"
+
+    def _normalize_string_list(value: Any) -> list[str]:
+        out: list[str] = []
+        if isinstance(value, str):
+            out = [part.strip() for part in value.split(",") if part.strip()]
+        elif isinstance(value, list):
+            out = [str(part).strip() for part in value if str(part).strip()]
+        return list(dict.fromkeys(out))
+
+    return {
+        "scope": selected_scope,
+        "strict_enforcement": bool(payload.get("strict_enforcement", True)),
+        "advanced_enforcement": bool(payload.get("advanced_enforcement", False)),
+        "fail_closed": bool(payload.get("fail_closed", True)),
+        "permissions_enabled": bool(payload.get("permissions_enabled", True)),
+        "permissions_allow_airg_mcp": bool(payload.get("permissions_allow_airg_mcp", True)),
+        "permissions_lock_terminal": bool(payload.get("permissions_lock_terminal", True)),
+        "sandbox_enabled": bool(payload.get("sandbox_enabled", True)),
+        "sandbox_type": sandbox_type,
+        "sandbox_disable_tmp_write": bool(payload.get("sandbox_disable_tmp_write", True)),
+        "sandbox_enable_shared_build_cache": bool(payload.get("sandbox_enable_shared_build_cache", False)),
+        "sandbox_sync_network_from_policy": bool(payload.get("sandbox_sync_network_from_policy", True)),
+        "sandbox_network_default": network_default,
+        "sandbox_additional_readwrite_paths": _normalize_string_list(payload.get("sandbox_additional_readwrite_paths", [])),
+        "sandbox_additional_readonly_paths": _normalize_string_list(payload.get("sandbox_additional_readonly_paths", [])),
+        "cursorignore_sync": bool(payload.get("cursorignore_sync", False)),
+    }
 
 
 def _sha256_text(text: str) -> str:
@@ -1031,6 +1075,297 @@ def _detect_cursor_mcp_locations(workspace: pathlib.Path) -> list[dict[str, str]
     return found
 
 
+def _cursor_hooks_path(workspace: pathlib.Path, scope: str = "project") -> pathlib.Path:
+    normalized_scope = _normalize_cursor_scope(scope)
+    if normalized_scope == "global":
+        return _home() / ".cursor" / "hooks.json"
+    return workspace / ".cursor" / "hooks.json"
+
+
+def _cursor_permissions_path() -> pathlib.Path:
+    return _home() / ".cursor" / "permissions.json"
+
+
+def _cursor_sandbox_path(workspace: pathlib.Path, scope: str = "project") -> pathlib.Path:
+    normalized_scope = _normalize_cursor_scope(scope)
+    if normalized_scope == "global":
+        return _home() / ".cursor" / "sandbox.json"
+    return workspace / ".cursor" / "sandbox.json"
+
+
+def _cursorignore_path(workspace: pathlib.Path) -> pathlib.Path:
+    return workspace / ".cursorignore"
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    out: list[str] = []
+    in_string = False
+    escape = False
+    in_line_comment = False
+    in_block_comment = False
+    idx = 0
+    while idx < len(text):
+        ch = text[idx]
+        nxt = text[idx + 1] if idx + 1 < len(text) else ""
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+                out.append(ch)
+            idx += 1
+            continue
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                idx += 2
+            else:
+                idx += 1
+            continue
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            idx += 1
+            continue
+        if ch == "/" and nxt == "/":
+            in_line_comment = True
+            idx += 2
+            continue
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            idx += 2
+            continue
+        out.append(ch)
+        if ch == '"':
+            in_string = True
+        idx += 1
+    return "".join(out)
+
+
+def _read_jsonc_file_optional(path: pathlib.Path) -> dict[str, Any]:
+    raw = _read_text_optional(path)
+    if not raw.strip():
+        return {}
+    try:
+        payload = json.loads(_strip_jsonc_comments(raw))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys([str(value).strip() for value in values if str(value).strip()]))
+
+
+def _is_cursor_airg_hook_entry(entry: Any) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    if bool(entry.get("airg_managed", False)):
+        return True
+    return _is_airg_hook_command(entry.get("command"))
+
+
+def _cursor_hook_definition(
+    command: str,
+    *,
+    matcher: str = "",
+    fail_closed: bool = False,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "type": "command",
+        "command": command,
+        "airg_managed": True,
+    }
+    if matcher:
+        out["matcher"] = matcher
+    if fail_closed:
+        out["failClosed"] = True
+    return out
+
+
+def _set_cursor_airg_hooks(
+    before: dict[str, Any],
+    *,
+    strict_enforcement: bool,
+    advanced_enforcement: bool,
+    fail_closed: bool,
+) -> dict[str, Any]:
+    after = _deep_copy(before) if isinstance(before, dict) else {}
+    hook_command = _resolve_airg_hook_command()
+    hooks_payload = after.get("hooks")
+    hooks = hooks_payload if isinstance(hooks_payload, dict) else {}
+    cleaned: dict[str, list[dict[str, Any]]] = {}
+    for event_name, event_hooks in hooks.items():
+        if not isinstance(event_hooks, list):
+            continue
+        kept = [entry for entry in event_hooks if not _is_cursor_airg_hook_entry(entry)]
+        if kept:
+            cleaned[str(event_name)] = kept
+
+    requested_pretool = []
+    if strict_enforcement:
+        requested_pretool.extend(CURSOR_TIER1_TOOLS)
+    if advanced_enforcement:
+        requested_pretool.extend(CURSOR_TIER2_TOOLS)
+    requested_pretool = _dedupe_strings(requested_pretool)
+
+    if requested_pretool:
+        pre_hooks = cleaned.get("preToolUse", [])
+        for matcher in requested_pretool:
+            pre_hooks.append(_cursor_hook_definition(hook_command, matcher=matcher))
+        cleaned["preToolUse"] = pre_hooks
+
+        before_shell = cleaned.get("beforeShellExecution", [])
+        before_shell.append(_cursor_hook_definition(hook_command, fail_closed=fail_closed))
+        cleaned["beforeShellExecution"] = before_shell
+
+        before_mcp = cleaned.get("beforeMCPExecution", [])
+        before_mcp.append(_cursor_hook_definition(hook_command, fail_closed=fail_closed))
+        cleaned["beforeMCPExecution"] = before_mcp
+
+        if advanced_enforcement:
+            before_read = cleaned.get("beforeReadFile", [])
+            before_read.append(_cursor_hook_definition(hook_command, fail_closed=fail_closed))
+            cleaned["beforeReadFile"] = before_read
+
+        for event_name in ("postToolUse", "postToolUseFailure", "afterShellExecution", "afterMCPExecution", "afterFileEdit"):
+            event_hooks = cleaned.get(event_name, [])
+            event_hooks.append(_cursor_hook_definition(hook_command))
+            cleaned[event_name] = event_hooks
+
+    after["version"] = 1
+    if cleaned:
+        after["hooks"] = cleaned
+    else:
+        after.pop("hooks", None)
+    return after
+
+
+def _set_cursor_permissions(
+    before: dict[str, Any],
+    *,
+    enabled: bool,
+    allow_airg_mcp: bool,
+    lock_terminal: bool,
+) -> dict[str, Any]:
+    after = _deep_copy(before) if isinstance(before, dict) else {}
+    if enabled:
+        if allow_airg_mcp:
+            after["mcpAllowlist"] = ["ai-runtime-guard:*"]
+        if lock_terminal:
+            after["terminalAllowlist"] = []
+        return after
+
+    mcp_allow = after.get("mcpAllowlist")
+    if isinstance(mcp_allow, list) and [str(v).strip().lower() for v in mcp_allow if str(v).strip()] == ["ai-runtime-guard:*"]:
+        after.pop("mcpAllowlist", None)
+    terminal_allow = after.get("terminalAllowlist")
+    if isinstance(terminal_allow, list) and not [str(v).strip() for v in terminal_allow if str(v).strip()]:
+        after.pop("terminalAllowlist", None)
+    return after
+
+
+def _policy_network_lists(policy: dict[str, Any]) -> tuple[list[str], list[str]]:
+    if not isinstance(policy, dict):
+        return [], []
+    network = policy.get("network")
+    if not isinstance(network, dict):
+        return [], []
+    allow = _dedupe_strings([str(v) for v in (network.get("allowed_domains", []) or [])])
+    deny = _dedupe_strings([str(v) for v in (network.get("blocked_domains", []) or [])])
+    return allow, deny
+
+
+def _set_cursor_sandbox(before: dict[str, Any], *, options: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    after = _deep_copy(before) if isinstance(before, dict) else {}
+    if not bool(options.get("sandbox_enabled", True)):
+        after["type"] = "insecure_none"
+        return after
+
+    sandbox_type = str(options.get("sandbox_type", "workspace_readwrite")).strip().lower()
+    if sandbox_type not in CURSOR_SANDBOX_TYPES:
+        sandbox_type = "workspace_readwrite"
+    if sandbox_type == "insecure_none":
+        sandbox_type = "workspace_readwrite"
+    after["type"] = sandbox_type
+    after["disableTmpWrite"] = bool(options.get("sandbox_disable_tmp_write", True))
+    after["enableSharedBuildCache"] = bool(options.get("sandbox_enable_shared_build_cache", False))
+
+    additional_rw = options.get("sandbox_additional_readwrite_paths", [])
+    additional_ro = options.get("sandbox_additional_readonly_paths", [])
+    rw_paths = _dedupe_strings([str(v) for v in (additional_rw if isinstance(additional_rw, list) else [])])
+    ro_paths = _dedupe_strings([str(v) for v in (additional_ro if isinstance(additional_ro, list) else [])])
+    if sandbox_type == "workspace_readwrite":
+        after["additionalReadwritePaths"] = rw_paths
+    else:
+        after.pop("additionalReadwritePaths", None)
+    after["additionalReadonlyPaths"] = ro_paths
+
+    network_default = str(options.get("sandbox_network_default", "deny")).strip().lower()
+    if network_default not in CURSOR_NETWORK_DEFAULTS:
+        network_default = "deny"
+    allow_domains: list[str] = []
+    deny_domains: list[str] = []
+    if bool(options.get("sandbox_sync_network_from_policy", True)):
+        allow_domains, deny_domains = _policy_network_lists(policy)
+    network_payload = {
+        "default": network_default,
+        "allow": allow_domains,
+        "deny": deny_domains,
+    }
+    after["networkPolicy"] = network_payload
+    return after
+
+
+def _cursorignore_patterns_from_policy(policy: dict[str, Any]) -> list[str]:
+    if not isinstance(policy, dict):
+        return []
+    blocked = policy.get("blocked")
+    if not isinstance(blocked, dict):
+        return []
+    patterns: list[str] = []
+    for raw_path in blocked.get("paths", []) or []:
+        value = str(raw_path).strip()
+        if not value:
+            continue
+        if value.startswith("/"):
+            leaf = pathlib.Path(value).name
+            if leaf:
+                patterns.append(f"**/{leaf}")
+            continue
+        if value.startswith("./"):
+            value = value[2:]
+        value = value.lstrip("/")
+        if value:
+            patterns.append(f"**/{value}")
+    for raw_ext in blocked.get("extensions", []) or []:
+        ext = str(raw_ext).strip()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        patterns.append(f"**/*{ext}")
+    return _dedupe_strings(patterns)
+
+
+def _render_cursorignore_block(patterns: list[str]) -> str:
+    lines = [
+        CURSORIGNORE_MANAGED_BEGIN,
+        "# Managed by AIRG Cursor hardening.",
+    ]
+    lines.extend([str(pattern).strip() for pattern in patterns if str(pattern).strip()])
+    lines.append(CURSORIGNORE_MANAGED_END)
+    return "\n".join(lines).strip() + "\n"
+
+
+def _set_cursorignore_content(before_text: str, *, enabled: bool, policy: dict[str, Any]) -> str:
+    block = _render_cursorignore_block(_cursorignore_patterns_from_policy(policy)) if enabled else ""
+    return _upsert_managed_block(before_text, CURSORIGNORE_MANAGED_BEGIN, CURSORIGNORE_MANAGED_END, block)
+
+
 def _backup_path_for(target: pathlib.Path) -> pathlib.Path:
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_dir = target.parent / ".airg-backup"
@@ -1069,6 +1404,44 @@ def _write_with_backup(target: pathlib.Path, merged_payload: dict[str, Any]) -> 
         "before": before_payload,
         "after": merged_payload,
         "diff_summary": _summarize_diff(before_payload, merged_payload),
+    }
+
+
+def _write_with_backup_from_before(
+    target: pathlib.Path,
+    *,
+    before_payload: dict[str, Any],
+    merged_payload: dict[str, Any],
+) -> dict[str, Any]:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    before_exists = target.exists()
+    before_copy = _deep_copy(before_payload) if isinstance(before_payload, dict) else {}
+
+    backup_path = _backup_path_for(target)
+    if before_exists:
+        shutil.copy2(target, backup_path)
+    else:
+        backup_path.write_text("{}\n")
+
+    target.write_text(json.dumps(merged_payload, indent=2) + "\n")
+    verify_payload = _read_json_file(target)
+    if _canonical(verify_payload) != _canonical(merged_payload):
+        if before_exists:
+            shutil.copy2(backup_path, target)
+        else:
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+        raise RuntimeError(f"Verification failed after writing {target}")
+
+    return {
+        "target_path": str(target),
+        "backup_path": str(backup_path),
+        "original_missing": not before_exists,
+        "before": before_copy,
+        "after": merged_payload,
+        "diff_summary": _summarize_diff(before_copy, merged_payload),
     }
 
 
@@ -1452,11 +1825,17 @@ def _apply_codex(
     }
 
 
-def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> dict[str, Any]:
+def _apply_cursor(
+    paths: dict[str, pathlib.Path],
+    profile: dict[str, Any],
+    *,
+    options: dict[str, Any] | None,
+) -> dict[str, Any]:
     workspace = _workspace_path(profile)
     agent_id = str(profile.get("agent_id", "")).strip() or "default"
     profile_id = str(profile.get("profile_id", "")).strip()
-    selected_scope = _normalize_cursor_scope(profile.get("agent_scope"))
+    selected_options = _normalize_cursor_hardening_options(profile, options)
+    selected_scope = str(selected_options.get("scope", "project")).strip().lower() or "project"
     mcp_locations = _detect_cursor_mcp_locations(workspace)
 
     target = _cursor_mcp_path(workspace, selected_scope)
@@ -1465,10 +1844,79 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
             "ai-runtime-guard": _airg_server_block(paths, workspace, agent_id),
         }
     }
+    changes: list[dict[str, Any]] = []
+    hardening_changes: list[dict[str, Any]] = []
+    policy = _effective_policy_for_agent(paths, agent_id)
 
-    before = _read_json_file(target) if target.exists() else {}
-    after = _deep_merge_union(before, overlay)
-    change = _write_with_backup(target, after)
+    try:
+        before = _read_json_file(target) if target.exists() else {}
+        after = _deep_merge_union(before, overlay)
+        mcp_change = _write_with_backup(target, after)
+        changes.append(mcp_change)
+        hardening_changes.append(mcp_change)
+
+        hooks_target = _cursor_hooks_path(workspace, selected_scope)
+        hooks_before = _read_jsonc_file_optional(hooks_target)
+        hooks_after = _set_cursor_airg_hooks(
+            hooks_before,
+            strict_enforcement=bool(selected_options.get("strict_enforcement", True)),
+            advanced_enforcement=bool(selected_options.get("advanced_enforcement", False)),
+            fail_closed=bool(selected_options.get("fail_closed", True)),
+        )
+        hooks_change = _write_with_backup_from_before(hooks_target, before_payload=hooks_before, merged_payload=hooks_after)
+        if hooks_change.get("diff_summary"):
+            changes.append(hooks_change)
+            hardening_changes.append(hooks_change)
+
+        permissions_target = _cursor_permissions_path()
+        if selected_scope == "global":
+            permissions_before = _read_jsonc_file_optional(permissions_target)
+            permissions_after = _set_cursor_permissions(
+                permissions_before,
+                enabled=bool(selected_options.get("permissions_enabled", True)),
+                allow_airg_mcp=bool(selected_options.get("permissions_allow_airg_mcp", True)),
+                lock_terminal=bool(selected_options.get("permissions_lock_terminal", True)),
+            )
+            permissions_change = _write_with_backup_from_before(
+                permissions_target,
+                before_payload=permissions_before,
+                merged_payload=permissions_after,
+            )
+            if permissions_change.get("diff_summary"):
+                changes.append(permissions_change)
+                hardening_changes.append(permissions_change)
+
+        sandbox_target = _cursor_sandbox_path(workspace, selected_scope)
+        sandbox_before = _read_jsonc_file_optional(sandbox_target)
+        sandbox_after = _set_cursor_sandbox(
+            sandbox_before,
+            options=selected_options,
+            policy=policy,
+        )
+        sandbox_change = _write_with_backup_from_before(sandbox_target, before_payload=sandbox_before, merged_payload=sandbox_after)
+        if sandbox_change.get("diff_summary"):
+            changes.append(sandbox_change)
+            hardening_changes.append(sandbox_change)
+
+        cursorignore_target = _cursorignore_path(workspace)
+        cursorignore_before = _read_text_optional(cursorignore_target)
+        cursorignore_after = _set_cursorignore_content(
+            cursorignore_before,
+            enabled=bool(selected_options.get("cursorignore_sync", False)),
+            policy=policy,
+        )
+        cursorignore_change = _write_text_with_backup(paths, cursorignore_target, cursorignore_after, agent_id)
+        if cursorignore_change.get("diff_summary"):
+            changes.append(cursorignore_change)
+            hardening_changes.append(cursorignore_change)
+    except Exception:
+        for change in reversed(changes):
+            _restore_change(change)
+        raise
+
+    summary: list[str] = []
+    for change in changes:
+        summary.extend(change.get("diff_summary", []))
     record = {
         "profile_id": profile_id,
         "agent_type": "cursor",
@@ -1479,9 +1927,10 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
                 "backup_path": change["backup_path"],
                 "original_missing": change["original_missing"],
             }
+            for change in hardening_changes
         ],
-        "diff_summary": change.get("diff_summary", []),
-        "applied_options": {"scope": selected_scope},
+        "diff_summary": summary,
+        "applied_options": selected_options,
     }
     _update_profile_state(paths, profile_id, record)
 
@@ -1490,8 +1939,8 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
         "profile_id": profile_id,
         "agent_type": "cursor",
         "target_path": str(target),
-        "changes": [change],
-        "diff_summary": change.get("diff_summary", []),
+        "changes": changes,
+        "diff_summary": summary,
         "preflight": {
             "selected_scope": selected_scope,
             "mcp_locations": mcp_locations,
@@ -1501,8 +1950,13 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
                 if isinstance(item, dict) and str(item.get("scope", "")).strip()
             ],
             "mcp_present": bool(mcp_locations),
+            "hooks_target": str(_cursor_hooks_path(workspace, selected_scope)),
+            "permissions_target": str(_cursor_permissions_path()),
+            "permissions_scope_supported": selected_scope == "global",
+            "sandbox_target": str(_cursor_sandbox_path(workspace, selected_scope)),
+            "cursorignore_target": str(_cursorignore_path(workspace)),
         },
-        "applied_options": {"scope": selected_scope},
+        "applied_options": selected_options,
         "undo_available": True,
     }
 
@@ -1525,7 +1979,7 @@ def apply_hardening(
         if agent_type == "codex":
             return _apply_codex(paths, profile, options=options, auto_add_mcp=auto_add_mcp)
         if agent_type == "cursor":
-            return _apply_cursor(paths, profile)
+            return _apply_cursor(paths, profile, options=options)
         return {
             "ok": False,
             "errors": [f"Agent type '{agent_type or 'unknown'}' is not supported for config hardening in dev2."],
