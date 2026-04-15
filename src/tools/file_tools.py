@@ -18,6 +18,7 @@ import script_sentinel
 
 
 def read_file(path: str, ctx: Context | None = None) -> str:
+    """Read a text file from the workspace after path-policy enforcement."""
     context_tokens = activate_runtime_context(ctx)
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
@@ -45,6 +46,7 @@ def read_file(path: str, ctx: Context | None = None) -> str:
 
 
 def write_file(path: str, content: str, ctx: Context | None = None) -> str:
+    """Write full file content with policy checks, logging, and backup support."""
     context_tokens = activate_runtime_context(ctx)
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
@@ -115,6 +117,7 @@ def edit_file(
     edits: list[dict[str, Any]] | None = None,
     ctx: Context | None = None,
 ) -> str:
+    """Apply targeted text replacements in an existing file with backups."""
     context_tokens = activate_runtime_context(ctx)
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
@@ -230,6 +233,7 @@ def edit_file(
 
 
 def delete_file(path: str, ctx: Context | None = None) -> str:
+    """Delete a single file after policy checks and optional pre-delete backup."""
     context_tokens = activate_runtime_context(ctx)
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 
@@ -281,6 +285,7 @@ def delete_file(path: str, ctx: Context | None = None) -> str:
 
 
 def list_directory(path: str, ctx: Context | None = None) -> str:
+    """List directory entries with metadata, honoring path and depth policy."""
     context_tokens = activate_runtime_context(ctx)
     path = str(pathlib.Path(WORKSPACE_ROOT) / path) if not os.path.isabs(path) else path
 

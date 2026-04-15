@@ -24,6 +24,11 @@ def restore_backup(
     restore_token: str = "",
     ctx: Context | None = None,
 ) -> str:
+    """Restore files from a recorded AIRG backup manifest.
+
+    Supports dry-run planning and token-gated apply mode when restore
+    confirmation is required by policy.
+    """
     context_tokens = activate_runtime_context(ctx)
     backup_path = (
         pathlib.Path(backup_location)

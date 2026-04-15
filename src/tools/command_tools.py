@@ -28,6 +28,10 @@ import script_sentinel
 
 
 def server_info(ctx: Context | None = None) -> str:
+    """Return runtime identity details for this AIRG server instance.
+
+    Includes build id, active workspace root, and resolved base directory.
+    """
     tokens = activate_runtime_context(ctx)
     from config import BASE_DIR
     try:
@@ -303,6 +307,12 @@ def _execute_shell(command: str) -> str:
 
 
 def execute_command(command: str, retry_count: int = 0, ctx: Context | None = None) -> str:
+    """Execute a shell command after full AIRG policy and approval checks.
+
+    The command is evaluated against network/workspace containment, command-tier
+    policy, Script Sentinel continuity checks, and optional confirmation gates
+    before execution.
+    """
     context_tokens = activate_runtime_context(ctx)
     refresh_policy_if_changed()
     affected_paths: list[str] = []
