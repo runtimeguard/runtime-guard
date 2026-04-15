@@ -25,6 +25,10 @@ _SCOPE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"id": "local", "label": "Local"},
         {"id": "user", "label": "User"},
     ],
+    "cursor": [
+        {"id": "project", "label": "Project"},
+        {"id": "global", "label": "Global"},
+    ],
     "codex": [
         {"id": "global", "label": "Global"},
         {"id": "project", "label": "Project"},
@@ -32,6 +36,7 @@ _SCOPE_OPTIONS: dict[str, list[dict[str, str]]] = {
 }
 _DEFAULT_SCOPE_BY_AGENT = {
     "claude_code": "project",
+    "cursor": "project",
     "codex": "global",
 }
 
@@ -291,6 +296,32 @@ def _codex_payload(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> t
     return server_block, file_payload, command, instructions, remove_command
 
 
+def _cursor_payload(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], str, str, str]:
+    scope = _normalize_scope("cursor", profile.get("agent_scope"))
+    env = _shared_env(paths, profile["workspace"], profile["agent_id"])
+    server_command, server_args = _server_process()
+    server_block = {
+        "command": server_command,
+        "args": server_args,
+        "env": env,
+    }
+    file_payload = {
+        "mcpServers": {
+            "ai-runtime-guard": server_block,
+        }
+    }
+    target_hint = "<workspace>/.cursor/mcp.json" if scope == "project" else "~/.cursor/mcp.json"
+    command = f"# Cursor has no official MCP add CLI; apply via AIRG or merge JSON into {target_hint}"
+    remove_command = f"# Remove mcpServers.ai-runtime-guard from {target_hint}"
+    instructions = (
+        "Cursor setup (file-based):\n"
+        f"1. Open {target_hint}.\n"
+        "2. Insert or merge the JSON from this file under mcpServers.ai-runtime-guard.\n"
+        "3. Restart Cursor."
+    )
+    return server_block, file_payload, command, instructions, remove_command
+
+
 def _placeholder_payload(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], str, str, str]:
     env = _shared_env(paths, profile["workspace"], profile["agent_id"])
     server_command, server_args = _server_process()
@@ -454,6 +485,9 @@ def generate_config(paths: dict[str, pathlib.Path], profile_id: str, *, save_to_
 
     if normalized["agent_type"] == "claude_code":
         command_json, file_json, command_text, instructions, remove_command = _claude_code_payload(paths, normalized)
+        placeholder = False
+    elif normalized["agent_type"] == "cursor":
+        command_json, file_json, command_text, instructions, remove_command = _cursor_payload(paths, normalized)
         placeholder = False
     elif normalized["agent_type"] == "codex":
         command_json, file_json, command_text, instructions, remove_command = _codex_payload(paths, normalized)

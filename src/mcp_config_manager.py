@@ -11,6 +11,7 @@ from typing import Any
 import agent_configs
 
 CLAUDE_SCOPES = {"project", "local", "user"}
+CURSOR_SCOPES = {"project", "global"}
 CODEX_SCOPES = {"global", "project"}
 
 _CLAUDE_JSON_MISSING = (
@@ -108,10 +109,21 @@ def _codex_config_path(workspace: pathlib.Path, scope: str) -> pathlib.Path:
     return _home() / ".codex" / "config.toml"
 
 
+def _cursor_config_path(workspace: pathlib.Path, scope: str) -> pathlib.Path:
+    if scope == "global":
+        return _home() / ".cursor" / "mcp.json"
+    return workspace / ".cursor" / "mcp.json"
+
+
 def _normalize_scope(agent_type: str, raw_scope: Any) -> str:
     normalized = str(agent_type or "").strip().lower()
     if normalized == "claude_desktop":
         return "desktop"
+    if normalized == "cursor":
+        requested = str(raw_scope or "").strip().lower()
+        if requested in CURSOR_SCOPES:
+            return requested
+        return "project"
     if normalized == "codex":
         requested = str(raw_scope or "").strip().lower()
         if requested in CODEX_SCOPES:
@@ -168,6 +180,8 @@ def _target_file_for_scope(agent_type: str, workspace: pathlib.Path, scope: str)
     normalized = str(agent_type or "").strip().lower()
     if normalized == "claude_desktop":
         return _claude_desktop_config_path()
+    if normalized == "cursor":
+        return _cursor_config_path(workspace, scope)
     if normalized == "codex":
         return _codex_config_path(workspace, scope)
     if scope == "project":
@@ -425,7 +439,7 @@ def _ensure_project_entry(payload: dict[str, Any], workspace: pathlib.Path) -> d
 
 def _apply_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Path, block: dict[str, Any]) -> dict[str, Any]:
     after = _deep_copy(payload)
-    if scope in {"project", "user", "desktop"}:
+    if scope in {"project", "global", "user", "desktop"}:
         _ensure_mcp_servers(after)["ai-runtime-guard"] = block
         return after
     project_entry = _ensure_project_entry(after, workspace)
@@ -439,7 +453,7 @@ def _apply_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Pa
 
 def _remove_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.Path) -> tuple[dict[str, Any], bool]:
     after = _deep_copy(payload)
-    if scope in {"project", "user", "desktop"}:
+    if scope in {"project", "global", "user", "desktop"}:
         servers = after.get("mcpServers")
         if not isinstance(servers, dict):
             return after, False
@@ -468,8 +482,8 @@ def _remove_airg_entry(payload: dict[str, Any], scope: str, workspace: pathlib.P
 
 def _validate_profile(profile: dict[str, Any]) -> tuple[str, pathlib.Path, str, str]:
     agent_type = str(profile.get("agent_type", "")).strip().lower()
-    if agent_type not in {"claude_code", "claude_desktop", "codex"}:
-        raise ValueError("Only Claude Code, Claude Desktop, and Codex MCP apply/remove are supported in this pass.")
+    if agent_type not in {"claude_code", "claude_desktop", "cursor", "codex"}:
+        raise ValueError("Only Claude Code, Claude Desktop, Cursor, and Codex MCP apply/remove are supported in this pass.")
     workspace = _workspace_path(profile)
     scope = _normalize_scope(agent_type, profile.get("agent_scope"))
     agent_id = str(profile.get("agent_id") or "").strip() or "default"
@@ -565,7 +579,7 @@ def _apply_for_scope(paths: dict[str, pathlib.Path], plan: dict[str, Any]) -> di
     if before_exists:
         before_payload = _read_json_strict(target)
     else:
-        if scope in {"local", "user"}:
+        if agent_type == "claude_code" and scope in {"local", "user"}:
             _ensure_claude_json_exists(target)
             before_payload = _read_json_strict(target)
         else:

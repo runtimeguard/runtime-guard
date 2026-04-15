@@ -36,6 +36,11 @@ Order of checks:
 7. If allowed, optionally back up destructive targets and execute command.
 8. Log decision and execution telemetry.
 
+Substitution coverage:
+1. Policy tokenization recursively inspects common substitution contexts before execution: `$(...)`, `` `...` ``, `<(...)`, `>(...)`, including nested forms.
+2. Commands discovered in those inner contexts are evaluated by the same network and command-tier gates as top-level commands.
+3. This remains best-effort static analysis of shell text, not a full shell interpreter.
+
 Retry behavior:
 1. Blocked non-confirmation decisions use server-side retry tracking.
 2. Confirmation-tier decisions do not consume that retry bucket.
@@ -93,7 +98,28 @@ Identity model:
 1. Per-agent policy overlays resolve by `AIRG_AGENT_ID`.
 2. In STDIO deployments, practical separation is usually the tuple (`AIRG_AGENT_ID`, workspace profile).
 
-## 10. Known Boundaries
+## 10. Cursor Hardening (GUI)
+Use this flow in `Settings -> Agents` for Cursor profiles:
+1. Select a Cursor profile and ensure MCP is configured first with `Apply MCP Config`.
+2. Open `Security Posture` and choose `Config scope`:
+3. `Project` writes to `<workspace>/.cursor/*.json`.
+4. `Global` writes to `~/.cursor/*.json`.
+
+Control groups:
+1. `STANDARD`: MCP-only posture (configured via `Apply MCP Config`).
+2. `STRICT`: hook enforcement in `hooks.json` (`preToolUse`, `beforeShellExecution`, `beforeMCPExecution`; optional `beforeReadFile`) plus optional fail-closed behavior.
+3. `MAXIMUM`: sandbox hardening in `sandbox.json` (`type`, `disableTmpWrite`, network defaults/sync, cache and path options).
+4. `OPTIONAL`: `permissions.json` controls (MCP allowlist and terminal allowlist lock) and `.cursorignore` sync.
+
+Scope applicability:
+1. `permissions.json` is global-only in Cursor; AIRG applies those options only when scope is `Global`.
+2. `.cursorignore` is project-level; AIRG writes `<workspace>/.cursorignore` regardless of selected scope.
+
+Verification:
+1. Re-open `Security Posture` and check signals for `hook_enforcement_active`, `hook_fail_closed_active`, and `sandbox_hardened`.
+2. Optional signals are `permissions_airg_allowlist_configured`, `permissions_terminal_allowlist_locked`, `optional_read_hooks_active`, and `cursorignore_synced`.
+
+## 11. Known Boundaries
 1. AIRG enforces only AIRG MCP tool calls.
 2. Native client tools outside MCP can bypass AIRG unless separately restricted in the client.
 3. Client capabilities differ; some hardening controls are unavailable on some agents.

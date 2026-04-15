@@ -2,6 +2,43 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-04-15 (v2.1.0 substitution policy hardening)
+- Hardened `execute_command` substitution handling in `src/policy_engine.py`:
+  - recursive extraction for `$(...)`, backticks, and process substitution (`<(...)`, `>(...)`)
+  - nested substitution traversal with bounded depth.
+- Applied the same policy gates to commands discovered in substitution contexts:
+  - network policy enforcement
+  - command tier matching (`blocked`, `requires_confirmation`, `allowed`).
+- Extended Script Sentinel execute-time command context extraction in `src/script_sentinel.py` to include substitution contexts.
+- Added focused regression suite `tests/test_command_substitution_policy.py` covering direct, substitution, nested, process-substitution, variable-assignment substitution, mixed chains, and clean allow paths.
+- Documented substitution-coverage boundaries in `docs/MANUAL.md` as best-effort static analysis (not a full shell interpreter).
+
+## 2026-03-24 (Cursor first-class MCP integration + posture scope support)
+- Extended Cursor from partial MCP handling to first-class scope-aware integration:
+  - `project`: `<workspace>/.cursor/mcp.json`
+  - `global`: `~/.cursor/mcp.json`.
+- Added Cursor scope options and defaults in agent profile config generation (`src/agent_configs.py`):
+  - scope selector now includes Cursor `project/global`
+  - default scope normalized to `project`
+  - replaced Cursor placeholder generator with concrete file-based instructions and non-placeholder payload output.
+- Extended MCP apply/remove manager (`src/mcp_config_manager.py`) to support `cursor` profiles:
+  - validates Cursor agent type in apply/remove path
+  - resolves Cursor target by selected scope
+  - writes/removes only `mcpServers.ai-runtime-guard`, preserving unrelated settings.
+- Extended Cursor hardening apply path (`src/agent_configurator.py`) to respect profile scope (`project/global`) and return scope-aware preflight metadata.
+- Expanded Cursor posture model (`src/agent_posture.py`) with scope visibility:
+  - reports detected scopes (`project/global`)
+  - reports expected scope and scope-match signal
+  - keeps posture semantics MCP-only (`gray` when absent, `red` when present).
+- Updated Settings -> Agents posture rendering for Cursor in `ui_v3/src/App.jsx`:
+  - MCP check now uses Cursor-specific missing-scope text
+  - non-applicable advanced rows are hidden for Cursor/custom MCP-only clients.
+- Added test coverage:
+  - `tests/test_agent_configs.py` (Cursor scope normalization + non-placeholder generation)
+  - `tests/test_mcp_config_manager.py` (Cursor project/global apply coverage + remove behavior)
+  - `tests/test_agent_posture.py` (Cursor project/global scope detection)
+  - `tests/test_agent_configurator.py` (Cursor global-scope hardening target path).
+
 ## 2026-03-24 (default policy baseline + guided setup docs)
 - Updated default Script Sentinel baseline in shipped policy/template:
   - `script_sentinel.enabled: true`

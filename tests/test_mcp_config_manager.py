@@ -121,6 +121,53 @@ class MCPConfigManagerTests(unittest.TestCase):
         self.assertIn("AIRG_AGENT_ID", text)
         self.assertIn("AIRG_WORKSPACE", text)
 
+    def _upsert_cursor_profile(self, scope: str) -> dict:
+        profile = {
+            "profile_id": f"p-cursor-{scope}",
+            "name": f"Cursor {scope}",
+            "agent_type": "cursor",
+            "agent_scope": scope,
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-1",
+        }
+        upsert = agent_configs.upsert_profile(self.paths, profile)
+        self.assertTrue(upsert.get("ok"), msg=upsert)
+        return upsert.get("profile", profile)
+
+    def test_apply_and_remove_cursor_project_config(self) -> None:
+        profile = self._upsert_cursor_profile("project")
+        target = self.workspace / ".cursor" / "mcp.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"mcpServers": {"existing": {"command": "node"}}}, indent=2))
+
+        with patch("mcp_config_manager.pathlib.Path.home", return_value=self.home):
+            applied = mcp_config_manager.apply_mcp_config(self.paths, profile)
+        self.assertTrue(applied.get("ok"), msg=applied)
+        payload = json.loads(target.read_text())
+        self.assertIn("existing", payload.get("mcpServers", {}))
+        self.assertIn("ai-runtime-guard", payload.get("mcpServers", {}))
+        self.assertEqual(str(applied.get("plan", {}).get("scope", "")), "project")
+
+        updated_profile = applied.get("profile", profile)
+        with patch("mcp_config_manager.pathlib.Path.home", return_value=self.home):
+            removed = mcp_config_manager.remove_applied_mcp(self.paths, updated_profile)
+        self.assertTrue(removed.get("ok"), msg=removed)
+        after = json.loads(target.read_text())
+        self.assertIn("existing", after.get("mcpServers", {}))
+        self.assertNotIn("ai-runtime-guard", after.get("mcpServers", {}))
+
+    def test_apply_cursor_global_config_creates_home_file(self) -> None:
+        profile = self._upsert_cursor_profile("global")
+        target = self.home / ".cursor" / "mcp.json"
+
+        with patch("mcp_config_manager.pathlib.Path.home", return_value=self.home):
+            applied = mcp_config_manager.apply_mcp_config(self.paths, profile)
+        self.assertTrue(applied.get("ok"), msg=applied)
+        self.assertEqual(str(applied.get("plan", {}).get("scope", "")), "global")
+        self.assertTrue(target.exists())
+        payload = json.loads(target.read_text())
+        self.assertIn("ai-runtime-guard", payload.get("mcpServers", {}))
+
 
 if __name__ == "__main__":
     unittest.main()

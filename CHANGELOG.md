@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.0] - 2026-04-15
+
+### Security
+- Fixed `execute_command` policy parsing to recursively inspect command-substitution contexts before shell execution:
+  - `$(...)`
+  - backticks `` `...` ``
+  - process substitution `<(...)` and `>(...)`
+  - nested substitution forms.
+- Network policy enforcement now applies to inner commands discovered inside substitution contexts, not only top-level tokens.
+- Command-tier matching (`blocked` / `requires_confirmation` / `allowed`) now applies to inner substitution commands as well.
+- Script Sentinel execute-time command-context scanning now evaluates substitution contexts to preserve policy-intent continuity.
+
+### Added
+- Regression coverage for substitution bypass prevention in `tests/test_command_substitution_policy.py`, including:
+  - direct command and `&&` baseline behavior
+  - subshell and backtick substitution
+  - process substitution
+  - nested substitution
+  - substitution in variable assignment
+  - mixed top-level + substitution command chains
+  - clean command and clean substitution allow cases.
+- Cursor posture hardening support in Settings -> Agents, including:
+  - strict hook enforcement controls (`preToolUse`, `beforeShellExecution`, `beforeMCPExecution`)
+  - optional read-path enforcement (`beforeReadFile`)
+  - fail-closed hook gate controls for security-critical paths
+  - sandbox hardening controls mapped to `.cursor/sandbox.json`
+  - optional `.cursorignore` synchronization from AIRG policy
+  - optional `permissions.json` management for MCP allowlist and terminal allowlist lock.
+- Cursor-specific posture signals and scoring in `agent_posture` for standard/strict/maximum posture classification.
+- Cursor hook runtime support in `airg_hook` for Cursor-native events:
+  - `beforeShellExecution`
+  - `beforeMCPExecution`
+  - `beforeReadFile`.
+
+### Fixed
+- Cursor scope selector fallback in the GUI now correctly shows `Project`/`Global` when backend scope payloads are legacy/invalid (`Default`-only).
+
 ## [2.0.0] - 2026-03-23
 
 ### Added

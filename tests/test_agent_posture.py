@@ -222,6 +222,116 @@ class AgentPostureTests(unittest.TestCase):
         self.assertTrue(row.get("signals", {}).get("airg_mcp_present"))
         self.assertIn("project", row.get("mcp_detected_scopes", []))
 
+    def test_cursor_posture_detects_project_and_global_scopes(self) -> None:
+        project_cfg = self.workspace / ".cursor" / "mcp.json"
+        project_cfg.parent.mkdir(parents=True, exist_ok=True)
+        project_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+
+        global_cfg = self.home / ".cursor" / "mcp.json"
+        global_cfg.parent.mkdir(parents=True, exist_ok=True)
+        global_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+
+        profile = {
+            "profile_id": "p-cursor",
+            "name": "Cursor",
+            "agent_type": "cursor",
+            "agent_scope": "project",
+            "agent_id": "cursor-1",
+            "workspace": str(self.workspace),
+        }
+
+        with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            row = agent_posture.build_posture_for_profile(profile)
+
+        self.assertEqual(row.get("status"), "red")
+        self.assertTrue(row.get("signals", {}).get("airg_mcp_present"))
+        self.assertEqual(set(row.get("mcp_detected_scopes", [])), {"project", "global"})
+        self.assertTrue(bool(row.get("mcp_scope_match")))
+
+    def test_cursor_posture_yellow_when_hook_enforcement_present(self) -> None:
+        project_cfg = self.workspace / ".cursor" / "mcp.json"
+        project_cfg.parent.mkdir(parents=True, exist_ok=True)
+        project_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+        hooks_path = self.workspace / ".cursor" / "hooks.json"
+        hooks_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "hooks": {
+                        "preToolUse": [
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Shell", "airg_managed": True},
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Write", "airg_managed": True},
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Delete", "airg_managed": True},
+                        ],
+                        "beforeShellExecution": [{"command": "/usr/local/bin/airg-hook", "airg_managed": True}],
+                        "beforeMCPExecution": [{"command": "/usr/local/bin/airg-hook", "airg_managed": True}],
+                    },
+                },
+                indent=2,
+            )
+        )
+        profile = {
+            "profile_id": "p-cursor-y",
+            "name": "Cursor",
+            "agent_type": "cursor",
+            "agent_scope": "project",
+            "agent_id": "cursor-1",
+            "workspace": str(self.workspace),
+        }
+        with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            row = agent_posture.build_posture_for_profile(profile)
+        self.assertEqual(row.get("status"), "yellow")
+        self.assertTrue(bool(row.get("signals", {}).get("hook_enforcement_active")))
+        self.assertFalse(bool(row.get("signals", {}).get("sandbox_hardened")))
+
+    def test_cursor_posture_green_when_hooks_fail_closed_and_sandbox_hardened(self) -> None:
+        project_cfg = self.workspace / ".cursor" / "mcp.json"
+        project_cfg.parent.mkdir(parents=True, exist_ok=True)
+        project_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+        hooks_path = self.workspace / ".cursor" / "hooks.json"
+        hooks_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "hooks": {
+                        "preToolUse": [
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Shell", "airg_managed": True},
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Write", "airg_managed": True},
+                            {"command": "/usr/local/bin/airg-hook", "matcher": "Delete", "airg_managed": True},
+                        ],
+                        "beforeShellExecution": [{"command": "/usr/local/bin/airg-hook", "airg_managed": True, "failClosed": True}],
+                        "beforeMCPExecution": [{"command": "/usr/local/bin/airg-hook", "airg_managed": True, "failClosed": True}],
+                    },
+                },
+                indent=2,
+            )
+        )
+        sandbox_path = self.workspace / ".cursor" / "sandbox.json"
+        sandbox_path.write_text(
+            json.dumps(
+                {
+                    "type": "workspace_readwrite",
+                    "disableTmpWrite": True,
+                    "networkPolicy": {"default": "deny", "allow": [], "deny": []},
+                },
+                indent=2,
+            )
+        )
+        profile = {
+            "profile_id": "p-cursor-g",
+            "name": "Cursor",
+            "agent_type": "cursor",
+            "agent_scope": "project",
+            "agent_id": "cursor-1",
+            "workspace": str(self.workspace),
+        }
+        with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            row = agent_posture.build_posture_for_profile(profile)
+        self.assertEqual(row.get("status"), "green")
+        self.assertTrue(bool(row.get("signals", {}).get("hook_enforcement_active")))
+        self.assertTrue(bool(row.get("signals", {}).get("hook_fail_closed_active")))
+        self.assertTrue(bool(row.get("signals", {}).get("sandbox_hardened")))
+
     def test_codex_posture_green_when_all_tiers_present_and_in_sync(self) -> None:
         codex_cfg = self.home / ".codex" / "config.toml"
         codex_cfg.parent.mkdir(parents=True, exist_ok=True)

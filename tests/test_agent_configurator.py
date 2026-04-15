@@ -122,6 +122,96 @@ class AgentConfiguratorTests(unittest.TestCase):
         self.assertTrue(undone.get("ok"), msg=undone)
         self.assertEqual(json.loads(cursor_mcp.read_text()), original)
 
+    def test_cursor_apply_global_scope_writes_home_cursor_config(self) -> None:
+        profile = {
+            "profile_id": "p-cursor-global",
+            "agent_type": "cursor",
+            "agent_scope": "global",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-global",
+        }
+        home_dir = self.base / "home"
+        home_dir.mkdir(parents=True, exist_ok=True)
+        target = home_dir / ".cursor" / "mcp.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"mcpServers": {"existing": {"command": "node"}}}, indent=2))
+
+        with patch("agent_configurator.pathlib.Path.home", return_value=home_dir):
+            applied = agent_configurator.apply_hardening(self.paths, profile)
+        self.assertTrue(applied.get("ok"), msg=applied)
+        merged = json.loads(target.read_text())
+        self.assertIn("existing", merged.get("mcpServers", {}))
+        self.assertIn("ai-runtime-guard", merged.get("mcpServers", {}))
+        permissions = home_dir / ".cursor" / "permissions.json"
+        self.assertTrue(permissions.exists())
+        permissions_payload = json.loads(permissions.read_text())
+        self.assertEqual(permissions_payload.get("mcpAllowlist"), ["ai-runtime-guard:*"])
+        self.assertEqual(permissions_payload.get("terminalAllowlist"), [])
+
+    def test_cursor_apply_project_scope_writes_hooks_sandbox_and_cursorignore(self) -> None:
+        profile = {
+            "profile_id": "p-cursor-hardening",
+            "agent_type": "cursor",
+            "agent_scope": "project",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-hardening",
+        }
+        self.paths["policy_path"].write_text(
+            json.dumps(
+                {
+                    "blocked": {"commands": [], "paths": [".env", "secrets.json"], "extensions": [".pem"]},
+                    "requires_confirmation": {"commands": [], "paths": []},
+                    "allowed": {"paths_whitelist": []},
+                    "network": {"allowed_domains": ["pypi.org"], "blocked_domains": ["example.com"]},
+                }
+            )
+        )
+        cursor_mcp = self.workspace / ".cursor" / "mcp.json"
+        cursor_mcp.parent.mkdir(parents=True, exist_ok=True)
+        cursor_mcp.write_text(json.dumps({"mcpServers": {}}, indent=2))
+        options = {
+            "strict_enforcement": True,
+            "advanced_enforcement": True,
+            "fail_closed": True,
+            "permissions_enabled": True,
+            "sandbox_enabled": True,
+            "sandbox_type": "workspace_readwrite",
+            "sandbox_disable_tmp_write": True,
+            "sandbox_sync_network_from_policy": True,
+            "cursorignore_sync": True,
+        }
+
+        applied = agent_configurator.apply_hardening(self.paths, profile, options=options)
+        self.assertTrue(applied.get("ok"), msg=applied)
+
+        hooks_file = self.workspace / ".cursor" / "hooks.json"
+        self.assertTrue(hooks_file.exists())
+        hooks_payload = json.loads(hooks_file.read_text())
+        pretool = hooks_payload.get("hooks", {}).get("preToolUse", [])
+        matchers = {str(item.get("matcher", "")) for item in pretool if isinstance(item, dict)}
+        self.assertTrue({"Shell", "Write", "Delete", "Read", "Grep"}.issubset(matchers))
+        before_shell = hooks_payload.get("hooks", {}).get("beforeShellExecution", [])
+        self.assertTrue(any(bool(item.get("failClosed", False)) for item in before_shell if isinstance(item, dict)))
+        before_mcp = hooks_payload.get("hooks", {}).get("beforeMCPExecution", [])
+        self.assertTrue(any(bool(item.get("failClosed", False)) for item in before_mcp if isinstance(item, dict)))
+
+        sandbox_file = self.workspace / ".cursor" / "sandbox.json"
+        self.assertTrue(sandbox_file.exists())
+        sandbox_payload = json.loads(sandbox_file.read_text())
+        self.assertEqual(sandbox_payload.get("type"), "workspace_readwrite")
+        self.assertTrue(bool(sandbox_payload.get("disableTmpWrite", False)))
+        self.assertEqual(sandbox_payload.get("networkPolicy", {}).get("default"), "deny")
+        self.assertIn("pypi.org", sandbox_payload.get("networkPolicy", {}).get("allow", []))
+        self.assertIn("example.com", sandbox_payload.get("networkPolicy", {}).get("deny", []))
+
+        cursorignore_file = self.workspace / ".cursorignore"
+        self.assertTrue(cursorignore_file.exists())
+        cursorignore_text = cursorignore_file.read_text()
+        self.assertIn("AIRG_CURSORIGNORE_BEGIN", cursorignore_text)
+        self.assertIn("**/.env", cursorignore_text)
+        self.assertIn("**/secrets.json", cursorignore_text)
+        self.assertIn("**/*.pem", cursorignore_text)
+
     def test_claude_apply_accepts_local_scope_mcp_in_home_claude_json(self) -> None:
         profile = {
             "profile_id": "p-claude-local",
