@@ -20,6 +20,7 @@ CLAUDE_TIER2_TOOLS = ["Read", "Glob", "Grep"]
 CODEX_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 CODEX_APPROVAL_POLICIES = {"untrusted", "on-request", "never"}
 CODEX_MIRROR_APPROVAL_MODES = {"allow", "approve", "deny"}
+CURSOR_SCOPES = {"project", "global"}
 CODEX_AGENT_DOC_BEGIN = "<!-- AIRG_CODEX_TIER1_BEGIN -->"
 CODEX_AGENT_DOC_END = "<!-- AIRG_CODEX_TIER1_END -->"
 CODEX_RULES_BEGIN = "# AIRG_CODEX_TIER2_BEGIN"
@@ -301,6 +302,13 @@ def _normalize_codex_hardening_options(options: dict[str, Any] | None) -> dict[s
         "tier3_workspace_write_exclude_tmpdir_env_var": bool(payload.get("tier3_workspace_write_exclude_tmpdir_env_var", True)),
         "tier3_workspace_write_writable_roots": dedup_roots,
     }
+
+
+def _normalize_cursor_scope(raw_scope: Any) -> str:
+    scope = str(raw_scope or "").strip().lower()
+    if scope in CURSOR_SCOPES:
+        return scope
+    return "project"
 
 
 def _sha256_text(text: str) -> str:
@@ -930,7 +938,10 @@ def _apply_claude_hardening_to_settings(before: dict[str, Any], options: dict[st
     return after
 
 
-def _cursor_mcp_path(workspace: pathlib.Path) -> pathlib.Path:
+def _cursor_mcp_path(workspace: pathlib.Path, scope: str = "project") -> pathlib.Path:
+    normalized_scope = _normalize_cursor_scope(scope)
+    if normalized_scope == "global":
+        return _home() / ".cursor" / "mcp.json"
     return workspace / ".cursor" / "mcp.json"
 
 
@@ -1007,6 +1018,17 @@ def _detect_claude_mcp_locations(workspace: pathlib.Path) -> list[dict[str, str]
         seen.add(key)
         deduped.append({"scope": key[0], "path": key[1]})
     return deduped
+
+
+def _detect_cursor_mcp_locations(workspace: pathlib.Path) -> list[dict[str, str]]:
+    found: list[dict[str, str]] = []
+    project_path = _cursor_mcp_path(workspace, "project")
+    if _contains_airg_mcp(_read_json_file_optional(project_path)):
+        found.append({"scope": "project", "path": str(project_path)})
+    global_path = _cursor_mcp_path(workspace, "global")
+    if _contains_airg_mcp(_read_json_file_optional(global_path)):
+        found.append({"scope": "global", "path": str(global_path)})
+    return found
 
 
 def _backup_path_for(target: pathlib.Path) -> pathlib.Path:
@@ -1434,8 +1456,10 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
     workspace = _workspace_path(profile)
     agent_id = str(profile.get("agent_id", "")).strip() or "default"
     profile_id = str(profile.get("profile_id", "")).strip()
+    selected_scope = _normalize_cursor_scope(profile.get("agent_scope"))
+    mcp_locations = _detect_cursor_mcp_locations(workspace)
 
-    target = _cursor_mcp_path(workspace)
+    target = _cursor_mcp_path(workspace, selected_scope)
     overlay = {
         "mcpServers": {
             "ai-runtime-guard": _airg_server_block(paths, workspace, agent_id),
@@ -1457,6 +1481,7 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
             }
         ],
         "diff_summary": change.get("diff_summary", []),
+        "applied_options": {"scope": selected_scope},
     }
     _update_profile_state(paths, profile_id, record)
 
@@ -1467,6 +1492,17 @@ def _apply_cursor(paths: dict[str, pathlib.Path], profile: dict[str, Any]) -> di
         "target_path": str(target),
         "changes": [change],
         "diff_summary": change.get("diff_summary", []),
+        "preflight": {
+            "selected_scope": selected_scope,
+            "mcp_locations": mcp_locations,
+            "mcp_detected_scopes": [
+                str(item.get("scope", "")).strip()
+                for item in mcp_locations
+                if isinstance(item, dict) and str(item.get("scope", "")).strip()
+            ],
+            "mcp_present": bool(mcp_locations),
+        },
+        "applied_options": {"scope": selected_scope},
         "undo_available": True,
     }
 

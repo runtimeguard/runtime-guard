@@ -122,6 +122,27 @@ class AgentConfiguratorTests(unittest.TestCase):
         self.assertTrue(undone.get("ok"), msg=undone)
         self.assertEqual(json.loads(cursor_mcp.read_text()), original)
 
+    def test_cursor_apply_global_scope_writes_home_cursor_config(self) -> None:
+        profile = {
+            "profile_id": "p-cursor-global",
+            "agent_type": "cursor",
+            "agent_scope": "global",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-global",
+        }
+        home_dir = self.base / "home"
+        home_dir.mkdir(parents=True, exist_ok=True)
+        target = home_dir / ".cursor" / "mcp.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"mcpServers": {"existing": {"command": "node"}}}, indent=2))
+
+        with patch("agent_configurator.pathlib.Path.home", return_value=home_dir):
+            applied = agent_configurator.apply_hardening(self.paths, profile)
+        self.assertTrue(applied.get("ok"), msg=applied)
+        merged = json.loads(target.read_text())
+        self.assertIn("existing", merged.get("mcpServers", {}))
+        self.assertIn("ai-runtime-guard", merged.get("mcpServers", {}))
+
     def test_claude_apply_accepts_local_scope_mcp_in_home_claude_json(self) -> None:
         profile = {
             "profile_id": "p-claude-local",

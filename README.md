@@ -66,6 +66,7 @@ Supported agent integrations on both platforms:
 Notes:
 1. Enforcement depth is agent-dependent (for example hooks/sandbox controls differ by client).
 2. AIRG MCP policy enforcement remains the primary universal layer across supported clients.
+3. Cursor MCP config is supported in both `project` (`<workspace>/.cursor/mcp.json`) and `global` (`~/.cursor/mcp.json`) scope.
 
 ## How To Run
 Environment isolation recommendation:

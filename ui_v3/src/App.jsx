@@ -165,6 +165,121 @@ function normalizeDomain(value) {
   return String(value || '').trim().toLowerCase()
 }
 
+function AgentOverrideTagEditor({ sectionKey, field, tags, onAdd, onRemove, transform = (v) => v }) {
+  const [input, setInput] = useState('')
+  const handleAdd = () => {
+    if (!input.trim()) return
+    const ok = onAdd(sectionKey, field, input.trim(), transform)
+    if (ok) setInput('')
+  }
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: '#9ca3af',
+          marginBottom: 8,
+        }}
+      >
+        {field.replace(/_/g, ' ')}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder={`Add ${field.replace(/_/g, ' ')}...`}
+          style={{
+            flex: 1,
+            fontSize: 12,
+            fontFamily: 'monospace',
+            padding: '6px 10px',
+            borderRadius: 5,
+            border: '1px solid #d1d5db',
+            outline: 'none',
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = '#4f46e5'
+            e.currentTarget.style.boxShadow = '0 0 0 2px rgba(79,70,229,0.1)'
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = '#d1d5db'
+            e.currentTarget.style.boxShadow = 'none'
+          }}
+        />
+        <button
+          onClick={handleAdd}
+          style={{
+            background: '#4f46e5',
+            color: 'white',
+            border: 'none',
+            borderRadius: 5,
+            padding: '6px 14px',
+            fontSize: 11,
+            fontWeight: 500,
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          Add
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 28 }}>
+        {tags.length === 0 ? (
+          <span style={{ fontSize: 11, color: '#d1d5db', fontStyle: 'italic' }}>
+            No entries — inheriting baseline
+          </span>
+        ) : tags.map((tag, i) => (
+          <div
+            key={`${field}-${tag}-${i}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px 8px',
+              borderRadius: 5,
+              border: '1px solid #e5e7eb',
+              background: '#fafafa',
+              fontSize: 12,
+              fontFamily: 'monospace',
+              color: '#374151',
+            }}
+          >
+            {tag}
+            <button
+              onClick={() => onRemove(sectionKey, field, tag)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#9ca3af',
+                cursor: 'pointer',
+                fontSize: 14,
+                lineHeight: 1,
+                padding: '0 1px',
+                borderRadius: 2,
+                transition: 'all 0.12s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#dc2626'
+                e.currentTarget.style.background = '#fee2e2'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#9ca3af'
+                e.currentTarget.style.background = 'none'
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function NavIcon({ id }) {
   if (id === 'approvals') {
     return (
@@ -4761,121 +4876,6 @@ export default function App() {
       )
     }
 
-    function TagEditor({ sectionKey, field, tags, onAdd, onRemove, transform = (v) => v }) {
-      const [input, setInput] = useState('')
-      const handleAdd = () => {
-        if (!input.trim()) return
-        const ok = onAdd(sectionKey, field, input.trim(), transform)
-        if (ok) setInput('')
-      }
-      return (
-        <div style={{ marginBottom: 14 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: '#9ca3af',
-              marginBottom: 8,
-            }}
-          >
-            {field.replace(/_/g, ' ')}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              placeholder={`Add ${field.replace(/_/g, ' ')}...`}
-              style={{
-                flex: 1,
-                fontSize: 12,
-                fontFamily: 'monospace',
-                padding: '6px 10px',
-                borderRadius: 5,
-                border: '1px solid #d1d5db',
-                outline: 'none',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = '#4f46e5'
-                e.currentTarget.style.boxShadow = '0 0 0 2px rgba(79,70,229,0.1)'
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = '#d1d5db'
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            />
-            <button
-              onClick={handleAdd}
-              style={{
-                background: '#4f46e5',
-                color: 'white',
-                border: 'none',
-                borderRadius: 5,
-                padding: '6px 14px',
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              Add
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 28 }}>
-            {tags.length === 0 ? (
-              <span style={{ fontSize: 11, color: '#d1d5db', fontStyle: 'italic' }}>
-                No entries — inheriting baseline
-              </span>
-            ) : tags.map((tag, i) => (
-              <div
-                key={`${field}-${tag}-${i}`}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  padding: '3px 8px',
-                  borderRadius: 5,
-                  border: '1px solid #e5e7eb',
-                  background: '#fafafa',
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  color: '#374151',
-                }}
-              >
-                {tag}
-                <button
-                  onClick={() => onRemove(sectionKey, field, tag)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#9ca3af',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    lineHeight: 1,
-                    padding: '0 1px',
-                    borderRadius: 2,
-                    transition: 'all 0.12s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = '#dc2626'
-                    e.currentTarget.style.background = '#fee2e2'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = '#9ca3af'
-                    e.currentTarget.style.background = 'none'
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="space-y-3">
         <div className="bg-white border border-slate-200 rounded-[10px] p-3 shadow-sm space-y-3">
@@ -5022,7 +5022,7 @@ export default function App() {
                     <div style={{ padding: '12px 16px', borderTop: '1px solid #f3f4f6' }}>
                       {section === 'blocked' && (
                         ['commands', 'paths', 'extensions'].map((field) => (
-                          <TagEditor
+                          <AgentOverrideTagEditor
                             key={`${section}-${field}`}
                             sectionKey={section}
                             field={field}
@@ -5035,7 +5035,7 @@ export default function App() {
 
                       {section === 'requires_confirmation' && (
                         ['commands', 'paths'].map((field) => (
-                          <TagEditor
+                          <AgentOverrideTagEditor
                             key={`${section}-${field}`}
                             sectionKey={section}
                             field={field}
@@ -5048,7 +5048,7 @@ export default function App() {
 
                       {section === 'allowed' && (
                         <>
-                          <TagEditor
+                          <AgentOverrideTagEditor
                             sectionKey="allowed"
                             field="paths_whitelist"
                             tags={Array.isArray(sectionData?.paths_whitelist) ? sectionData.paths_whitelist : []}
@@ -5095,7 +5095,7 @@ export default function App() {
                             />
                           </div>
                           {['commands', 'allowed_domains', 'blocked_domains'].map((field) => (
-                            <TagEditor
+                            <AgentOverrideTagEditor
                               key={`${section}-${field}`}
                               sectionKey="network"
                               field={field}
@@ -5174,7 +5174,7 @@ export default function App() {
                                 ]}
                               />
                             </div>
-                            <TagEditor
+                            <AgentOverrideTagEditor
                               sectionKey="execution"
                               field="exempt_commands"
                               tags={Array.isArray(sectionData?.shell_workspace_containment?.exempt_commands) ? sectionData.shell_workspace_containment.exempt_commands : []}
@@ -5766,7 +5766,9 @@ export default function App() {
             label: 'AIRG MCP configured',
             failText: selectedAgentType === 'claude_desktop'
               ? 'Not found in Claude Desktop config'
-              : 'Not found in project/local/user/managed MCP config scopes',
+              : selectedAgentType === 'cursor'
+                ? 'Not found in Cursor project/global mcp.json scopes'
+                : 'Not found in project/local/user/managed MCP config scopes',
           },
           { key: 'tier1_hook_active', label: 'Hook active', failText: 'Missing hook matchers for Bash/Write/Edit/MultiEdit' },
           { key: 'native_tools_restricted', label: 'Native tools restricted', failText: 'Bash, Write, Edit, MultiEdit not denied' },
@@ -5774,7 +5776,7 @@ export default function App() {
           { key: 'sandbox_enabled', label: 'Sandbox enabled', failText: 'sandbox: false in settings' },
           { key: 'sandbox_escape_closed', label: 'Sandbox escape closed', failText: 'Depends on sandbox being enabled' },
         ]
-    const signalRows = (selectedAgentType === 'claude_desktop'
+    const signalRows = ((selectedAgentType === 'claude_desktop' || selectedAgentType === 'cursor' || selectedAgentType === 'custom')
       ? signalRowsBase.filter((row) => row.key === 'airg_mcp_present')
       : signalRowsBase
     ).map((row) => {

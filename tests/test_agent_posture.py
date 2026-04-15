@@ -222,6 +222,32 @@ class AgentPostureTests(unittest.TestCase):
         self.assertTrue(row.get("signals", {}).get("airg_mcp_present"))
         self.assertIn("project", row.get("mcp_detected_scopes", []))
 
+    def test_cursor_posture_detects_project_and_global_scopes(self) -> None:
+        project_cfg = self.workspace / ".cursor" / "mcp.json"
+        project_cfg.parent.mkdir(parents=True, exist_ok=True)
+        project_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+
+        global_cfg = self.home / ".cursor" / "mcp.json"
+        global_cfg.parent.mkdir(parents=True, exist_ok=True)
+        global_cfg.write_text(json.dumps(self._mcp_payload(), indent=2))
+
+        profile = {
+            "profile_id": "p-cursor",
+            "name": "Cursor",
+            "agent_type": "cursor",
+            "agent_scope": "project",
+            "agent_id": "cursor-1",
+            "workspace": str(self.workspace),
+        }
+
+        with patch("agent_posture.pathlib.Path.home", return_value=self.home):
+            row = agent_posture.build_posture_for_profile(profile)
+
+        self.assertEqual(row.get("status"), "red")
+        self.assertTrue(row.get("signals", {}).get("airg_mcp_present"))
+        self.assertEqual(set(row.get("mcp_detected_scopes", [])), {"project", "global"})
+        self.assertTrue(bool(row.get("mcp_scope_match")))
+
     def test_codex_posture_green_when_all_tiers_present_and_in_sync(self) -> None:
         codex_cfg = self.home / ".codex" / "config.toml"
         codex_cfg.parent.mkdir(parents=True, exist_ok=True)

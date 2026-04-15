@@ -74,6 +74,40 @@ class AgentConfigsTests(unittest.TestCase):
         self.assertIn("--scope project", command_text)
         self.assertIn("AIRG_AGENT_ID=codex-project-1", command_text)
 
+    def test_upsert_normalizes_cursor_scope(self) -> None:
+        profile = {
+            "profile_id": "p-cursor-scope",
+            "name": "Cursor Scope test",
+            "agent_type": "cursor",
+            "agent_scope": "invalid",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-scope-1",
+        }
+        result = agent_configs.upsert_profile(self.paths, profile)
+        self.assertTrue(result.get("ok"), msg=result)
+        saved = result.get("profile", {})
+        self.assertEqual(saved.get("agent_scope"), "project")
+
+    def test_generate_cursor_payload_is_not_placeholder(self) -> None:
+        profile = {
+            "profile_id": "p-cursor",
+            "name": "Cursor Scope",
+            "agent_type": "cursor",
+            "agent_scope": "global",
+            "workspace": str(self.workspace),
+            "agent_id": "cursor-global-1",
+        }
+        upsert = agent_configs.upsert_profile(self.paths, profile)
+        self.assertTrue(upsert.get("ok"), msg=upsert)
+        generated = agent_configs.generate_config(self.paths, "p-cursor", save_to_file=False)
+        self.assertTrue(generated.get("ok"), msg=generated)
+        payload = generated.get("generated", {})
+        self.assertFalse(bool(payload.get("placeholder")))
+        command_text = str(payload.get("command_text", ""))
+        instructions = str(payload.get("instructions", ""))
+        self.assertIn("Cursor has no official MCP add CLI", command_text)
+        self.assertIn("~/.cursor/mcp.json", instructions)
+
 
 if __name__ == "__main__":
     unittest.main()

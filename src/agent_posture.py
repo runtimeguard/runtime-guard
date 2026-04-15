@@ -625,8 +625,24 @@ def _build_claude_posture(profile: dict[str, Any]) -> dict[str, Any]:
 def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
     workspace = _workspace_from_profile(profile)
     paths = _cursor_paths(workspace)
-    has_mcp = any(_contains_airg_mcp(_read_json(p)) for p in paths)
+    has_project = _contains_airg_mcp(_read_json(paths[0]))
+    has_global = _contains_airg_mcp(_read_json(paths[1]))
+    has_mcp = has_project or has_global
     status, rationale = _score_cursor(has_mcp=has_mcp)
+    detected_scopes: list[str] = []
+    locations: list[dict[str, str]] = []
+    signal_scopes: dict[str, list[str]] = {}
+    if has_project:
+        detected_scopes.append("project")
+        locations.append({"scope": "project", "path": str(paths[0])})
+    if has_global:
+        detected_scopes.append("global")
+        locations.append({"scope": "global", "path": str(paths[1])})
+    if detected_scopes:
+        signal_scopes["airg_mcp_present"] = list(detected_scopes)
+    expected_scope = str(profile.get("agent_scope", "")).strip().lower() or "project"
+    if expected_scope not in {"project", "global"}:
+        expected_scope = "project"
     signals = {
         "airg_mcp_present": has_mcp,
     }
@@ -634,6 +650,11 @@ def _build_cursor_posture(profile: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "rationale": rationale,
         "signals": signals,
+        "signal_scopes": signal_scopes,
+        "mcp_detected_scopes": detected_scopes,
+        "mcp_detected_locations": locations,
+        "mcp_expected_scope": expected_scope,
+        "mcp_scope_match": (expected_scope in detected_scopes) if has_mcp else False,
         "missing_controls": [] if has_mcp else ["AIRG MCP configured"],
         "recommended_actions": _cursor_recommendations(signals),
         "paths_checked": [str(p) for p in paths],
