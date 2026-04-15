@@ -165,6 +165,157 @@ function normalizeDomain(value) {
   return String(value || '').trim().toLowerCase()
 }
 
+function PolicyDomainRow({ domain, onRemove }) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '7px 12px',
+        borderBottom: '1px solid #f9fafb',
+        fontSize: 12,
+        fontFamily: 'monospace',
+        color: '#374151',
+        background: hovered ? '#fafafa' : 'white',
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{domain}</span>
+      <button
+        onClick={onRemove}
+        style={{
+          width: 20,
+          height: 20,
+          border: 'none',
+          borderRadius: 3,
+          background: hovered ? '#fee2e2' : 'transparent',
+          color: hovered ? '#dc2626' : '#9ca3af',
+          cursor: 'pointer',
+          fontSize: 13,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: hovered ? 1 : 0,
+          transition: 'all 0.15s',
+        }}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
+function PolicyDomainColumn({
+  title,
+  titleColor,
+  placeholder,
+  domains,
+  onAdd,
+  onRemove,
+  emptyText,
+  addButtonStyle,
+}) {
+  const [input, setInput] = useState('')
+  const handleAdd = () => {
+    const val = input.trim().toLowerCase()
+    if (!val) return
+    if (onAdd(val)) setInput('')
+  }
+  return (
+    <div
+      style={{
+        border: '1px solid #e5e7eb',
+        borderRadius: 7,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '9px 12px',
+          background: '#fafafa',
+          borderBottom: '1px solid #f0f0f0',
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 600, color: titleColor }}>
+          {title}
+        </span>
+        <span style={{ fontSize: 10, color: '#9ca3af' }}>
+          {domains.length} domain{domains.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          padding: '8px 10px',
+          borderBottom: '1px solid #f0f0f0',
+        }}
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder={placeholder}
+          style={{
+            flex: 1,
+            fontSize: 12,
+            fontFamily: 'monospace',
+            padding: '5px 8px',
+            borderRadius: 5,
+            border: '1px solid #d1d5db',
+            outline: 'none',
+          }}
+        />
+        <button
+          onClick={handleAdd}
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            fontWeight: 500,
+            borderRadius: 5,
+            cursor: 'pointer',
+            ...addButtonStyle,
+          }}
+        >
+          Add
+        </button>
+      </div>
+
+      <div style={{ minHeight: 80 }}>
+        {domains.length === 0 ? (
+          <div
+            style={{
+              padding: '16px 12px',
+              fontSize: 11,
+              color: '#9ca3af',
+              fontStyle: 'italic',
+            }}
+          >
+            {emptyText}
+          </div>
+        ) : (
+          domains.map((domain) => (
+            <PolicyDomainRow
+              key={domain}
+              domain={domain}
+              onRemove={() => onRemove(domain)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AgentOverrideTagEditor({ sectionKey, field, tags, onAdd, onRemove, transform = (v) => v }) {
   const [input, setInput] = useState('')
   const handleAdd = () => {
@@ -2864,15 +3015,26 @@ export default function App() {
       return dt.toLocaleDateString(undefined, { weekday: 'short' })
     }
 
-    const formatDelta = (todayValue, yesterdayValue) => {
-      const delta = Number(todayValue || 0) - Number(yesterdayValue || 0)
+    const formatDelta = (todayValue, yesterdayValue, trailing7Total) => {
+      const today = Number(todayValue || 0)
+      const yesterday = Number(yesterdayValue || 0)
+      const trailing = Number(trailing7Total || 0)
+      const delta = today - yesterday
+
+      // "vs yesterday" can be misleading after extended inactivity.
+      if (trailing === 0) {
+        if (today > 0) return { text: `+${today} today (first activity in 7d)`, tone: 'positive' }
+        return { text: 'No activity in last 7d', tone: 'neutral' }
+      }
       if (delta > 0) return { text: `+${delta} vs yesterday`, tone: 'positive' }
       if (delta < 0) return { text: `${delta} vs yesterday`, tone: 'negative' }
       return { text: 'No change vs yesterday', tone: 'neutral' }
     }
 
-    const totalDelta = formatDelta(eventsToday, eventsYesterday)
-    const blockedDelta = formatDelta(blockedToday, blockedYesterday)
+    const trailingWeekEvents = chartRows.slice(0, -1).reduce((sum, row) => sum + Number(row.total || 0), 0)
+    const trailingWeekBlocked = chartRows.slice(0, -1).reduce((sum, row) => sum + Number(row.blocked || 0), 0)
+    const totalDelta = formatDelta(eventsToday, eventsYesterday, trailingWeekEvents)
+    const blockedDelta = formatDelta(blockedToday, blockedYesterday, trailingWeekBlocked)
 
     const filteredLabels = REPORT_FILTER_FIELDS.reduce((acc, field) => {
       const value = String(reportsFilters[field.key] || '').trim()
@@ -3642,157 +3804,6 @@ export default function App() {
       borderRadius: 3,
     }
 
-    function DomainRow({ domain, onRemove }) {
-      const [hovered, setHovered] = useState(false)
-      return (
-        <div
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '7px 12px',
-            borderBottom: '1px solid #f9fafb',
-            fontSize: 12,
-            fontFamily: 'monospace',
-            color: '#374151',
-            background: hovered ? '#fafafa' : 'white',
-          }}
-        >
-          <span style={{ flex: 1 }}>{domain}</span>
-          <button
-            onClick={onRemove}
-            style={{
-              width: 20,
-              height: 20,
-              border: 'none',
-              borderRadius: 3,
-              background: hovered ? '#fee2e2' : 'transparent',
-              color: hovered ? '#dc2626' : '#9ca3af',
-              cursor: 'pointer',
-              fontSize: 13,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: hovered ? 1 : 0,
-              transition: 'all 0.15s',
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )
-    }
-
-    function DomainColumn({
-      title,
-      titleColor,
-      placeholder,
-      domains,
-      onAdd,
-      onRemove,
-      emptyText,
-      addButtonStyle,
-    }) {
-      const [input, setInput] = useState('')
-      const handleAdd = () => {
-        const val = input.trim().toLowerCase()
-        if (!val) return
-        if (onAdd(val)) setInput('')
-      }
-      return (
-        <div
-          style={{
-            border: '1px solid #e5e7eb',
-            borderRadius: 7,
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '9px 12px',
-              background: '#fafafa',
-              borderBottom: '1px solid #f0f0f0',
-            }}
-          >
-            <span style={{ fontSize: 11, fontWeight: 600, color: titleColor }}>
-              {title}
-            </span>
-            <span style={{ fontSize: 10, color: '#9ca3af' }}>
-              {domains.length} domain{domains.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 6,
-              padding: '8px 10px',
-              borderBottom: '1px solid #f0f0f0',
-            }}
-          >
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              placeholder={placeholder}
-              style={{
-                flex: 1,
-                fontSize: 12,
-                fontFamily: 'monospace',
-                padding: '5px 8px',
-                borderRadius: 5,
-                border: '1px solid #d1d5db',
-                outline: 'none',
-              }}
-            />
-            <button
-              onClick={handleAdd}
-              style={{
-                padding: '4px 10px',
-                fontSize: 11,
-                fontWeight: 500,
-                borderRadius: 5,
-                cursor: 'pointer',
-                ...addButtonStyle,
-              }}
-            >
-              Add
-            </button>
-          </div>
-
-          <div style={{ minHeight: 80 }}>
-            {domains.length === 0 ? (
-              <div
-                style={{
-                  padding: '16px 12px',
-                  fontSize: 11,
-                  color: '#9ca3af',
-                  fontStyle: 'italic',
-                }}
-              >
-                {emptyText}
-              </div>
-            ) : (
-              domains.map((domain) => (
-                <DomainRow
-                  key={domain}
-                  domain={domain}
-                  onRemove={() => onRemove(domain)}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="space-y-3">
         <div style={{
@@ -4045,7 +4056,7 @@ export default function App() {
             gap: 12,
             padding: '12px 16px',
           }}>
-            <DomainColumn
+            <PolicyDomainColumn
               title="Allowed domains"
               titleColor="#15803d"
               placeholder="api.github.com"
@@ -4056,7 +4067,7 @@ export default function App() {
               addButtonStyle={{ background: '#4f46e5', color: 'white', border: 'none' }}
             />
 
-            <DomainColumn
+            <PolicyDomainColumn
               title="Blocked domains"
               titleColor="#dc2626"
               placeholder="malicious.example.com"
