@@ -21,6 +21,187 @@ from runtime_context import current_agent_session_id
 
 SERVER_RETRY_COUNTS: dict[str, int] = {}
 
+
+def _capture_parenthesized(text: str, start_index: int) -> tuple[str | None, int]:
+    """Capture a balanced parenthesized payload starting immediately after '('.
+
+    Returns (payload_without_outer_parens, index_after_closing_paren). If no
+    matching closing parenthesis is found, returns (None, start_index).
+    """
+    depth = 1
+    in_single = False
+    in_double = False
+    escaped = False
+    buf: list[str] = []
+    i = start_index
+
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            i += 1
+            continue
+
+        if ch == "\\":
+            escaped = True
+            buf.append(ch)
+            i += 1
+            continue
+
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+
+        if not in_single and not in_double:
+            if ch == "(":
+                depth += 1
+                buf.append(ch)
+                i += 1
+                continue
+            if ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return "".join(buf).strip(), i + 1
+                buf.append(ch)
+                i += 1
+                continue
+
+        buf.append(ch)
+        i += 1
+
+    return None, start_index
+
+
+def _capture_backticks(text: str, start_index: int) -> tuple[str | None, int]:
+    """Capture payload between backticks starting immediately after opening `."""
+    escaped = False
+    buf: list[str] = []
+    i = start_index
+
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            escaped = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "`":
+            return "".join(buf).strip(), i + 1
+        buf.append(ch)
+        i += 1
+
+    return None, start_index
+
+
+def _extract_substitution_commands(command: str, *, depth: int = 0, max_depth: int = 8) -> list[str]:
+    """Best-effort static extraction of shell substitution command payloads.
+
+    Covers common forms:
+    - $(...)
+    - `...`
+    - <(...) and >(...)
+    - nested substitutions (recursively)
+
+    Known limitation: this is intentionally not a full shell parser/interpreter.
+    """
+    if depth >= max_depth:
+        return []
+
+    found: list[str] = []
+    i = 0
+    in_single = False
+    in_double = False
+    escaped = False
+
+    while i < len(command):
+        ch = command[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+
+        if ch == "\\":
+            escaped = True
+            i += 1
+            continue
+
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            i += 1
+            continue
+
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            i += 1
+            continue
+
+        if in_single:
+            i += 1
+            continue
+
+        # POSIX command substitution: $(...)
+        if ch == "$" and i + 1 < len(command) and command[i + 1] == "(":
+            payload, end_i = _capture_parenthesized(command, i + 2)
+            if payload is not None and payload:
+                found.append(payload)
+                found.extend(_extract_substitution_commands(payload, depth=depth + 1, max_depth=max_depth))
+                i = end_i
+                continue
+
+        # Process substitution: <(...) or >(...)
+        if ch in {"<", ">"} and i + 1 < len(command) and command[i + 1] == "(":
+            payload, end_i = _capture_parenthesized(command, i + 2)
+            if payload is not None and payload:
+                found.append(payload)
+                found.extend(_extract_substitution_commands(payload, depth=depth + 1, max_depth=max_depth))
+                i = end_i
+                continue
+
+        # Backtick substitution.
+        if ch == "`":
+            payload, end_i = _capture_backticks(command, i + 1)
+            if payload is not None and payload:
+                found.append(payload)
+                found.extend(_extract_substitution_commands(payload, depth=depth + 1, max_depth=max_depth))
+                i = end_i
+                continue
+
+        i += 1
+
+    return found
+
+
+def shell_command_contexts(command: str) -> list[str]:
+    """Return top-level command plus nested substitution command contexts."""
+    contexts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        contexts.append(normalized)
+
+    _add(command)
+    for inner in _extract_substitution_commands(command):
+        _add(inner)
+    return contexts
+
 def normalize_command(command: str) -> str:
     return re.sub(r"\s+", " ", command.strip()).lower()
 
@@ -96,10 +277,11 @@ def tokenize_shell_segment(segment: str) -> tuple[list[str], bool]:
 def tokenize_command(command: str) -> tuple[list[str], bool]:
     parse_error = False
     all_tokens: list[str] = []
-    for segment in split_shell_segments(command):
-        tokens, err = tokenize_shell_segment(segment)
-        parse_error = parse_error or err
-        all_tokens.extend(t.lower() for t in tokens)
+    for ctx_command in shell_command_contexts(command):
+        for segment in split_shell_segments(ctx_command):
+            tokens, err = tokenize_shell_segment(segment)
+            parse_error = parse_error or err
+            all_tokens.extend(t.lower() for t in tokens)
     return all_tokens, parse_error
 
 

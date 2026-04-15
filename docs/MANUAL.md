@@ -36,6 +36,11 @@ Order of checks:
 7. If allowed, optionally back up destructive targets and execute command.
 8. Log decision and execution telemetry.
 
+Substitution coverage:
+1. Policy tokenization recursively inspects common substitution contexts before execution: `$(...)`, `` `...` ``, `<(...)`, `>(...)`, including nested forms.
+2. Commands discovered in those inner contexts are evaluated by the same network and command-tier gates as top-level commands.
+3. This remains best-effort static analysis of shell text, not a full shell interpreter.
+
 Retry behavior:
 1. Blocked non-confirmation decisions use server-side retry tracking.
 2. Confirmation-tier decisions do not consume that retry bucket.

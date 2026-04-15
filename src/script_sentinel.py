@@ -9,7 +9,7 @@ from contextlib import closing
 from typing import Any
 
 import config
-from policy_engine import split_shell_segments, tokenize_shell_segment
+from policy_engine import shell_command_contexts, split_shell_segments, tokenize_shell_segment
 
 WRAPPER_SIGNATURES: tuple[tuple[str, str], ...] = (
     ("os_system", r"\bos\.system\s*\("),
@@ -506,46 +506,48 @@ def extract_script_targets(command: str) -> list[dict[str, str]]:
         seen_paths.add(resolved)
         targets.append({"path": resolved, "detection_method": method})
 
-    for segment in split_shell_segments(command):
-        tokens, err = tokenize_shell_segment(segment)
-        if err or not tokens:
-            continue
-        cmd = tokens[0]
-        cmd_lower = cmd.lower()
+    for ctx_command in shell_command_contexts(command):
+        for segment in split_shell_segments(ctx_command):
+            tokens, err = tokenize_shell_segment(segment)
+            if err or not tokens:
+                continue
+            cmd = tokens[0]
+            cmd_lower = cmd.lower()
 
-        if cmd_lower in INTERPRETER_COMMANDS:
-            script_arg = _first_script_arg(tokens)
-            if script_arg:
+            if cmd_lower in INTERPRETER_COMMANDS:
+                script_arg = _first_script_arg(tokens)
+                if script_arg:
+                    try:
+                        _add(_resolve_path_token(script_arg), "interpreter_file")
+                    except Exception:
+                        pass
+                if cmd_lower in {"python", "python3"}:
+                    for candidate in _python_import_targets(tokens):
+                        _add(candidate, "import_hint")
+
+            if cmd_lower in SOURCE_COMMANDS and len(tokens) >= 2:
                 try:
-                    _add(_resolve_path_token(script_arg), "interpreter_file")
+                    _add(_resolve_path_token(tokens[1]), "source_file")
                 except Exception:
                     pass
-            if cmd_lower in {"python", "python3"}:
-                for candidate in _python_import_targets(tokens):
-                    _add(candidate, "import_hint")
 
-        if cmd_lower in SOURCE_COMMANDS and len(tokens) >= 2:
-            try:
-                _add(_resolve_path_token(tokens[1]), "source_file")
-            except Exception:
-                pass
-
-        if _is_exec_path(cmd):
-            try:
-                _add(_resolve_path_token(cmd), "direct_exec")
-            except Exception:
-                pass
+            if _is_exec_path(cmd):
+                try:
+                    _add(_resolve_path_token(cmd), "direct_exec")
+                except Exception:
+                    pass
 
     pipe_pattern = re.compile(
         r"\bcat\s+([^\s|;]+)\s*\|\s*(python3?|node|bash|sh|ruby|perl)\b",
         re.IGNORECASE,
     )
-    for match in pipe_pattern.finditer(command):
-        token = match.group(1)
-        try:
-            _add(_resolve_path_token(token), "pipe_stream")
-        except Exception:
-            continue
+    for ctx_command in shell_command_contexts(command):
+        for match in pipe_pattern.finditer(ctx_command):
+            token = match.group(1)
+            try:
+                _add(_resolve_path_token(token), "pipe_stream")
+            except Exception:
+                continue
 
     return targets
 
