@@ -2,6 +2,17 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-04-15 (v2.1.0 substitution policy hardening)
+- Hardened `execute_command` substitution handling in `src/policy_engine.py`:
+  - recursive extraction for `$(...)`, backticks, and process substitution (`<(...)`, `>(...)`)
+  - nested substitution traversal with bounded depth.
+- Applied the same policy gates to commands discovered in substitution contexts:
+  - network policy enforcement
+  - command tier matching (`blocked`, `requires_confirmation`, `allowed`).
+- Extended Script Sentinel execute-time command context extraction in `src/script_sentinel.py` to include substitution contexts.
+- Added focused regression suite `tests/test_command_substitution_policy.py` covering direct, substitution, nested, process-substitution, variable-assignment substitution, mixed chains, and clean allow paths.
+- Documented substitution-coverage boundaries in `docs/MANUAL.md` as best-effort static analysis (not a full shell interpreter).
+
 ## 2026-03-24 (Cursor first-class MCP integration + posture scope support)
 - Extended Cursor from partial MCP handling to first-class scope-aware integration:
   - `project`: `<workspace>/.cursor/mcp.json`
