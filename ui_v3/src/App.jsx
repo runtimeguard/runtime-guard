@@ -714,6 +714,7 @@ export default function App() {
   function defaultScopeForAgentType(agentType) {
     const normalized = String(agentType || '').trim().toLowerCase()
     if (normalized === 'claude_code') return 'project'
+    if (normalized === 'cursor') return 'project'
     if (normalized === 'codex') return 'global'
     return 'default'
   }
@@ -733,6 +734,12 @@ export default function App() {
       return [
         { id: 'global', label: 'Global' },
         { id: 'project', label: 'Project' },
+      ]
+    }
+    if (normalized === 'cursor') {
+      return [
+        { id: 'project', label: 'Project' },
+        { id: 'global', label: 'Global' },
       ]
     }
     return [{ id: 'default', label: 'Default' }]
