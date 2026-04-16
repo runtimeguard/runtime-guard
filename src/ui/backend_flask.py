@@ -15,6 +15,7 @@ import config
 import mcp_config_manager
 import reports
 import script_sentinel
+import telemetry
 from audit import append_log_entry, build_operator_log_entry
 from ui import service
 
@@ -64,6 +65,21 @@ approvals.init_approval_store()
 reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
+
+def _trigger_daily_telemetry() -> None:
+    try:
+        telemetry.maybe_send_daily(
+            policy_path=POLICY_PATH,
+            reports_db_path=REPORTS_DB_PATH,
+            approval_db_path=APPROVAL_DB_PATH,
+            log_path=pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        )
+    except Exception as exc:
+        if os.environ.get("AIRG_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+            print(f"[airg][telemetry][debug] telemetry scheduling failed: {exc}", file=sys.stderr)
+
+
+_trigger_daily_telemetry()
 
 
 def _agent_paths() -> dict[str, pathlib.Path]:
@@ -471,6 +487,22 @@ def deny_pending():
     return jsonify({"denied": True, "message": message})
 
 
+@app.route("/telemetry/payload-preview", methods=["GET", "OPTIONS"])
+def telemetry_payload_preview():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    try:
+        payload = telemetry.build_payload_from_paths(
+            policy_path=POLICY_PATH,
+            reports_db_path=REPORTS_DB_PATH,
+            approval_db_path=APPROVAL_DB_PATH,
+            log_path=pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH)).expanduser().resolve(),
+        )
+        return jsonify({"ok": True, "payload": payload})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.route("/settings/agents", methods=["GET", "OPTIONS"])
 def settings_agents():
     if request.method == "OPTIONS":
@@ -804,7 +836,7 @@ def ui_assets(asset_path: str):
 @app.route("/<path:path>", methods=["GET"])
 def ui_spa(path: str):
     # Keep REST endpoints authoritative; this fallback serves built UI files.
-    if path.startswith("policy") or path.startswith("approvals"):
+    if path.startswith("policy") or path.startswith("approvals") or path.startswith("telemetry"):
         return jsonify({"error": "Not found"}), 404
     if not _ui_dist_ready():
         return jsonify({"error": "UI build not found"}), 404

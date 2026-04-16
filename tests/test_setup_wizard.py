@@ -16,6 +16,13 @@ class SetupWizardTests(unittest.TestCase):
         updated = airg_cli._apply_backup_override(policy, "/new")
         self.assertEqual(updated["audit"]["backup_root"], "/new")
 
+    def test_apply_telemetry_override(self) -> None:
+        policy = {"telemetry": {"enabled": True, "last_sent_date": ""}}
+        disabled = airg_cli._apply_telemetry_override(policy, False)
+        self.assertFalse(disabled["telemetry"]["enabled"])
+        enabled = airg_cli._apply_telemetry_override(disabled, True)
+        self.assertTrue(enabled["telemetry"]["enabled"])
+
     def test_agent_config_payload_includes_required_env(self) -> None:
         paths = {
             "policy_path": pathlib.Path("/tmp/policy.json"),

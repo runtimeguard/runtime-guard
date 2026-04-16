@@ -122,6 +122,13 @@
     "prune_interval_seconds": 86400
   },
 
+  "telemetry": {
+    "_comment": "Optional anonymous telemetry. Configure enable/disable and endpoint in policy or GUI.",
+    "enabled": true,
+    "endpoint": "https://telemetry.runtime-guard.ai/v1/telemetry",
+    "last_sent_date": ""
+  },
+
   "script_sentinel": {
     "_comment": "Policy-intent continuity for script-mediated execution paths. When enabled, script artifacts written through write_file are flagged and checked during execute_command.",
     "enabled": true,

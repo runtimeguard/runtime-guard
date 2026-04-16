@@ -32,6 +32,7 @@ class UIPolicyServiceTests(unittest.TestCase):
             "backup_access": {"block_agent_tools": True},
             "restore": {"require_dry_run_before_apply": True, "confirmation_ttl_seconds": 300},
             "audit": {"backup_enabled": True, "backup_on_content_change_only": True, "max_versions_per_file": 5, "backup_root": str(self.base / "backups"), "backup_retention_days": 30, "log_level": "verbose", "redact_patterns": []},
+            "telemetry": {"enabled": True, "endpoint": "https://telemetry.runtime-guard.ai/v1/telemetry", "last_sent_date": ""},
             "script_sentinel": {
                 "enabled": False,
                 "mode": "match_original",
@@ -69,6 +70,22 @@ class UIPolicyServiceTests(unittest.TestCase):
             self.assertIn("git clone", saved["requires_confirmation"]["commands"])
             log_lines = self.log_path.read_text().strip().splitlines()
             self.assertEqual(len(log_lines), 1)
+        finally:
+            service.POLICY_PATH = original_policy_path
+            service.CHANGE_LOG_PATH = original_log_path
+
+    def test_validate_and_apply_round_trip_telemetry_toggle(self):
+        original_policy_path = service.POLICY_PATH
+        original_log_path = service.CHANGE_LOG_PATH
+        try:
+            service.POLICY_PATH = self.policy_path
+            service.CHANGE_LOG_PATH = self.log_path
+            candidate = json.loads(json.dumps(self.initial))
+            candidate["telemetry"]["enabled"] = False
+            ok, _details = service.validate_and_apply(candidate, actor="test")
+            self.assertTrue(ok)
+            saved = json.loads(self.policy_path.read_text())
+            self.assertFalse(bool(saved.get("telemetry", {}).get("enabled", True)))
         finally:
             service.POLICY_PATH = original_policy_path
             service.CHANGE_LOG_PATH = original_log_path

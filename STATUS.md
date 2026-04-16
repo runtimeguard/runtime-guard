@@ -1,14 +1,14 @@
 # STATUS
 
-Last updated: 2026-03-23 (v2.0.0)
+Last updated: 2026-04-16 (v2.2.0)
 
 ## Branches
 1. Active integration branch: `dev`
 2. Stable release branch: `main`
 
 ## Release state
-1. Current release target: `v2.0.0`
-2. Package version in source: `2.0.0`
+1. Current release target: `v2.2.0`
+2. Package version in source: `2.2.0`
 3. Stable release notes: `CHANGELOG.md`
 4. Development history: `docs/CHANGELOG_DEV.md`
 
@@ -19,6 +19,22 @@ Last updated: 2026-03-23 (v2.0.0)
 4. Per-agent overrides are supported through `policy.agent_overrides` keyed by `AIRG_AGENT_ID`.
 5. Reports ingest from `activity.log` into `reports.db` for dashboard and log views.
 6. Setup flow is `airg-setup` plus manual agent onboarding in `Settings -> Agents`.
+7. Optional anonymous telemetry is available with daily aggregate payload delivery, setup opt-in prompt, and GUI payload preview.
+
+## v2.1 highlights
+1. Security hardening for command substitution parsing in `execute_command` now covers nested `$(...)`, backticks, and process substitution contexts for network/tier enforcement.
+2. Script Sentinel execute-time scanning now evaluates substitution contexts to preserve policy-intent continuity in indirect execution patterns.
+3. Cursor hardening support added in `Settings -> Agents`:
+   - hook enforcement controls
+   - optional read hooks
+   - fail-closed behavior
+   - sandbox hardening
+   - optional `permissions.json` and `.cursorignore` sync.
+4. Cursor posture signals/scoring expanded and Cursor scope handling fixed (`Project`/`Global` fallback).
+5. Dashboard/UI fixes shipped in `v2.1.1`:
+   - truncation for oversized command/path/rule rows
+   - stable Network-domain input focus
+   - improved delta messaging for long inactivity periods.
 
 ## Known boundary
 1. AIRG enforces only operations routed through AIRG MCP tools.
