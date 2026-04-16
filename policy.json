@@ -123,7 +123,7 @@
   },
 
   "telemetry": {
-    "_comment": "Optional anonymous telemetry. Set AIRG_TELEMETRY_OPTOUT=1 to disable regardless of policy.",
+    "_comment": "Optional anonymous telemetry. Configure enable/disable and endpoint in policy or GUI.",
     "enabled": true,
     "endpoint": "https://telemetry.runtime-guard.ai/v1/telemetry",
     "last_sent_date": ""

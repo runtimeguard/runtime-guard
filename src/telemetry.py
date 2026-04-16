@@ -139,15 +139,10 @@ def _telemetry_section(policy: dict[str, Any]) -> dict[str, Any]:
 
 
 def _telemetry_enabled(policy: dict[str, Any]) -> bool:
-    if os.environ.get("AIRG_TELEMETRY_OPTOUT", "").strip().lower() in {"1", "true", "yes", "on"}:
-        return False
     return bool(_telemetry_section(policy).get("enabled", True))
 
 
 def _telemetry_endpoint(policy: dict[str, Any]) -> str:
-    env_endpoint = os.environ.get("AIRG_TELEMETRY_ENDPOINT", "").strip()
-    if env_endpoint:
-        return env_endpoint
     configured = str(_telemetry_section(policy).get("endpoint", "")).strip()
     return configured or DEFAULT_ENDPOINT
 

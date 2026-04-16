@@ -772,7 +772,7 @@ def _run_setup(
         telemetry_enabled_override = False
     elif not silent:
         telemetry_enabled_override = _prompt_yes_no(
-            "Enable anonymous telemetry to help improve AIRG? (opt-out anytime with AIRG_TELEMETRY_OPTOUT=1)",
+            "Enable anonymous telemetry to help improve AIRG? (you can change this anytime in GUI: Policy -> Advanced)",
             default=True,
         )
     current_policy = _apply_telemetry_override(current_policy, telemetry_enabled_override)

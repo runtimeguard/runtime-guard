@@ -127,7 +127,7 @@ airg-service uninstall
 ## Privacy
 1. AIRG telemetry is optional and can be disabled in `Policy -> Advanced -> Anonymous telemetry`.
 2. Setup/update prompts default to enable telemetry, and you can opt out at any time.
-3. Global hard opt-out is available via `AIRG_TELEMETRY_OPTOUT=1`.
+3. Telemetry endpoint is configurable in policy (`telemetry.endpoint`) and can be set to a custom endpoint.
 4. Telemetry details and payload example: [`docs/telemetry.md`](docs/telemetry.md).
 
 ## AIRG_WORKSPACE (Important)

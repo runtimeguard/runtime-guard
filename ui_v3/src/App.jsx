@@ -4663,7 +4663,7 @@ export default function App() {
           </div>
 
           <div className="px-4 pb-4 text-xs text-slate-500">
-            Opt-out is also available via env var <span className="font-mono">AIRG_TELEMETRY_OPTOUT=1</span>.
+            Telemetry preference is controlled by policy (`telemetry.enabled`) and can be changed here at any time.
           </div>
         </div>
 

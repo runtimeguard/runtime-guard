@@ -12,6 +12,9 @@ All notable changes to this project are documented in this file.
 ### Changed
 - Policy telemetry schema now tracks `enabled`, `endpoint`, and `last_sent_date`.
 - Advanced policy telemetry controls simplified to enable/disable + payload preview.
+- Telemetry runtime control is now policy/GUI-driven only:
+  - removed `AIRG_TELEMETRY_OPTOUT` and `AIRG_TELEMETRY_ENDPOINT` override paths
+  - `telemetry.enabled` and `telemetry.endpoint` in policy are the source of truth.
 - Sidebar/contact UX refinements:
   - removed legacy "Policy Control Plane" wording
   - removed hash display from header/topbar

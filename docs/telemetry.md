@@ -38,9 +38,9 @@ Example payload:
 
 ## Opt In / Opt Out
 
-- Setup prompt asks whether to enable telemetry.
-- You can toggle telemetry in `Policy -> Advanced -> Anonymous telemetry`.
-- Global hard opt-out: set `AIRG_TELEMETRY_OPTOUT=1`.
+- During setup/update, AIRG prompts for telemetry opt-in (default is Yes).
+- You can change telemetry preference at any time in GUI: `Policy -> Advanced -> Anonymous telemetry`.
+- GUI `Enable/Disable` writes directly to policy (`telemetry.enabled`) and is the runtime source of truth.
 
 ## Payload Preview
 
@@ -56,7 +56,4 @@ Example payload:
 - Failures are silently dropped (no queue/persist)
 - Success is HTTP `204 No Content`
 
-To point to a different endpoint, set either:
-
-- `policy.telemetry.endpoint`
-- or env var `AIRG_TELEMETRY_ENDPOINT` (takes precedence)
+To point to a different endpoint, set `policy.telemetry.endpoint` to a custom URL.
