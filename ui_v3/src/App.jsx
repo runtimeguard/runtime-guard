@@ -7,7 +7,6 @@ import CollapsibleSection from './components/CollapsibleSection'
 
 const API_BASE = 'http://127.0.0.1:5001'
 const FEEDBACK_URL = 'https://github.com/runtimeguard/runtime-guard/issues/new/choose'
-const CONTACT_URL = 'https://github.com/runtimeguard/runtime-guard/discussions'
 const RAIL_ITEMS = [
   { id: 'approvals', label: 'Approvals' },
   { id: 'policy', label: 'Policy' },
@@ -2382,9 +2381,6 @@ export default function App() {
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#0f0f0f' }}>
               {activeTab === 'pending' ? 'Approvals · Pending' : 'Approvals · History'}
-            </div>
-            <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginTop: 1 }}>
-              hash {String(policyHash || '').slice(0, 12)}
             </div>
           </div>
           <button className="btn btn-ghost" onClick={handleRefresh}>Refresh</button>
@@ -7863,7 +7859,6 @@ export default function App() {
               />
               <div>
                 <div className="text-sm font-semibold text-[var(--text-sidebar-active)] app-name">Runtime Guard</div>
-                <div className="text-xs text-[var(--text-sidebar-heading)] app-subtitle">Policy Control Plane</div>
               </div>
             </div>
           </div>
@@ -7885,9 +7880,15 @@ export default function App() {
                 Feedback
               </a>
               <a
-                href={CONTACT_URL}
-                target="_blank"
-                rel="noreferrer"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setSettingsInfoModal({
+                    open: true,
+                    title: 'Contact',
+                    content: 'admin@runtime-guard.ai',
+                  })
+                }}
                 className="text-center rounded-[7px] border border-white/15 px-2 py-1.5 text-[11px] text-[var(--text-sidebar-heading)] hover:text-[var(--text-sidebar-active)] hover:border-white/30 transition"
               >
                 Contact
@@ -7901,7 +7902,6 @@ export default function App() {
             <div className="min-w-0">
               <div className="text-lg font-semibold text-[var(--text-primary)] title">{pageTitle}</div>
               <div className="text-xs text-[var(--text-secondary)] mt-0.5 flex flex-wrap items-center gap-3">
-                {policyHash && <span className="font-mono hash">hash {String(policyHash).slice(0, 12)}</span>}
                 {unsaved && (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#d97706' }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />

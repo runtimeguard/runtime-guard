@@ -11,7 +11,7 @@ Example payload:
 
 ```json
 {
-  "airg_version": "2.1.1",
+  "airg_version": "2.2.0",
   "platform": "macos",
   "python_version": "3.12.3",
   "install_method": "unknown",
@@ -60,4 +60,3 @@ To point to a different endpoint, set either:
 
 - `policy.telemetry.endpoint`
 - or env var `AIRG_TELEMETRY_ENDPOINT` (takes precedence)
-

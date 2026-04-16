@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.0] - 2026-04-16
+
+### Added
+- Optional daily anonymous telemetry flow with setup opt-in prompt (default Yes), strict local payload validation, and non-blocking one-shot delivery.
+- Telemetry payload preview endpoint and GUI `See Payload` action in Policy -> Advanced.
+- Telemetry documentation: [`docs/telemetry.md`](docs/telemetry.md), plus README/MANUAL privacy links.
+
+### Changed
+- Policy telemetry schema now tracks `enabled`, `endpoint`, and `last_sent_date`.
+- Advanced policy telemetry controls simplified to enable/disable + payload preview.
+- Sidebar/contact UX refinements:
+  - removed legacy "Policy Control Plane" wording
+  - removed hash display from header/topbar
+  - Contact opens in-app popup with `admin@runtime-guard.ai`.
+
 ## [2.1.1] - 2026-04-15
 
 ### Fixed
