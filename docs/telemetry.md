@@ -38,7 +38,7 @@ Example payload:
 
 ## Opt In / Opt Out
 
-- Setup prompt asks whether to enable telemetry (default is Yes).
+- Setup prompt asks whether to enable telemetry.
 - You can toggle telemetry in `Policy -> Advanced -> Anonymous telemetry`.
 - Global hard opt-out: set `AIRG_TELEMETRY_OPTOUT=1`.
 
@@ -61,8 +61,3 @@ To point to a different endpoint, set either:
 - `policy.telemetry.endpoint`
 - or env var `AIRG_TELEMETRY_ENDPOINT` (takes precedence)
 
-## Worker
-
-Telemetry ingestion/validation worker reference:
-
-- [runtime-guard telemetry worker](https://github.com/runtimeguard/runtime-guard-telemetry-worker)
