@@ -6,6 +6,8 @@ import IconBtn, { PencilIcon, RemoveIcon } from './components/IconBtn'
 import CollapsibleSection from './components/CollapsibleSection'
 
 const API_BASE = 'http://127.0.0.1:5001'
+const FEEDBACK_URL = 'https://github.com/runtimeguard/runtime-guard/issues/new/choose'
+const CONTACT_URL = 'https://github.com/runtimeguard/runtime-guard/discussions'
 const RAIL_ITEMS = [
   { id: 'approvals', label: 'Approvals' },
   { id: 'policy', label: 'Policy' },
@@ -844,6 +846,27 @@ export default function App() {
       setApprovalHistoryError('')
     } catch (err) {
       setApprovalHistoryError(String(err.message || err))
+    }
+  }
+
+  async function showTelemetryPayloadPreview() {
+    try {
+      const res = await fetch(`${API_BASE}/telemetry/payload-preview`)
+      const payload = await res.json()
+      if (!res.ok || !payload?.ok) {
+        throw new Error(payload?.error || `Preview failed (${res.status})`)
+      }
+      setSettingsInfoModal({
+        open: true,
+        title: 'Telemetry Payload',
+        content: JSON.stringify(payload.payload || {}, null, 2),
+      })
+    } catch (err) {
+      setSettingsInfoModal({
+        open: true,
+        title: 'Telemetry Payload',
+        content: `Failed to load telemetry payload preview.\n\n${String(err.message || err)}`,
+      })
     }
   }
 
@@ -4096,6 +4119,7 @@ export default function App() {
     const restore = draftPolicy?.restore || {}
     const audit = draftPolicy?.audit || {}
     const reportsCfg = draftPolicy?.reports || {}
+    const telemetryCfg = draftPolicy?.telemetry || { enabled: true, last_sent_date: '' }
 
     const setConfirmationSecurity = (patch) => {
       setDraftPolicy((prev) => {
@@ -4157,6 +4181,14 @@ export default function App() {
       setDraftPolicy((prev) => {
         const next = deepClone(prev)
         next.reports = { ...(next.reports || {}), ...patch }
+        return next
+      })
+    }
+
+    const setTelemetryConfig = (patch) => {
+      setDraftPolicy((prev) => {
+        const next = deepClone(prev)
+        next.telemetry = { ...(next.telemetry || {}), ...patch }
         return next
       })
     }
@@ -4598,6 +4630,45 @@ export default function App() {
               </div>
             </>
           )}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
+          <CardHeader
+            icon="✉"
+            iconBg="#fee2e2"
+            iconFg="#b91c1c"
+            title="Anonymous telemetry"
+            subtitle="One daily aggregate payload to help improve AIRG; no command content is sent"
+            right={(
+              <div style={{ width: 122 }}>
+                <SegControl
+                  value={Boolean(telemetryCfg.enabled)}
+                  onChange={(enabled) => setTelemetryConfig({ enabled: Boolean(enabled) })}
+                  options={yesNoOptions}
+                />
+              </div>
+            )}
+          />
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>See payload</div>
+              <div className={helpClass}>Preview the exact JSON payload sent once per UTC day when enabled.</div>
+            </div>
+            <div style={{ justifySelf: 'end' }}>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-sm"
+                onClick={() => showTelemetryPayloadPreview()}
+              >
+                See Payload
+              </button>
+            </div>
+          </div>
+
+          <div className="px-4 pb-4 text-xs text-slate-500">
+            Opt-out is also available via env var <span className="font-mono">AIRG_TELEMETRY_OPTOUT=1</span>.
+          </div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-[10px] shadow-sm overflow-hidden">
@@ -7803,6 +7874,24 @@ export default function App() {
             <div className="rounded-[8px] px-0 py-1 text-xs text-[var(--text-sidebar-heading)] flex items-center gap-2 sidebar-server-status">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-green)] dot" />
               Server active
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <a
+                href={FEEDBACK_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-center rounded-[7px] border border-white/15 px-2 py-1.5 text-[11px] text-[var(--text-sidebar-heading)] hover:text-[var(--text-sidebar-active)] hover:border-white/30 transition"
+              >
+                Feedback
+              </a>
+              <a
+                href={CONTACT_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-center rounded-[7px] border border-white/15 px-2 py-1.5 text-[11px] text-[var(--text-sidebar-heading)] hover:text-[var(--text-sidebar-active)] hover:border-white/30 transition"
+              >
+                Contact
+              </a>
             </div>
           </div>
         </aside>

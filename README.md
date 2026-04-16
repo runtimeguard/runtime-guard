@@ -78,14 +78,14 @@ Environment isolation recommendation:
 Recommended quick start (`pipx`, isolated global CLI):
 1. `pipx install ai-runtime-guard`
 2. If prompted: `pipx ensurepath` and then open a new terminal session
-3. `airg-setup` (guided, recommended: select/create workspace during setup)
+3. `airg-setup` (guided, recommended: select/create workspace during setup; includes telemetry opt-in prompt, default Yes)
 4. `airg-doctor`
 
 Alternative quick start (`venv`):
 1. `python3 -m venv .venv-airg && source .venv-airg/bin/activate`
 2. `python -m pip install --upgrade pip`
 3. `python -m pip install ai-runtime-guard`
-4. `airg-setup` (guided, recommended: select/create workspace during setup)
+4. `airg-setup` (guided, recommended: select/create workspace during setup; includes telemetry opt-in prompt, default Yes)
 5. `airg-doctor`
 6. Open GUI `Settings -> Agents`, add agents manually, and apply MCP config/hardening from there.
 
@@ -109,6 +109,7 @@ AIRG includes a local web control plane for:
 2. approval management
 3. agent profile/config management (`Settings -> Agents`)
 4. reports dashboard and event log
+5. telemetry toggle and payload preview (`Policy -> Advanced -> Anonymous telemetry`)
 
 Open:
 1. `http://127.0.0.1:5001` (service started by `airg-setup`)
@@ -122,6 +123,12 @@ airg-service stop
 airg-service restart
 airg-service uninstall
 ```
+
+## Privacy
+1. AIRG telemetry is optional and can be disabled in `Policy -> Advanced -> Anonymous telemetry`.
+2. Setup/update prompts default to enable telemetry, and you can opt out at any time.
+3. Global hard opt-out is available via `AIRG_TELEMETRY_OPTOUT=1`.
+4. Telemetry details and payload example: [`docs/telemetry.md`](docs/telemetry.md).
 
 ## AIRG_WORKSPACE (Important)
 `AIRG_WORKSPACE` is the default project root for guarded agent operations.

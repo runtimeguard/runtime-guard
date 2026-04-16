@@ -177,6 +177,11 @@ def _policy_template() -> dict[str, Any]:
             "max_db_size_mb": 200,
             "prune_interval_seconds": 86400,
         },
+        "telemetry": {
+            "enabled": True,
+            "endpoint": "https://telemetry.runtime-guard.ai/v1/telemetry",
+            "last_sent_date": "",
+        },
         "script_sentinel": {
             "enabled": True,
             "mode": "match_original",
@@ -445,6 +450,19 @@ def _apply_backup_override(policy: dict[str, Any], backup_root: str) -> dict[str
     return out
 
 
+def _apply_telemetry_override(policy: dict[str, Any], enabled: bool | None) -> dict[str, Any]:
+    if enabled is None:
+        return policy
+    out = dict(policy)
+    telemetry = out.get("telemetry")
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+    telemetry = dict(telemetry)
+    telemetry["enabled"] = bool(enabled)
+    out["telemetry"] = telemetry
+    return out
+
+
 def _agent_config_payload(agent: str, workspace: str, _paths: dict[str, pathlib.Path], agent_id: str) -> dict[str, Any]:
     server_parts = shlex.split(_resolve_server_command_for_env())
     server_cmd = server_parts[0] if server_parts else "airg-server"
@@ -661,6 +679,7 @@ def _run_setup(
     approval_db_path: str,
     approval_hmac_key_path: str,
     backup_root: str,
+    telemetry: str,
     force_policy: bool,
     silent: bool = False,
 ) -> None:
@@ -677,6 +696,9 @@ def _run_setup(
     selected_db_path = approval_db_path.strip()
     selected_key_path = approval_hmac_key_path.strip()
     selected_backup_root = backup_root.strip()
+    selected_telemetry = str(telemetry or "ask").strip().lower()
+    if selected_telemetry not in {"ask", "on", "off"}:
+        selected_telemetry = "ask"
     selected_agent_id = str(os.environ.get("AIRG_AGENT_ID", "")).strip() or "Unknown"
     default_workspace = _default_workspace_path()
 
@@ -743,6 +765,17 @@ def _run_setup(
             os.environ["AIRG_WORKSPACE"] = str(workspace_path)
 
     current_policy = _load_policy_from_path(path_overrides["policy_path"])
+    telemetry_enabled_override: bool | None = None
+    if selected_telemetry == "on":
+        telemetry_enabled_override = True
+    elif selected_telemetry == "off":
+        telemetry_enabled_override = False
+    elif not silent:
+        telemetry_enabled_override = _prompt_yes_no(
+            "Enable anonymous telemetry to help improve AIRG? (opt-out anytime with AIRG_TELEMETRY_OPTOUT=1)",
+            default=True,
+        )
+    current_policy = _apply_telemetry_override(current_policy, telemetry_enabled_override)
     if selected_backup_root:
         backup_override = pathlib.Path(selected_backup_root).expanduser().resolve()
         current_policy = _apply_backup_override(current_policy, str(backup_override))
@@ -754,6 +787,8 @@ def _run_setup(
     print(f"[airg] approval_hmac_key={path_overrides['approval_hmac_key_path']}")
     print(f"[airg] log_path={path_overrides['log_path']}")
     print(f"[airg] reports_db={path_overrides['reports_db_path']}")
+    telemetry_enabled = bool((current_policy.get("telemetry") or {}).get("enabled", True))
+    print(f"[airg] telemetry={'enabled' if telemetry_enabled else 'disabled'}")
     ui_dist = _resolve_ui_dist_path()
     if not (ui_dist / "index.html").exists():
         _build_ui_assets()
@@ -809,6 +844,7 @@ def main_setup_entrypoint() -> None:
     parser.add_argument("--approval-db-path", default="", help="Override AIRG_APPROVAL_DB_PATH.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Override AIRG_APPROVAL_HMAC_KEY_PATH.")
     parser.add_argument("--backup-root", default="", help="Override audit.backup_root.")
+    parser.add_argument("--telemetry", choices=["ask", "on", "off"], default="ask", help="Telemetry setup mode: ask, force on, or force off.")
     parser.add_argument("--force-policy", action="store_true", help="Regenerate policy file from template before applying wizard updates.")
     args = parser.parse_args()
     _run_setup(
@@ -819,6 +855,7 @@ def main_setup_entrypoint() -> None:
         approval_db_path=args.approval_db_path,
         approval_hmac_key_path=args.approval_hmac_key_path,
         backup_root=args.backup_root,
+        telemetry=args.telemetry,
         force_policy=args.force_policy,
         silent=args.silent,
     )
@@ -1070,6 +1107,7 @@ def main() -> None:
     parser.add_argument("--approval-db-path", default="", help="Setup mode: override AIRG_APPROVAL_DB_PATH.")
     parser.add_argument("--approval-hmac-key-path", default="", help="Setup mode: override AIRG_APPROVAL_HMAC_KEY_PATH.")
     parser.add_argument("--backup-root", default="", help="Setup mode: override audit.backup_root.")
+    parser.add_argument("--telemetry", choices=["ask", "on", "off"], default="ask", help="Setup mode: telemetry prompt behavior.")
     parser.add_argument(
         "--with-runtime-env",
         action="store_true",
@@ -1086,6 +1124,7 @@ def main() -> None:
             approval_db_path=args.approval_db_path,
             approval_hmac_key_path=args.approval_hmac_key_path,
             backup_root=args.backup_root,
+            telemetry=args.telemetry,
             force_policy=args.force_policy,
             silent=args.silent,
         )

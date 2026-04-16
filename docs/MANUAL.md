@@ -123,3 +123,10 @@ Verification:
 1. AIRG enforces only AIRG MCP tool calls.
 2. Native client tools outside MCP can bypass AIRG unless separately restricted in the client.
 3. Client capabilities differ; some hardening controls are unavailable on some agents.
+
+## 12. Telemetry
+1. AIRG supports optional anonymous telemetry with one aggregate payload per UTC day when enabled.
+2. Configure in GUI: `Policy -> Advanced -> Anonymous telemetry` (`Enable/Disable` + `See Payload`).
+3. Setup/update flow prompts for telemetry opt-in with default Yes.
+4. Global hard opt-out: `AIRG_TELEMETRY_OPTOUT=1`.
+5. Full schema, examples, and endpoint override options: [`docs/telemetry.md`](telemetry.md).

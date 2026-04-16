@@ -55,6 +55,11 @@ DEFAULT_TEST_POLICY = {
         "log_level": "verbose",
         "redact_patterns": [],
     },
+    "telemetry": {
+        "enabled": True,
+        "endpoint": "https://telemetry.runtime-guard.ai/v1/telemetry",
+        "last_sent_date": "",
+    },
     "script_sentinel": {
         "enabled": False,
         "mode": "match_original",

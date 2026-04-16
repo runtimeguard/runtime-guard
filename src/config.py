@@ -213,6 +213,17 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
     if int(reports["prune_interval_seconds"]) < 300:
         raise ValueError("reports.prune_interval_seconds must be >= 300")
 
+    telemetry = _ensure_dict("telemetry")
+    telemetry.setdefault("enabled", True)
+    telemetry.setdefault("endpoint", "https://telemetry.runtime-guard.ai/v1/telemetry")
+    telemetry.setdefault("last_sent_date", "")
+    if not isinstance(telemetry["enabled"], bool):
+        raise ValueError("telemetry.enabled must be boolean")
+    if not isinstance(telemetry["endpoint"], str):
+        raise ValueError("telemetry.endpoint must be string")
+    if not isinstance(telemetry["last_sent_date"], str):
+        raise ValueError("telemetry.last_sent_date must be string")
+
     script_sentinel = _ensure_dict("script_sentinel")
     script_sentinel.setdefault("enabled", True)
     script_sentinel.setdefault("mode", "match_original")
