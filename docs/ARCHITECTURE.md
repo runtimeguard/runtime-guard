@@ -72,3 +72,6 @@ Implications:
 1. Native client tools outside AIRG MCP are outside AIRG enforcement.
 2. AIRG hardening guidance/configuration in clients improves coverage but is agent-dependent.
 3. In local STDIO mode, instance identity is profile/environment driven, not authenticated per-connection identity.
+4. Command-level network and shell containment checks are token/path heuristic gates, not full interpreter-level sandboxing.
+5. Substitution handling is best-effort static parsing for common forms (`$(...)`, backticks, process substitutions).
+6. Script Sentinel write-time artifact coverage is limited to file content written through AIRG file tools.

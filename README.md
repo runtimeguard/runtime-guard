@@ -35,6 +35,14 @@ Developers and power users running AI agents (Claude Code, Claude Desktop, Curso
 4. Enforcement options and posture controls are available in AIRG GUI under `Settings -> Agents`.
 5. For strict enforcement, configure the client to route operations through AIRG MCP tools and disable risky native tools where supported.
 
+## Enforcement Limitations (Practical)
+1. Native tools remain a bypass path unless client hardening is enabled and verified.
+2. Hook coverage is agent-dependent and not equivalent to full mediation in all clients.
+3. Command parsing for substitutions and shell structure is best-effort static analysis, not full shell interpretation.
+4. Network and workspace shell checks rely on command-token/path heuristics and policy mode (`off`/`monitor`/`enforce`).
+5. Script Sentinel covers artifacts written via AIRG file tools; out-of-band file writes are outside write-time scanning.
+6. In local STDIO deployments, identity separation is profile/env driven (`AIRG_AGENT_ID` + workspace), not authenticated per process instance.
+
 ## Design Scope
 1. AIRG is designed to reduce accidental damage from AI agent mistakes and policy-evasion patterns.
 2. AIRG is not positioned as a full malicious-actor containment platform.
