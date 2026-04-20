@@ -124,7 +124,26 @@ Verification:
 2. Native client tools outside MCP can bypass AIRG unless separately restricted in the client.
 3. Client capabilities differ; some hardening controls are unavailable on some agents.
 
-## 12. Telemetry
+Failure modes and practical limitations:
+1. Hook policy is client-dependent; some native tools may remain allowed or unmapped by hook policy depending on client/hardening profile.
+2. Command substitution and shell parsing are best-effort static analysis, not full shell interpretation.
+3. Network enforcement depends on marker/domain extraction from command text and tokenized URL forms.
+4. Shell workspace containment is heuristic path-token analysis and can run in `off` or `monitor` mode.
+5. Script Sentinel write-time coverage applies only to content written via AIRG `write_file` / `edit_file`.
+6. Mention-only sentinel matches are audit-visible but non-enforcing.
+7. In STDIO deployments, practical identity separation is profile/environment based, not authenticated per-instance identity.
+
+## 12. Hardening Checklist (Recommended Baseline)
+1. Route all file/shell operations through AIRG MCP tools and disable risky native tools where the client supports it.
+2. Enable and verify hook enforcement (`preToolUse`, `beforeShellExecution`, `beforeMCPExecution`; optional `beforeReadFile`) in clients that support hooks.
+3. Set `network.enforcement_mode` to `enforce`; use `allowed_domains` and set `block_unknown_domains=true` for default-deny egress control.
+4. Set `execution.shell_workspace_containment.mode` to `enforce` and keep `exempt_commands` minimal.
+5. Keep `script_sentinel.enabled=true`; use `mode=match_original` or stricter (`block`) based on risk tolerance.
+6. Keep backup protections enabled (`backup_access.block_agent_tools=true`, restore via `restore_backup` flow only).
+7. Use distinct `AIRG_AGENT_ID` values per agent profile/workspace and avoid shared identities for high-sensitivity workflows.
+8. Periodically validate posture and bypass resistance using `tests/test_airg_hook.py`, `tests/test_attacker_suite.py`, and substitution tests.
+
+## 13. Telemetry
 1. AIRG supports optional anonymous telemetry with one aggregate payload per UTC day when enabled.
 2. Setup/update flow prompts for telemetry opt-in with default Yes.
 3. You can change telemetry preference at any time in GUI: `Policy -> Advanced -> Anonymous telemetry` (`Enable/Disable` + `See Payload`).

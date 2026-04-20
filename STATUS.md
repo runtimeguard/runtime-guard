@@ -1,14 +1,14 @@
 # STATUS
 
-Last updated: 2026-04-16 (v2.2.0)
+Last updated: 2026-04-20 (v2.2.1)
 
 ## Branches
 1. Active integration branch: `dev`
 2. Stable release branch: `main`
 
 ## Release state
-1. Current release target: `v2.2.0`
-2. Package version in source: `2.2.0`
+1. Current release target: `v2.2.1`
+2. Package version in source: `2.2.1`
 3. Stable release notes: `CHANGELOG.md`
 4. Development history: `docs/CHANGELOG_DEV.md`
 
