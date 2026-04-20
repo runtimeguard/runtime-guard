@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.1] - 2026-04-20
+
+### Changed
+- README refreshed with clearer quick start, scope/boundary framing, and linked references to install/docs/changelog.
+- Markdown code fences in README examples were corrected so command/output snippets render properly.
+- Install reference polish in `docs/INSTALL.md`:
+  - corrected source-clone path (`cd runtime-guard`)
+  - clarified that Git is required for source-clone installs only.
+
 ## [2.2.0] - 2026-04-16
 
 ### Added
