@@ -4,7 +4,7 @@ This guide covers the standard AIRG install: runtime + Web GUI service.
 
 ## Requirements
 1. Python `>=3.10` (recommended `3.12+`).
-2. Git.
+2. Git (only for source-clone install).
 3. Node.js 18+ only if you are actively rebuilding frontend assets in development.
 4. Recommended install isolation: `venv` or `pipx`.
 
@@ -73,7 +73,7 @@ Guided setup asks for workspace and creates it if missing.
 ## Source Install
 ```bash
 git clone --branch main https://github.com/runtimeguard/runtime-guard.git
-cd ai-runtime-guard
+cd runtime-guard
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
