@@ -52,3 +52,4 @@ ui_v3/src/assets/style-reference.md
 AGENT_CONTEXT.md
 OWASP_AGENTIC_ALIGNMENT.md
 tests/test_owasp_agentic_alignment.py
+code_review.md
