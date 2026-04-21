@@ -14,6 +14,8 @@ from config import (
     LOG_PATH,
     MAX_RETRIES,
     POLICY,
+    POLICY_PATH,
+    REPORTS_DB_PATH,
     WORKSPACE_ROOT,
 )
 from models import PolicyResult
@@ -185,6 +187,72 @@ def _extract_substitution_commands(command: str, *, depth: int = 0, max_depth: i
     return found
 
 
+def _is_env_assignment_token(token: str) -> bool:
+    if "=" not in token:
+        return False
+    key = token.split("=", 1)[0]
+    if not key:
+        return False
+    return all(ch.isalnum() or ch == "_" for ch in key)
+
+
+def _primary_command_token(tokens: list[str]) -> tuple[str | None, int]:
+    idx = 0
+    while idx < len(tokens) and _is_env_assignment_token(tokens[idx]):
+        idx += 1
+    if idx < len(tokens) and tokens[idx] == "env":
+        idx += 1
+        while idx < len(tokens) and (_is_env_assignment_token(tokens[idx]) or tokens[idx].startswith("-")):
+            idx += 1
+    if idx >= len(tokens):
+        return None, -1
+    return tokens[idx], idx
+
+
+def _extract_eval_payload_commands(command: str, *, depth: int = 0, max_depth: int = 8) -> list[str]:
+    if depth >= max_depth:
+        return []
+
+    shell_flags = {"-c", "--command"}
+    eval_flags = {"-c", "-e", "--eval"}
+    shell_commands = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
+    eval_commands = {"python", "python3", "python3.12", "python3.13", "python3.14", "perl", "ruby", "node"}
+    found: list[str] = []
+
+    for segment in split_shell_segments(command):
+        tokens, err = tokenize_shell_segment(segment)
+        if err or not tokens:
+            continue
+        command_token, command_index = _primary_command_token(tokens)
+        if command_token is None:
+            continue
+        cmd = os.path.basename(command_token).lower()
+        flags = shell_flags if cmd in shell_commands else eval_flags if cmd in eval_commands else set()
+        if not flags:
+            continue
+        i = command_index + 1
+        while i < len(tokens):
+            token = tokens[i]
+            payload: str | None = None
+            if token in flags and i + 1 < len(tokens):
+                payload = tokens[i + 1]
+                i += 2
+            elif any(token.startswith(f"{flag}=") for flag in flags):
+                payload = token.split("=", 1)[1]
+                i += 1
+            else:
+                i += 1
+            if payload:
+                normalized = str(payload).strip()
+                if not normalized:
+                    continue
+                found.append(normalized)
+                found.extend(_extract_substitution_commands(normalized, depth=depth + 1, max_depth=max_depth))
+                found.extend(_extract_eval_payload_commands(normalized, depth=depth + 1, max_depth=max_depth))
+
+    return found
+
+
 def shell_command_contexts(command: str) -> list[str]:
     """Return top-level command plus nested substitution command contexts."""
     contexts: list[str] = []
@@ -199,6 +267,8 @@ def shell_command_contexts(command: str) -> list[str]:
 
     _add(command)
     for inner in _extract_substitution_commands(command):
+        _add(inner)
+    for inner in _extract_eval_payload_commands(command):
         _add(inner)
     return contexts
 
@@ -393,6 +463,110 @@ def _resolve_candidate_path(token: str) -> pathlib.Path:
     return (pathlib.Path(WORKSPACE_ROOT) / expanded).resolve()
 
 
+def _runtime_protected_paths() -> set[pathlib.Path]:
+    approval_db = pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db"))
+    ).resolve()
+    approval_key = pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{approval_db}.hmac.key")
+    ).resolve()
+    reports_db = pathlib.Path(
+        os.environ.get("AIRG_REPORTS_DB_PATH", str(REPORTS_DB_PATH))
+    ).resolve()
+    policy_path = pathlib.Path(
+        os.environ.get("AIRG_POLICY_PATH", str(POLICY_PATH))
+    ).resolve()
+    return {
+        pathlib.Path(LOG_PATH).resolve(),
+        approval_db,
+        approval_key,
+        reports_db,
+        policy_path,
+    }
+
+
+def _blocked_path_matches(candidate: pathlib.Path, blocked_path: str) -> bool:
+    raw = str(blocked_path or "").strip()
+    if not raw:
+        return False
+    normalized = raw.replace("\\", "/")
+    lowered = normalized.lower()
+    candidate_lower = str(candidate).lower()
+
+    # Absolute policy paths are exact-match checked post-resolution.
+    if os.path.isabs(normalized) or normalized.startswith("~"):
+        try:
+            blocked_resolved = pathlib.Path(os.path.expanduser(normalized)).resolve()
+            return candidate == blocked_resolved
+        except Exception:
+            return False
+
+    # Dotfile/filename protections match path segments explicitly.
+    parts = [p.lower() for p in candidate.parts]
+    if "/" not in normalized:
+        return lowered in parts
+
+    # Relative fragments are matched on normalized suffix.
+    return candidate_lower.endswith(lowered)
+
+
+def _command_path_candidates(command: str) -> list[pathlib.Path]:
+    resolved: list[pathlib.Path] = []
+    seen: set[str] = set()
+
+    for ctx_command in shell_command_contexts(command):
+        for segment in split_shell_segments(ctx_command):
+            tokens, err = tokenize_shell_segment(segment)
+            if err:
+                continue
+            candidates: list[str] = []
+            if tokens:
+                cmd_name = str(tokens[0]).lower()
+                if cmd_name == "cd" and len(tokens) >= 2:
+                    candidates.append(tokens[1])
+                candidates.extend(t for t in tokens[1:] if _looks_like_path_token(t))
+            candidates.extend(_extract_redirection_targets(segment))
+
+            for candidate in candidates:
+                try:
+                    path = _resolve_candidate_path(candidate.strip("'\""))
+                except Exception:
+                    continue
+                key = str(path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                resolved.append(path)
+
+    return resolved
+
+
+def _has_dangerous_env_assignment(command: str) -> tuple[bool, str | None]:
+    dangerous = {
+        "IFS",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "PYTHONPATH",
+        "BASH_ENV",
+        "ENV",
+        "PROMPT_COMMAND",
+        "GIT_SSH_COMMAND",
+    }
+    for segment in split_shell_segments(command):
+        tokens, err = tokenize_shell_segment(segment)
+        if err or not tokens:
+            continue
+        idx = 0
+        while idx < len(tokens) and _is_env_assignment_token(tokens[idx]):
+            key = tokens[idx].split("=", 1)[0].upper()
+            if key in dangerous:
+                return True, key
+            idx += 1
+    return False, None
+
+
 def _extract_redirection_targets(segment: str) -> list[str]:
     # Capture basic shell redirection operands (`>`, `>>`, `<`, `<<`).
     matches = re.findall(r"(?:^|\s)(?:>>|>|<<|<)\s*([^\s;|&]+)", segment)
@@ -410,7 +584,12 @@ def shell_workspace_containment_check(command: str) -> tuple[bool, str | None, l
 
     for segment in split_shell_segments(command):
         tokens, err = tokenize_shell_segment(segment)
-        if err or not tokens:
+        if err:
+            reason = "Shell workspace containment blocked command: shell tokenization failed."
+            if mode == "monitor":
+                return True, reason, []
+            return False, reason, []
+        if not tokens:
             continue
         cmd_name = str(tokens[0]).lower()
         if cmd_name in exempt:
@@ -538,6 +717,12 @@ def build_command_matcher(pattern: str):
 def check_blocked_tier(command: str) -> tuple[str, str] | None:
     blocked = POLICY.get("blocked", {})
     lower = command.lower()
+    has_dangerous_assignment, assignment_key = _has_dangerous_env_assignment(command)
+    if has_dangerous_assignment:
+        return (
+            f"Dangerous environment assignment '{assignment_key}' is not permitted in execute_command",
+            "dangerous_env_assignment",
+        )
 
     for pattern in blocked.get("commands", []):
         if build_command_matcher(pattern)(command):
@@ -546,12 +731,20 @@ def check_blocked_tier(command: str) -> tuple[str, str] | None:
                 pattern,
             )
 
-    for path in blocked.get("paths", []):
-        if path.lower() in lower:
+    candidates = _command_path_candidates(command)
+    protected = _runtime_protected_paths()
+    for candidate in candidates:
+        if candidate in protected:
             return (
-                f"Sensitive path access not permitted: '{path}' may contain secrets or critical system configuration",
-                path,
+                f"Path '{candidate}' is protected runtime state and is not accessible via execute_command",
+                "runtime_protected_path",
             )
+        for path in blocked.get("paths", []):
+            if _blocked_path_matches(candidate, str(path)):
+                return (
+                    f"Sensitive path access not permitted: '{path}' may contain secrets or critical system configuration",
+                    str(path),
+                )
 
     for ext in blocked.get("extensions", []):
         if re.search(rf"{re.escape(ext)}\b", lower):
@@ -575,12 +768,13 @@ def check_confirmation_tier(command: str) -> tuple[str, str] | None:
                 return None
             return (f"Command '{pattern}' requires explicit confirmation before execution", pattern)
 
-    for path in conf.get("paths", []):
-        if path.lower() in lower:
-            whitelist_enabled = conf.get("session_whitelist_enabled", True)
-            if whitelist_enabled and consume_approved_command(agent_session_id, command):
-                return None
-            return (f"Access to path '{path}' requires explicit confirmation", path)
+    for candidate in _command_path_candidates(command):
+        for path in conf.get("paths", []):
+            if _blocked_path_matches(candidate, str(path)):
+                whitelist_enabled = conf.get("session_whitelist_enabled", True)
+                if whitelist_enabled and consume_approved_command(agent_session_id, command):
+                    return None
+                return (f"Access to path '{path}' requires explicit confirmation", str(path))
 
     return None
 
@@ -609,14 +803,22 @@ def log_policy_conflict(command: str, normalized: str, matching_tiers: list) -> 
 
 def check_policy(command: str) -> PolicyResult:
     norm = normalize_command(command)
+    _tokens, parse_error = tokenize_command(command)
+    if parse_error:
+        return PolicyResult(
+            allowed=False,
+            reason="Shell command parsing failed; command blocked to preserve policy enforcement.",
+            decision_tier="blocked",
+            matched_rule="command_parse_error",
+        )
     matching_tiers: list[tuple[str, str, str]] = []
 
-    blocked_result = check_blocked_tier(norm)
+    blocked_result = check_blocked_tier(command)
     if blocked_result:
         reason, matched_rule = blocked_result
         matching_tiers.append(("blocked", reason, matched_rule))
 
-    confirmation_result = check_confirmation_tier(norm)
+    confirmation_result = check_confirmation_tier(command)
     if confirmation_result:
         reason, matched_rule = confirmation_result
         matching_tiers.append(("requires_confirmation", reason, matched_rule))
@@ -676,27 +878,18 @@ def is_protected_runtime_path(path: str) -> bool:
         resolved = pathlib.Path(path).resolve()
     except Exception:
         return False
-
-    approval_db = pathlib.Path(
-        os.environ.get("AIRG_APPROVAL_DB_PATH", str(BASE_DIR / "approvals.db"))
-    ).resolve()
-    approval_key = pathlib.Path(
-        os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{approval_db}.hmac.key")
-    ).resolve()
-    protected = {
-        pathlib.Path(LOG_PATH).resolve(),
-        approval_db,
-        approval_key,
-    }
-    return resolved in protected
+    return resolved in _runtime_protected_paths()
 
 
 def check_path_policy(path: str, tool: str | None = None) -> tuple[str, str] | None:
     blocked = POLICY.get("blocked", {})
-    lower = path.lower()
+    try:
+        resolved = pathlib.Path(path).resolve()
+    except Exception:
+        resolved = pathlib.Path(path)
 
     for blocked_path in blocked.get("paths", []):
-        if blocked_path.lower() in lower:
+        if _blocked_path_matches(resolved, str(blocked_path)):
             return (
                 f"Sensitive path access not permitted: '{blocked_path}' may contain secrets or critical system configuration",
                 blocked_path,
