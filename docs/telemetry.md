@@ -11,7 +11,7 @@ Example payload:
 
 ```json
 {
-  "airg_version": "2.2.1",
+  "airg_version": "2.2.2",
   "platform": "macos",
   "python_version": "3.12.3",
   "install_method": "unknown",
@@ -41,6 +41,7 @@ Example payload:
 - During setup/update, AIRG prompts for telemetry opt-in (default is Yes).
 - You can change telemetry preference at any time in GUI: `Policy -> Advanced -> Anonymous telemetry`.
 - GUI `Enable/Disable` writes directly to policy (`telemetry.enabled`) and is the runtime source of truth.
+- Runtime behavior does not rely on legacy telemetry env-var toggles; use policy/GUI controls.
 
 ## Payload Preview
 
@@ -55,5 +56,14 @@ Example payload:
 - Retries: none
 - Failures are silently dropped (no queue/persist)
 - Success is HTTP `204 No Content`
+- AIRG sets an explicit `User-Agent` header for telemetry requests.
 
 To point to a different endpoint, set `policy.telemetry.endpoint` to a custom URL.
+
+## Troubleshooting
+
+- Check policy state in the active runtime policy file (`AIRG_POLICY_PATH`):
+  - `telemetry.enabled` should be `true`
+  - `telemetry.last_sent_date` should advance after a successful daily send
+- Confirm AIRG service/runtime is running the expected package version (for example after upgrades/reinstalls).
+- Use `AIRG_DEBUG=1` when launching AIRG to surface telemetry send errors in service logs.

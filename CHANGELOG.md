@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.2] - 2026-04-21
+
+### Fixed
+- Telemetry delivery reliability: added explicit HTTP request headers (`User-Agent`, `Accept`) for telemetry POSTs so endpoint-side filtering does not reject valid AIRG payloads sent by Python `urllib`.
+- Telemetry diagnostics: when `AIRG_DEBUG=1`, telemetry send failures and non-`204` responses now emit debug traces to aid runtime troubleshooting.
+
+### Documentation
+- Updated telemetry docs to clarify runtime source of truth and troubleshooting path (policy state, `last_sent_date`, and runtime/service alignment checks).
+- Updated local agent handoff context and status docs for the `2.2.2` bugfix release.
+
 ## [2.2.1] - 2026-04-20
 
 ### Changed

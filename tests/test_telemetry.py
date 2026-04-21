@@ -141,3 +141,46 @@ class TelemetryTests(unittest.TestCase):
             updated = json.loads(policy_path.read_text())
             self.assertEqual(updated.get("telemetry", {}).get("last_sent_date"), "2026-04-17")
 
+    def test_send_once_sets_user_agent_header(self) -> None:
+        captured: dict[str, str] = {}
+
+        class _Response:
+            status = 204
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        def _fake_urlopen(request, timeout=0):
+            captured["user_agent"] = request.get_header("User-agent")
+            captured["content_type"] = request.get_header("Content-type")
+            captured["accept"] = request.get_header("Accept")
+            captured["timeout"] = str(timeout)
+            return _Response()
+
+        payload = {
+            "airg_version": "2.2.2",
+            "platform": "macos",
+            "python_version": "3.14.3",
+            "install_method": "unknown",
+            "agents_bucket": "0",
+            "agent_types": ["cursor"],
+            "events_bucket": "0",
+            "blocked_bucket": "0",
+            "approvals_bucket": "0",
+            "sentinel_enabled": True,
+            "sentinel_flagged_bucket": "0",
+            "sentinel_blocked_bucket": "0",
+            "period_days": 1,
+        }
+
+        with patch.object(telemetry.urllib.request, "urlopen", _fake_urlopen):
+            status = telemetry._send_once("https://example.test/v1/telemetry", payload, 8)
+
+        self.assertEqual(status, 204)
+        self.assertEqual(captured["user_agent"], "ai-runtime-guard/2.2.2")
+        self.assertEqual(captured["content_type"], "application/json")
+        self.assertEqual(captured["accept"], "application/json")
+        self.assertEqual(captured["timeout"], "8")
