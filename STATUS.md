@@ -1,14 +1,14 @@
 # STATUS
 
-Last updated: 2026-04-20 (v2.2.1)
+Last updated: 2026-04-21 (v2.2.2)
 
 ## Branches
 1. Active integration branch: `dev`
 2. Stable release branch: `main`
 
 ## Release state
-1. Current release target: `v2.2.1`
-2. Package version in source: `2.2.1`
+1. Current release target: `v2.2.2`
+2. Package version in source: `2.2.2`
 3. Stable release notes: `CHANGELOG.md`
 4. Development history: `docs/CHANGELOG_DEV.md`
 
@@ -20,6 +20,7 @@ Last updated: 2026-04-20 (v2.2.1)
 5. Reports ingest from `activity.log` into `reports.db` for dashboard and log views.
 6. Setup flow is `airg-setup` plus manual agent onboarding in `Settings -> Agents`.
 7. Optional anonymous telemetry is available with daily aggregate payload delivery, setup opt-in prompt, and GUI payload preview.
+8. Telemetry transport now includes explicit request headers for reliable endpoint acceptance from Python runtime sends.
 
 ## v2.1 highlights
 1. Security hardening for command substitution parsing in `execute_command` now covers nested `$(...)`, backticks, and process substitution contexts for network/tier enforcement.

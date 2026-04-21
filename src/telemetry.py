@@ -310,16 +310,28 @@ def build_payload_from_paths(
 
 def _send_once(endpoint: str, payload: dict[str, Any], timeout_seconds: int) -> int | None:
     body = json.dumps(payload).encode("utf-8")
+    user_agent = f"ai-runtime-guard/{payload.get('airg_version', 'unknown')}"
     request = urllib.request.Request(
         endpoint,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": user_agent,
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            return int(getattr(response, "status", 0))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            status = int(getattr(response, "status", 0))
+            if status != 204:
+                _debug(f"telemetry send returned status={status}")
+            return status
+    except urllib.error.HTTPError as exc:
+        _debug(f"telemetry send failed with HTTP {exc.code}")
+        return None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _debug(f"telemetry send failed: {exc}")
         return None
 
 
