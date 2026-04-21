@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import hmac
 import json
 import os
 import pathlib
@@ -75,6 +76,45 @@ def sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _approval_hmac_key_path() -> pathlib.Path:
+    approval_db = pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_DB_PATH", str(pathlib.Path(BACKUP_DIR).resolve().parent / "approvals.db"))
+    ).expanduser().resolve()
+    return pathlib.Path(
+        os.environ.get("AIRG_APPROVAL_HMAC_KEY_PATH", f"{approval_db}.hmac.key")
+    ).expanduser().resolve()
+
+
+def _approval_hmac_secret_bytes() -> bytes:
+    key_path = _approval_hmac_key_path()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    if key_path.exists():
+        secret = key_path.read_text(encoding="utf-8").strip()
+        if secret:
+            return secret.encode("utf-8")
+    secret = uuid.uuid4().hex
+    key_path.write_text(secret, encoding="utf-8")
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass
+    return secret.encode("utf-8")
+
+
+def restore_manifest_signature(item: dict) -> str:
+    source = str(item.get("source", ""))
+    backup = str(item.get("backup", ""))
+    item_type = str(item.get("type", ""))
+    sha = str(item.get("sha256", ""))
+    payload = json.dumps(
+        {"source": source, "backup": backup, "type": item_type, "sha256": sha},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    secret = _approval_hmac_secret_bytes()
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
 
 
 def backup_entries_for_source(source_path: pathlib.Path) -> list[dict]:
@@ -263,9 +303,11 @@ def backup_paths(paths: list[str]) -> str:
                     "sha256": sha256_file(dest),
                 }
             )
+            manifest[-1]["manifest_sig"] = restore_manifest_signature(manifest[-1])
         elif resolved.is_dir():
             shutil.copytree(str(resolved), str(dest))
             manifest.append({"source": str(resolved), "backup": str(dest), "type": "directory"})
+            manifest[-1]["manifest_sig"] = restore_manifest_signature(manifest[-1])
 
     if not manifest:
         shutil.rmtree(backup_location, ignore_errors=True)

@@ -11,11 +11,12 @@ else:
 
 from approvals import consume_restore_confirmation_token, issue_restore_confirmation_token
 from audit import append_log_entry, build_log_entry
-from backup import sha256_file
+from backup import restore_manifest_signature, sha256_file
 from config import BACKUP_DIR, POLICY
 from models import PolicyResult
 from policy_engine import is_within_workspace
-from runtime_context import activate_runtime_context, reset_runtime_context
+from runtime_context import activate_runtime_context, current_agent_session_id, reset_runtime_context
+import script_sentinel
 
 
 def restore_backup(
@@ -85,20 +86,26 @@ def restore_backup(
 
             eligible_entries.append(
                 {
+                    "source": source,
+                    "backup": backup,
                     "source_path": source_path,
                     "backup_item": backup_item,
                     "item_type": item_type,
                     "expected_hash": expected_hash,
+                    "manifest_sig": item.get("manifest_sig"),
                 }
             )
 
         planned = len(eligible_entries)
+        session_id = current_agent_session_id()
 
         require_confirm = bool(POLICY.get("restore", {}).get("require_dry_run_before_apply", True))
         if dry_run:
             response_extra = {}
             if require_confirm:
-                token, expires_at = issue_restore_confirmation_token(backup_path, planned)
+                token, expires_at = issue_restore_confirmation_token(
+                    backup_path, planned, session_id=session_id
+                )
                 response_extra = {
                     "restore_token_issued": token,
                     "restore_token_expires_at": expires_at.isoformat() + "Z",
@@ -125,7 +132,9 @@ def restore_backup(
             return msg
 
         if require_confirm:
-            ok, reason, matched_rule = consume_restore_confirmation_token(backup_path, restore_token)
+            ok, reason, matched_rule = consume_restore_confirmation_token(
+                backup_path, restore_token, session_id=session_id
+            )
             if not ok:
                 append_log_entry(
                     build_log_entry(
@@ -145,20 +154,37 @@ def restore_backup(
 
         restored = 0
         hash_failures = 0
+        signature_failures = 0
         for entry in eligible_entries:
             source_path = entry["source_path"]
             backup_item = entry["backup_item"]
             item_type = entry["item_type"]
             expected_hash = entry["expected_hash"]
+            signature = str(entry.get("manifest_sig", "") or "")
+            source = str(entry.get("source", "") or "")
+            backup = str(entry.get("backup", "") or "")
+            candidate_sig = restore_manifest_signature(
+                {"source": source, "backup": backup, "type": item_type, "sha256": expected_hash or ""}
+            )
             try:
+                if not signature or signature != candidate_sig:
+                    signature_failures += 1
+                    continue
                 if item_type == "file":
-                    if expected_hash:
-                        actual_hash = sha256_file(backup_item)
-                        if actual_hash != expected_hash:
-                            hash_failures += 1
-                            continue
+                    if not expected_hash:
+                        hash_failures += 1
+                        continue
+                    actual_hash = sha256_file(backup_item)
+                    if actual_hash != expected_hash:
+                        hash_failures += 1
+                        continue
                     source_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(str(backup_item), str(source_path))
+                    try:
+                        restored_content = source_path.read_text(encoding="utf-8", errors="replace")
+                        script_sentinel.scan_and_record_write(str(source_path), restored_content)
+                    except OSError:
+                        pass
                     restored += 1
                 elif item_type == "directory":
                     source_path.mkdir(parents=True, exist_ok=True)
@@ -176,9 +202,13 @@ def restore_backup(
                 planned=planned,
                 restored=restored,
                 hash_failures=hash_failures,
+                signature_failures=signature_failures,
             )
         )
 
-        return f"Restore complete from {backup_path}: restored={restored}, planned={planned}, hash_failures={hash_failures}"
+        return (
+            f"Restore complete from {backup_path}: restored={restored}, planned={planned}, "
+            f"hash_failures={hash_failures}, signature_failures={signature_failures}"
+        )
     finally:
         reset_runtime_context(context_tokens)

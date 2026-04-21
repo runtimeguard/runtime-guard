@@ -120,6 +120,33 @@ class ApprovalStoreTests(unittest.TestCase):
             else:
                 os.environ["AIRG_APPROVAL_HMAC_KEY_PATH"] = old_env
 
+    def test_restore_confirmation_token_is_session_bound(self):
+        backup_path = pathlib.Path(self.tmp.name) / "backup-1"
+        backup_path.mkdir(parents=True, exist_ok=True)
+
+        token, _ = approvals.issue_restore_confirmation_token(
+            backup_path,
+            planned=1,
+            session_id="sess-a",
+        )
+        ok, reason, rule = approvals.consume_restore_confirmation_token(
+            backup_path,
+            token,
+            session_id="sess-b",
+        )
+        self.assertFalse(ok)
+        self.assertIn("active session", str(reason or ""))
+        self.assertEqual(rule, "restore_token_session_mismatch")
+
+        ok2, reason2, rule2 = approvals.consume_restore_confirmation_token(
+            backup_path,
+            token,
+            session_id="sess-a",
+        )
+        self.assertTrue(ok2)
+        self.assertIsNone(reason2)
+        self.assertIsNone(rule2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -836,19 +836,26 @@ def prune_expired_restore_confirmations() -> None:
         PENDING_RESTORE_CONFIRMATIONS.pop(token, None)
 
 
-def issue_restore_confirmation_token(backup_path: pathlib.Path, planned: int) -> tuple[str, datetime.datetime]:
+def issue_restore_confirmation_token(
+    backup_path: pathlib.Path, planned: int, session_id: str | None = None
+) -> tuple[str, datetime.datetime]:
     prune_expired_restore_confirmations()
     token = uuid.uuid4().hex
     expires_at = _now_utc() + datetime.timedelta(seconds=RESTORE_CONFIRMATION_TTL_SECONDS)
     PENDING_RESTORE_CONFIRMATIONS[token] = {
         "backup_path": str(backup_path.resolve()),
         "planned": int(planned),
+        "session_id": str(session_id or "").strip(),
         "expires_at": expires_at,
     }
     return token, expires_at
 
 
-def consume_restore_confirmation_token(backup_path: pathlib.Path, restore_token: str) -> tuple[bool, str | None, str | None]:
+def consume_restore_confirmation_token(
+    backup_path: pathlib.Path,
+    restore_token: str,
+    session_id: str | None = None,
+) -> tuple[bool, str | None, str | None]:
     prune_expired_restore_confirmations()
     rec = PENDING_RESTORE_CONFIRMATIONS.get(restore_token)
     if not rec:
@@ -856,6 +863,10 @@ def consume_restore_confirmation_token(backup_path: pathlib.Path, restore_token:
 
     if rec["backup_path"] != str(backup_path.resolve()):
         return False, "Restore token does not match the requested backup location", "restore_token_mismatch"
+    expected_session = str(rec.get("session_id", "") or "").strip()
+    provided_session = str(session_id or "").strip()
+    if expected_session and expected_session != provided_session:
+        return False, "Restore token does not match this active session", "restore_token_session_mismatch"
 
     PENDING_RESTORE_CONFIRMATIONS.pop(restore_token, None)
     return True, None, None
