@@ -11,7 +11,7 @@ Example payload:
 
 ```json
 {
-  "airg_version": "2.2.2",
+  "airg_version": "2.3.0.dev",
   "platform": "macos",
   "python_version": "3.12.3",
   "install_method": "unknown",

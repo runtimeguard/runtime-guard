@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Bumped development version to `2.3.0.dev` on `dev` and aligned status/context/telemetry documentation to the active development train.
+
 ### Security
 - Pass 1 hardening for command-policy correctness:
   - `blocked.paths` command evaluation now uses resolved path candidates instead of raw substring matching.
