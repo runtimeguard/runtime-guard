@@ -114,6 +114,32 @@ class UIPolicyServiceTests(unittest.TestCase):
         cleared = service.set_command_override(updated, "git clone", retry=None)
         self.assertNotIn("git clone", cleared.get("ui_overrides", {}).get("commands", {}))
 
+    def test_validate_policy_rejects_agent_override_that_loosens_blocked(self):
+        candidate = json.loads(json.dumps(self.initial))
+        candidate["agent_overrides"] = {
+            "agent-a": {
+                "policy": {
+                    "blocked": {"commands": [], "paths": [], "extensions": []}
+                }
+            }
+        }
+        ok, details = service.validate_policy(candidate)
+        self.assertFalse(ok)
+        self.assertIn("cannot be less restrictive", details["errors"][0])
+
+    def test_validate_policy_accepts_tightening_agent_override(self):
+        candidate = json.loads(json.dumps(self.initial))
+        candidate["agent_overrides"] = {
+            "agent-a": {
+                "policy": {
+                    "blocked": {"commands": ["dd", "rm"], "paths": [], "extensions": []},
+                    "network": {"enforcement_mode": "enforce"},
+                }
+            }
+        }
+        ok, details = service.validate_policy(candidate)
+        self.assertTrue(ok, msg=details.get("errors"))
+
 
 if __name__ == "__main__":
     unittest.main()

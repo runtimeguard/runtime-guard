@@ -3,6 +3,8 @@ import os
 import pathlib
 import stat
 import sys
+import secrets
+from urllib.parse import urlparse
 from datetime import datetime, UTC
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -65,6 +67,26 @@ approvals.init_approval_store()
 reports.init_reports_store(REPORTS_DB_PATH)
 
 app = Flask(__name__)
+UI_API_TOKEN_PATH = POLICY_PATH.parent / "ui_api_token"
+UI_API_TOKEN_HEADER = "X-AIRG-UI-TOKEN"
+
+
+def _load_or_create_ui_api_token() -> str:
+    UI_API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if UI_API_TOKEN_PATH.exists():
+        token = UI_API_TOKEN_PATH.read_text(encoding="utf-8").strip()
+        if token:
+            return token
+    token = secrets.token_hex(24)
+    UI_API_TOKEN_PATH.write_text(token, encoding="utf-8")
+    try:
+        os.chmod(UI_API_TOKEN_PATH, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+    return token
+
+
+UI_API_TOKEN = _load_or_create_ui_api_token()
 
 def _trigger_daily_telemetry() -> None:
     try:
@@ -151,18 +173,60 @@ def _write_runtime_env_for_profile(profile: dict[str, object]) -> pathlib.Path:
     return out
 
 
+def _is_local_host(host: str) -> bool:
+    host_name = str(host or "").split(":", 1)[0].lower()
+    return host_name in {"localhost", "127.0.0.1"}
+
+
 def _is_local_origin(origin: str) -> bool:
-    return origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
+    if not origin:
+        return False
+    parsed = urlparse(origin)
+    if parsed.scheme != "http":
+        return False
+    return _is_local_host(parsed.netloc)
+
+
+def _origin_matches_host(origin_or_referer: str, request_host: str) -> bool:
+    if not origin_or_referer:
+        return False
+    parsed = urlparse(origin_or_referer)
+    if parsed.scheme != "http":
+        return False
+    return parsed.netloc == request_host and _is_local_host(parsed.netloc)
+
+
+@app.before_request
+def request_security_guard():
+    if not _is_local_host(request.host):
+        return jsonify({"error": "Host not allowed"}), 403
+
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        token = str(request.headers.get(UI_API_TOKEN_HEADER, "")).strip()
+        auth = str(request.headers.get("Authorization", "")).strip()
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+        if token and secrets.compare_digest(token, UI_API_TOKEN):
+            return None
+
+        origin = str(request.headers.get("Origin", "")).strip()
+        referer = str(request.headers.get("Referer", "")).strip()
+        if _origin_matches_host(origin, request.host) or _origin_matches_host(referer, request.host):
+            return None
+        return jsonify({"error": "Authentication required for mutating API call"}), 401
 
 
 @app.after_request
 def add_cors_headers(resp):
     # Restrict dev CORS to localhost origins so local frontend can call API.
     origin = request.headers.get("Origin", "")
-    if origin and _is_local_origin(origin):
+    if origin and _is_local_origin(origin) and _origin_matches_host(origin, request.host):
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Vary"] = "Origin"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Actor"
+        resp.headers["Access-Control-Allow-Headers"] = f"Content-Type, X-Actor, {UI_API_TOKEN_HEADER}, Authorization"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    else:
+        resp.headers.pop("Access-Control-Allow-Origin", None)
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
@@ -204,6 +268,10 @@ def get_policy():
                 "AIRG_LOG_PATH": str(pathlib.Path(os.environ.get("AIRG_LOG_PATH", config.LOG_PATH))),
                 "AIRG_REPORTS_DB_PATH": str(REPORTS_DB_PATH),
                 "AIRG_UI_DIST_PATH": str(UI_DIST_PATH),
+            },
+            "ui_auth": {
+                "token_header": UI_API_TOKEN_HEADER,
+                "auth_mode": "token_or_same_origin",
             },
         }
     )
