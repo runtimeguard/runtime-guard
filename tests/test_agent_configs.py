@@ -1,6 +1,8 @@
 import pathlib
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import agent_configs
 
@@ -107,6 +109,25 @@ class AgentConfigsTests(unittest.TestCase):
         instructions = str(payload.get("instructions", ""))
         self.assertIn("Cursor has no official MCP add CLI", command_text)
         self.assertIn("~/.cursor/mcp.json", instructions)
+
+    def test_generated_server_command_uses_current_python_module_entrypoint(self) -> None:
+        profile = {
+            "profile_id": "p-server-cmd",
+            "name": "Server command test",
+            "agent_type": "claude_code",
+            "agent_scope": "project",
+            "workspace": str(self.workspace),
+            "agent_id": "agent-server-1",
+        }
+        upsert = agent_configs.upsert_profile(self.paths, profile)
+        self.assertTrue(upsert.get("ok"), msg=upsert)
+        with patch.dict("os.environ", {"AIRG_SERVER_COMMAND": ""}, clear=False):
+            generated = agent_configs.generate_config(self.paths, "p-server-cmd", save_to_file=False)
+        self.assertTrue(generated.get("ok"), msg=generated)
+        payload = generated.get("generated", {})
+        block = payload.get("command_json", {})
+        self.assertEqual(block.get("command"), str(pathlib.Path(sys.executable).resolve()))
+        self.assertEqual(block.get("args"), ["-m", "airg_cli", "server"])
 
 
 if __name__ == "__main__":
