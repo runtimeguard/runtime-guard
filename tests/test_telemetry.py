@@ -140,6 +140,45 @@ class TelemetryTests(unittest.TestCase):
 
             updated = json.loads(policy_path.read_text())
             self.assertEqual(updated.get("telemetry", {}).get("last_sent_date"), "2026-04-17")
+            self.assertIn("enabled", updated.get("telemetry", {}))
+            self.assertIn("endpoint", updated.get("telemetry", {}))
+
+    def test_maybe_send_daily_backfills_missing_telemetry_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp)
+            policy_path = base / "policy.json"
+            reports_db = base / "reports.db"
+            approval_db = base / "approvals.db"
+            log_path = base / "activity.log"
+            reports.init_reports_store(reports_db)
+            log_path.write_text("")
+
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "telemetry": {"last_sent_date": "2026-04-16"},
+                        "reports": {"enabled": True},
+                        "script_sentinel": {"enabled": True},
+                    }
+                )
+            )
+
+            sent = telemetry.maybe_send_daily(
+                policy_path=policy_path,
+                reports_db_path=reports_db,
+                approval_db_path=approval_db,
+                log_path=log_path,
+                now=datetime.datetime(2026, 4, 16, 10, 0, 0, tzinfo=datetime.UTC),
+            )
+            self.assertFalse(sent)
+
+            updated = json.loads(policy_path.read_text())
+            self.assertEqual(updated.get("telemetry", {}).get("last_sent_date"), "2026-04-16")
+            self.assertTrue(updated.get("telemetry", {}).get("enabled"))
+            self.assertEqual(
+                updated.get("telemetry", {}).get("endpoint"),
+                telemetry.DEFAULT_ENDPOINT,
+            )
 
     def test_send_once_sets_user_agent_header(self) -> None:
         captured: dict[str, str] = {}

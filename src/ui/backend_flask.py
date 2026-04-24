@@ -4,8 +4,10 @@ import pathlib
 import stat
 import sys
 import secrets
+import threading
+import time
 from urllib.parse import urlparse
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -87,6 +89,9 @@ def _load_or_create_ui_api_token() -> str:
 
 
 UI_API_TOKEN = _load_or_create_ui_api_token()
+_TELEMETRY_TICKER_LOCK = threading.Lock()
+_TELEMETRY_TICKER_STARTED = False
+_TELEMETRY_TICKER_MAX_SLEEP_SECONDS = 900
 
 def _trigger_daily_telemetry() -> None:
     try:
@@ -101,7 +106,35 @@ def _trigger_daily_telemetry() -> None:
             print(f"[airg][telemetry][debug] telemetry scheduling failed: {exc}", file=sys.stderr)
 
 
+def _seconds_until_next_utc_day(now: datetime | None = None) -> int:
+    current = now or datetime.now(UTC)
+    next_day = (current + timedelta(days=1)).replace(hour=0, minute=0, second=5, microsecond=0)
+    wait_seconds = int((next_day - current).total_seconds())
+    return max(60, wait_seconds)
+
+
+def _start_daily_telemetry_ticker() -> None:
+    global _TELEMETRY_TICKER_STARTED
+    with _TELEMETRY_TICKER_LOCK:
+        if _TELEMETRY_TICKER_STARTED:
+            return
+        _TELEMETRY_TICKER_STARTED = True
+
+    def _worker() -> None:
+        last_checked_day = datetime.now(UTC).date()
+        while True:
+            wait_seconds = min(_seconds_until_next_utc_day(), _TELEMETRY_TICKER_MAX_SLEEP_SECONDS)
+            time.sleep(wait_seconds)
+            current_day = datetime.now(UTC).date()
+            if current_day != last_checked_day:
+                _trigger_daily_telemetry()
+                last_checked_day = current_day
+
+    threading.Thread(target=_worker, daemon=True, name="airg-telemetry-ticker").start()
+
+
 _trigger_daily_telemetry()
+_start_daily_telemetry_ticker()
 
 
 def _agent_paths() -> dict[str, pathlib.Path]:

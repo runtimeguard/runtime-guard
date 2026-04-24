@@ -4,8 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-04-24
+
 ### Changed
-- Bumped development version to `2.3.0.dev` on `dev` and aligned status/context/telemetry documentation to the active development train.
+- Bumped package version to `2.3.0` and aligned status/context/telemetry/versioned documentation for release.
+
+### Fixed
+- Telemetry policy persistence now backfills missing `telemetry.enabled` and `telemetry.endpoint` defaults when updating `telemetry.last_sent_date`, preventing partial telemetry sections from remaining in policy JSON.
+- Flask backend now starts a daily UTC-boundary telemetry ticker thread so long-lived UI service processes continue evaluating daily telemetry sends without requiring service restarts.
+- Telemetry ticker now handles host sleep/wake better by checking day rollover in bounded sleep intervals (max 15 minutes), preventing missed post-wake daily checks when a long sleep spans the scheduled UTC boundary.
+- GUI Approvals `Pending` cards now preserve expanded "Full command details" and "Affected paths" sections across the 3-second polling refresh instead of collapsing automatically.
+- Approvals background refresh no longer forces unnecessary app-wide rerenders: pending/history state now updates only on actual payload changes, and history polling is scoped to when history is visible.
 
 ### Security
 - Pass 1 hardening for command-policy correctness:

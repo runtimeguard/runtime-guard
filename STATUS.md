@@ -1,15 +1,15 @@
 # STATUS
 
-Last updated: 2026-04-21 (v2.3.0.dev)
+Last updated: 2026-04-24 (v2.3.0)
 
 ## Branches
 1. Active integration branch: `dev`
 2. Stable release branch: `main`
 
 ## Release state
-1. Current development target: `v2.3.0.dev` (`dev` branch)
-2. Latest stable release: `v2.2.2` (`main` branch)
-3. Package version in source: `2.3.0.dev`
+1. Current release candidate on `dev`: `v2.3.0`
+2. Latest stable release on `main`: `v2.2.2`
+3. Package version in source: `2.3.0`
 4. Stable release notes: `CHANGELOG.md`
 5. Development history: `docs/CHANGELOG_DEV.md`
 
