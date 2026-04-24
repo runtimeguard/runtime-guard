@@ -2,6 +2,61 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+## [2.3.0] - 2026-04-24
+
+### Changed
+- Bumped package version to `2.3.0` and aligned status/context/telemetry/versioned documentation for release.
+
+### Fixed
+- Telemetry policy persistence now backfills missing `telemetry.enabled` and `telemetry.endpoint` defaults when updating `telemetry.last_sent_date`, preventing partial telemetry sections from remaining in policy JSON.
+- Flask backend now starts a daily UTC-boundary telemetry ticker thread so long-lived UI service processes continue evaluating daily telemetry sends without requiring service restarts.
+- Telemetry ticker now handles host sleep/wake better by checking day rollover in bounded sleep intervals (max 15 minutes), preventing missed post-wake daily checks when a long sleep spans the scheduled UTC boundary.
+- GUI Approvals `Pending` cards now preserve expanded "Full command details" and "Affected paths" sections across the 3-second polling refresh instead of collapsing automatically.
+- Approvals background refresh no longer forces unnecessary app-wide rerenders: pending/history state now updates only on actual payload changes, and history polling is scoped to when history is visible.
+
+### Security
+- Pass 1 hardening for command-policy correctness:
+  - `blocked.paths` command evaluation now uses resolved path candidates instead of raw substring matching.
+  - execute-command policy now includes a non-overridable runtime-state denylist for sensitive AIRG artifacts (policy, approvals, reports, and logs).
+  - shell/eval inner payload contexts (`-c`, `--command`, `-e`, `--eval`) are recursively surfaced for policy matching.
+  - policy evaluation now fails closed when shell parsing/tokenization fails.
+  - shell workspace containment in `enforce` mode now fails closed on segment tokenization errors.
+- Pass 2 hardening for restore integrity:
+  - backup manifests now include per-entry HMAC signatures (`manifest_sig`) derived from AIRG approval key material.
+  - restore flow now verifies manifest signatures and requires per-file `sha256` hashes before applying file restores.
+  - restore confirmation tokens are now session-bound and rejected on session mismatch.
+  - restored file content is re-scanned through Script Sentinel tagging path after restore apply.
+- Pass 3 localhost control-plane and override hardening:
+  - added request guardrails for UI backend:
+    - strict localhost host validation
+  - mutating API calls require either API token (`X-AIRG-UI-TOKEN`/Bearer) or exact same-origin local Origin/Referer checks
+  - tightened CORS to exact host-matching local origins
+  - agent override validation now rejects less-restrictive `blocked`, `requires_confirmation`, `network`, and `execution.shell_workspace_containment` overlays.
+- Pass 4 runtime execution/bootstrap hardening:
+  - deterministic AIRG server launch command generation now defaults to `sys.executable -m airg_cli server` across CLI/config generators.
+  - removed PATH-based `airg-server` auto-resolution fallbacks from generated config paths.
+  - subprocess env sanitization switched to an allowlist model with explicit drops for dangerous loader/interpreter/shell-injection environment variables.
+  - dangerous env-assignment prefixes in commands (for example `LD_PRELOAD=...`) are now blocked by policy tier checks.
+
+### Tests
+- Added pass-1 regression coverage:
+  - shell `-c` payload blocking end-to-end.
+  - parse-failure fail-closed behavior.
+  - runtime path block behavior under quote-splitting patterns.
+- Added pass-2 regression coverage:
+  - restore rejects unsigned manifest entries.
+  - backup manifest entries include signatures.
+  - restore confirmation token session binding.
+- Added pass-3 regression coverage:
+  - policy validation rejects less-restrictive agent overrides.
+  - policy validation accepts tightening-only agent overrides.
+- Added pass-4 regression coverage:
+  - generated agent config server command uses deterministic Python module entrypoint.
+  - executor env allowlist/dangerous variable drops.
+  - dangerous env-assignment prefix blocking in command policy.
+
 ## [2.2.2] - 2026-04-21
 
 ### Fixed

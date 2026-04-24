@@ -191,32 +191,12 @@ def _server_process() -> tuple[str, list[str]]:
     if explicit:
         parts = shlex.split(explicit)
         if not parts:
-            return "airg-server", []
+            return str(pathlib.Path(sys.executable).resolve()), ["-m", "airg_cli", "server"]
         cmd = parts[0]
         args = parts[1:]
-        if os.path.isabs(cmd):
+        if os.path.isabs(cmd) and os.access(cmd, os.X_OK):
             return cmd, args
-        resolved = shutil.which(cmd)
-        if resolved:
-            return str(pathlib.Path(resolved).resolve()), args
-        # If explicit is just bare airg-server and unresolved, continue to
-        # deterministic fallbacks instead of emitting a fragile PATH-only value.
-        if cmd != "airg-server":
-            return cmd, args
-
-    venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
-    if venv:
-        candidate = pathlib.Path(venv) / "bin" / "airg-server"
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            return str(candidate.resolve()), []
-
-    exe_dir = pathlib.Path(sys.executable).resolve().parent
-    candidate = exe_dir / "airg-server"
-    if candidate.exists() and os.access(candidate, os.X_OK):
-        return str(candidate.resolve()), []
-
-    # Fallback to module execution with current Python interpreter so generated
-    # configs are runnable even when airg-server is not on PATH.
+    # Deterministic default for generated configs: current interpreter module entrypoint.
     return str(pathlib.Path(sys.executable).resolve()), ["-m", "airg_cli", "server"]
 
 

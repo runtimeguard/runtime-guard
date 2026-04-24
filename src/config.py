@@ -254,6 +254,77 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
         "execution",
     }
     normalized_overrides: dict[str, dict] = {}
+    tier_rank = {"off": 0, "monitor": 1, "enforce": 2}
+
+    def _as_str_set(values: object) -> set[str]:
+        if not isinstance(values, list):
+            return set()
+        return {str(v).strip() for v in values if str(v).strip()}
+
+    def _validate_tightening_override(agent_key: str, overlay: dict) -> None:
+        blocked_base = policy.get("blocked", {}) if isinstance(policy.get("blocked"), dict) else {}
+        blocked_overlay = overlay.get("blocked", {}) if isinstance(overlay.get("blocked"), dict) else {}
+        for key in ("commands", "paths", "extensions"):
+            if key in blocked_overlay:
+                base_set = _as_str_set(blocked_base.get(key, []))
+                overlay_set = _as_str_set(blocked_overlay.get(key, []))
+                if not base_set.issubset(overlay_set):
+                    raise ValueError(
+                        f"policy.agent_overrides['{agent_key}'].policy.blocked.{key} cannot be less restrictive than baseline"
+                    )
+
+        conf_base = policy.get("requires_confirmation", {}) if isinstance(policy.get("requires_confirmation"), dict) else {}
+        conf_overlay = overlay.get("requires_confirmation", {}) if isinstance(overlay.get("requires_confirmation"), dict) else {}
+        for key in ("commands", "paths"):
+            if key in conf_overlay:
+                base_set = _as_str_set(conf_base.get(key, []))
+                overlay_set = _as_str_set(conf_overlay.get(key, []))
+                if not base_set.issubset(overlay_set):
+                    raise ValueError(
+                        f"policy.agent_overrides['{agent_key}'].policy.requires_confirmation.{key} cannot be less restrictive than baseline"
+                    )
+
+        allowed_base = policy.get("allowed", {}) if isinstance(policy.get("allowed"), dict) else {}
+        allowed_overlay = overlay.get("allowed", {}) if isinstance(overlay.get("allowed"), dict) else {}
+        for key in ("max_directory_depth", "max_file_size_mb", "max_files_per_operation"):
+            if key in allowed_overlay:
+                try:
+                    base_val = int(allowed_base.get(key))
+                    override_val = int(allowed_overlay.get(key))
+                except Exception:
+                    continue
+                if override_val > base_val:
+                    raise ValueError(
+                        f"policy.agent_overrides['{agent_key}'].policy.allowed.{key} cannot be less restrictive than baseline"
+                    )
+
+        network_base = policy.get("network", {}) if isinstance(policy.get("network"), dict) else {}
+        network_overlay = overlay.get("network", {}) if isinstance(overlay.get("network"), dict) else {}
+        if "enforcement_mode" in network_overlay:
+            base_mode = str(network_base.get("enforcement_mode", "off")).lower()
+            override_mode = str(network_overlay.get("enforcement_mode", "off")).lower()
+            if tier_rank.get(override_mode, -1) < tier_rank.get(base_mode, -1):
+                raise ValueError(
+                    f"policy.agent_overrides['{agent_key}'].policy.network.enforcement_mode cannot be less restrictive than baseline"
+                )
+        if bool(network_base.get("block_unknown_domains", False)) and "block_unknown_domains" in network_overlay:
+            if not bool(network_overlay.get("block_unknown_domains")):
+                raise ValueError(
+                    f"policy.agent_overrides['{agent_key}'].policy.network.block_unknown_domains cannot disable baseline true setting"
+                )
+
+        execution_base = policy.get("execution", {}) if isinstance(policy.get("execution"), dict) else {}
+        execution_overlay = overlay.get("execution", {}) if isinstance(overlay.get("execution"), dict) else {}
+        shell_base = execution_base.get("shell_workspace_containment", {}) if isinstance(execution_base.get("shell_workspace_containment"), dict) else {}
+        shell_overlay = execution_overlay.get("shell_workspace_containment", {}) if isinstance(execution_overlay.get("shell_workspace_containment"), dict) else {}
+        if "mode" in shell_overlay:
+            base_mode = str(shell_base.get("mode", "off")).lower()
+            override_mode = str(shell_overlay.get("mode", "off")).lower()
+            if tier_rank.get(override_mode, -1) < tier_rank.get(base_mode, -1):
+                raise ValueError(
+                    f"policy.agent_overrides['{agent_key}'].policy.execution.shell_workspace_containment.mode cannot be less restrictive than baseline"
+                )
+
     for agent_key, override in agent_overrides.items():
         if isinstance(agent_key, str) and agent_key.startswith("_"):
             continue
@@ -271,6 +342,7 @@ def _validate_and_normalize_policy(policy: dict) -> dict:
             for key, value in overlay.items()
             if key in allowed_override_sections
         }
+        _validate_tightening_override(agent_key.strip(), filtered_overlay)
         normalized_overrides[agent_key.strip()] = {
             "policy": filtered_overlay,
         }

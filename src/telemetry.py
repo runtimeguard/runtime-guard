@@ -151,6 +151,35 @@ def _last_sent_date(policy: dict[str, Any]) -> str:
     return str(_telemetry_section(policy).get("last_sent_date", "")).strip()
 
 
+def _ensure_telemetry_defaults(policy: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    section = _telemetry_section(policy)
+    updated = dict(section)
+    changed = False
+
+    if "enabled" not in updated:
+        updated["enabled"] = True
+        changed = True
+
+    endpoint = str(updated.get("endpoint", "")).strip()
+    if not endpoint:
+        updated["endpoint"] = DEFAULT_ENDPOINT
+        changed = True
+
+    last_sent = updated.get("last_sent_date", "")
+    if not isinstance(last_sent, str):
+        updated["last_sent_date"] = str(last_sent).strip()
+        changed = True
+    elif "last_sent_date" not in updated:
+        updated["last_sent_date"] = ""
+        changed = True
+
+    if changed:
+        normalized = dict(policy)
+        normalized["telemetry"] = updated
+        return normalized, True
+    return policy, False
+
+
 def _load_profiles(approval_db_path: pathlib.Path) -> list[dict[str, Any]]:
     try:
         registry = agent_configs.load_registry({"approval_db_path": approval_db_path})
@@ -337,6 +366,7 @@ def _send_once(endpoint: str, payload: dict[str, Any], timeout_seconds: int) -> 
 
 def _update_last_sent_date(policy_path: pathlib.Path, today: str) -> None:
     policy = _load_policy(policy_path)
+    policy, _changed = _ensure_telemetry_defaults(policy)
     telemetry = _telemetry_section(policy)
     updated = dict(telemetry)
     updated["last_sent_date"] = today
@@ -354,6 +384,9 @@ def maybe_send_daily(
     now: datetime.datetime | None = None,
 ) -> bool:
     policy = _load_policy(policy_path)
+    policy, changed = _ensure_telemetry_defaults(policy)
+    if changed:
+        _save_policy(policy_path, policy)
     if not _telemetry_enabled(policy):
         return False
 

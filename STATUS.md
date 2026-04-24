@@ -1,16 +1,17 @@
 # STATUS
 
-Last updated: 2026-04-21 (v2.2.2)
+Last updated: 2026-04-24 (v2.3.0)
 
 ## Branches
 1. Active integration branch: `dev`
 2. Stable release branch: `main`
 
 ## Release state
-1. Current release target: `v2.2.2`
-2. Package version in source: `2.2.2`
-3. Stable release notes: `CHANGELOG.md`
-4. Development history: `docs/CHANGELOG_DEV.md`
+1. Current release candidate on `dev`: `v2.3.0`
+2. Latest stable release on `main`: `v2.2.2`
+3. Package version in source: `2.3.0`
+4. Stable release notes: `CHANGELOG.md`
+5. Development history: `docs/CHANGELOG_DEV.md`
 
 ## Runtime snapshot
 1. AIRG is a local STDIO MCP policy enforcement server with Web GUI included.

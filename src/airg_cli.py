@@ -359,30 +359,10 @@ def _resolve_server_command_for_env() -> str:
         parts = shlex.split(explicit)
         if parts:
             cmd = parts[0]
-            args = parts[1:]
-            if os.path.isabs(cmd):
+            if os.path.isabs(cmd) and os.access(cmd, os.X_OK):
                 return explicit
-            resolved = shutil.which(cmd)
-            if resolved:
-                full = [str(pathlib.Path(resolved).resolve()), *args]
-                return " ".join(shlex.quote(p) for p in full)
-            # Avoid emitting a fragile unresolved bare command.
-            if cmd != "airg-server":
-                return explicit
-    venv = str(os.environ.get("VIRTUAL_ENV", "")).strip()
-    if venv:
-        candidate = pathlib.Path(venv) / "bin" / "airg-server"
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            return str(candidate.resolve())
-    # Preserve venv launcher path; resolving symlinks can collapse to system Python.
+    # Deterministic default: always use the current interpreter module entrypoint.
     current_python = pathlib.Path(sys.executable).absolute()
-    exe_dir = current_python.parent
-    sibling = exe_dir / "airg-server"
-    if sibling.exists() and os.access(sibling, os.X_OK):
-        return str(sibling.resolve())
-    which = shutil.which("airg-server")
-    if which:
-        return str(pathlib.Path(which).resolve())
     return f"{current_python} -m airg_cli server"
 
 

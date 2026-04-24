@@ -11,7 +11,7 @@ Example payload:
 
 ```json
 {
-  "airg_version": "2.2.2",
+  "airg_version": "2.3.0",
   "platform": "macos",
   "python_version": "3.12.3",
   "install_method": "unknown",
@@ -57,6 +57,8 @@ Example payload:
 - Failures are silently dropped (no queue/persist)
 - Success is HTTP `204 No Content`
 - AIRG sets an explicit `User-Agent` header for telemetry requests.
+- AIRG evaluates telemetry send eligibility on UI backend startup and then once per UTC day via a lightweight background ticker.
+- Sleep/wake behavior: the ticker uses bounded sleeps (max 15 minutes) and re-checks UTC day rollover after wake, so long sleep sessions do not block daily telemetry checks until the original long timer would have completed.
 
 To point to a different endpoint, set `policy.telemetry.endpoint` to a custom URL.
 

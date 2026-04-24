@@ -129,6 +129,27 @@ class CommandSubstitutionPolicyTests(unittest.TestCase):
         allowed = execute_command("echo $(date)")
         self.assertNotIn("[POLICY BLOCK]", allowed)
 
+    def test_execute_command_blocks_shell_c_payloads(self):
+        policy_engine.POLICY["network"]["enforcement_mode"] = "off"
+        policy_engine.POLICY["blocked"]["commands"] = ["curl"]
+        policy_engine.POLICY["requires_confirmation"]["commands"] = []
+
+        blocked_cases = [
+            "bash -c 'curl https://example.com'",
+            "sh -c \"curl https://example.com\"",
+            "python3 -c \"print('curl https://example.com')\"",
+        ]
+        for command in blocked_cases:
+            with self.subTest(command=command):
+                blocked = execute_command(command)
+                self.assertIn("[POLICY BLOCK]", blocked)
+                self.assertIn("curl", blocked.lower())
+
+    def test_parse_error_is_blocked_fail_closed(self):
+        blocked = execute_command("echo 'unterminated")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("parsing failed", blocked.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

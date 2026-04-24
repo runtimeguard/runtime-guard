@@ -545,6 +545,7 @@ export default function App() {
   const [jsonError, setJsonError] = useState('')
   const [message, setMessage] = useState('')
   const [pendingApprovals, setPendingApprovals] = useState([])
+  const [approvalExpandedByToken, setApprovalExpandedByToken] = useState({})
   const [approvalHistory, setApprovalHistory] = useState([])
   const [approvalHistoryError, setApprovalHistoryError] = useState('')
   const [descriptions, setDescriptions] = useState({})
@@ -658,6 +659,8 @@ export default function App() {
   })
   const [rulesWhitelistOpen, setRulesWhitelistOpen] = useState(false)
   const pollRef = useRef(null)
+  const pendingApprovalsSigRef = useRef('')
+  const approvalHistorySigRef = useRef('')
   const [overrideAgentId, setOverrideAgentId] = useState('')
   const [overrideExpanded, setOverrideExpanded] = useState({})
   const [overrideDiffModal, setOverrideDiffModal] = useState({
@@ -830,7 +833,25 @@ export default function App() {
     const res = await fetch(`${API_BASE}/approvals/pending`)
     if (!res.ok) return
     const payload = await res.json()
-    setPendingApprovals(payload.pending || [])
+    const nextPending = Array.isArray(payload.pending) ? payload.pending : []
+    const nextSig = JSON.stringify(nextPending)
+    if (nextSig === pendingApprovalsSigRef.current) return
+    pendingApprovalsSigRef.current = nextSig
+    setPendingApprovals(nextPending)
+    setApprovalExpandedByToken((prev) => {
+      const next = {}
+      for (const approval of nextPending) {
+        const token = String(approval?.token || '').trim()
+        if (!token) continue
+        if (prev[token]) next[token] = prev[token]
+      }
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(next)
+      if (prevKeys.length === nextKeys.length && prevKeys.every((k) => prev[k] === next[k])) {
+        return prev
+      }
+      return next
+    })
   }
 
   async function fetchApprovalsHistory() {
@@ -841,7 +862,12 @@ export default function App() {
         return
       }
       const payload = await res.json()
-      setApprovalHistory(payload.history || [])
+      const nextHistory = Array.isArray(payload.history) ? payload.history : []
+      const nextSig = JSON.stringify(nextHistory)
+      if (nextSig !== approvalHistorySigRef.current) {
+        approvalHistorySigRef.current = nextSig
+        setApprovalHistory(nextHistory)
+      }
       setApprovalHistoryError('')
     } catch (err) {
       setApprovalHistoryError(String(err.message || err))
@@ -1477,13 +1503,23 @@ export default function App() {
     // from other processes appear without manual refresh.
     fetchPolicy().catch((err) => setMessage(err.message))
     fetchApprovals()
-    fetchApprovalsHistory()
+    if (activeRail === 'approvals' && activeApprovalsTab === 'history') {
+      fetchApprovalsHistory()
+    }
     pollRef.current = setInterval(() => {
       fetchApprovals()
-      fetchApprovalsHistory()
+      if (activeRail === 'approvals' && activeApprovalsTab === 'history') {
+        fetchApprovalsHistory()
+      }
     }, 3000)
     return () => clearInterval(pollRef.current)
-  }, [])
+  }, [activeRail, activeApprovalsTab])
+
+  useEffect(() => {
+    if (activeRail === 'approvals' && activeApprovalsTab === 'history') {
+      fetchApprovalsHistory()
+    }
+  }, [activeRail, activeApprovalsTab])
 
   useEffect(() => {
     if (activeRail !== 'reports') return
@@ -2153,9 +2189,7 @@ export default function App() {
       )
     }
 
-    function ApprovalCard({ approval, onApprove, onDeny, removalState }) {
-      const [cmdOpen, setCmdOpen] = useState(false)
-      const [pathsOpen, setPathsOpen] = useState(false)
+    function ApprovalCard({ approval, onApprove, onDeny, removalState, cmdOpen, pathsOpen, onToggleCmd, onTogglePaths }) {
       const affectedPaths = Array.isArray(approval?.affected_paths) ? approval.affected_paths : []
       const sessionId = String(approval?.session_id || '')
       const borderLeftColor = removalState === 'approved'
@@ -2240,7 +2274,7 @@ export default function App() {
           <ExpandSection
             label="Full command details"
             open={cmdOpen}
-            onToggle={() => setCmdOpen((v) => !v)}
+            onToggle={onToggleCmd}
           >
             <div
               style={{
@@ -2289,7 +2323,7 @@ export default function App() {
           <ExpandSection
             label={`Affected paths (${affectedPaths.length})`}
             open={pathsOpen}
-            onToggle={() => setPathsOpen((v) => !v)}
+            onToggle={onTogglePaths}
           >
             <div
               style={{
@@ -2461,15 +2495,35 @@ export default function App() {
               </div>
             ) : (
               <div>
-                {pendingApprovals.map((approval) => (
+                {pendingApprovals.map((approval) => {
+                  const token = String(approval?.token || '').trim()
+                  const expanded = approvalExpandedByToken[token] || {}
+                  return (
                   <ApprovalCard
                     key={approval.token}
                     approval={approval}
                     onApprove={approve}
                     onDeny={deny}
                     removalState={removing[approval.token]}
+                    cmdOpen={Boolean(expanded.cmdOpen)}
+                    pathsOpen={Boolean(expanded.pathsOpen)}
+                    onToggleCmd={() => setApprovalExpandedByToken((prev) => ({
+                      ...prev,
+                      [token]: {
+                        ...(prev[token] || {}),
+                        cmdOpen: !Boolean(prev[token]?.cmdOpen),
+                      },
+                    }))}
+                    onTogglePaths={() => setApprovalExpandedByToken((prev) => ({
+                      ...prev,
+                      [token]: {
+                        ...(prev[token] || {}),
+                        pathsOpen: !Boolean(prev[token]?.pathsOpen),
+                      },
+                    }))}
                   />
-                ))}
+                  )
+                })}
               </div>
             )}
           </>

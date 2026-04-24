@@ -12,6 +12,7 @@ import policy_engine
 import script_sentinel
 from tools.command_tools import execute_command
 from tools.file_tools import delete_file, edit_file, list_directory, read_file, write_file
+from tools.restore_tools import restore_backup
 
 from tests.test_helpers import apply_test_environment, install_test_policy, reset_runtime_state, restore_policy
 
@@ -115,6 +116,11 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertIn("[POLICY BLOCK]", blocked)
         self.assertIn("control characters", blocked)
 
+    def test_dangerous_env_assignment_prefix_is_blocked(self):
+        blocked = execute_command("LD_PRELOAD=/tmp/x.so echo hi")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("environment assignment", blocked.lower())
+
     def test_shell_workspace_containment_enforce_blocks_outside_workspace(self):
         policy_engine.POLICY["execution"]["shell_workspace_containment"] = {
             "mode": "enforce",
@@ -156,6 +162,26 @@ class AttackerTestSuite(unittest.TestCase):
         self.assertTrue(manifest_path.exists())
         manifest = json.loads(manifest_path.read_text())
         self.assertEqual(len(manifest), 2)
+        self.assertTrue(all(str(item.get("manifest_sig", "")) for item in manifest))
+
+    def test_restore_rejects_unsigned_manifest_entries(self):
+        target = self._write("restore/unsigned.txt", "before")
+        backup_location = pathlib.Path(backup.backup_paths([str(target)]))
+        manifest_path = backup_location / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        self.assertTrue(manifest)
+        manifest[0].pop("manifest_sig", None)
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+
+        dry_run_result = restore_backup(str(backup_location), dry_run=True)
+        token_match = re.search(r"restore_token=([a-f0-9]+)", dry_run_result)
+        self.assertIsNotNone(token_match)
+        token = token_match.group(1)
+
+        target.write_text("mutated")
+        apply_result = restore_backup(str(backup_location), dry_run=False, restore_token=token)
+        self.assertIn("signature_failures=1", apply_result)
+        self.assertEqual(target.read_text(), "mutated")
 
     def test_backup_retention_cleanup_removes_old_backups(self):
         policy_engine.POLICY["audit"]["backup_retention_days"] = 1
@@ -217,6 +243,15 @@ class AttackerTestSuite(unittest.TestCase):
         read_log = read_file("activity.log")
         self.assertIn("[POLICY BLOCK]", read_log)
         self.assertIn("runtime state", read_log)
+
+    def test_execute_command_blocks_runtime_paths_even_with_quote_splitting(self):
+        policy_engine.POLICY["blocked"]["commands"] = []
+        policy_engine.POLICY["blocked"]["paths"] = ["approvals.db"]
+        (self.workspace / "approvals.db").write_text("placeholder")
+
+        blocked = execute_command("cat ./a\"\"pprovals.db")
+        self.assertIn("[POLICY BLOCK]", blocked)
+        self.assertIn("approvals.db", blocked.lower())
 
     def test_write_file_skips_backup_when_backup_disabled(self):
         self._write("demo.txt", "old")
