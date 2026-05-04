@@ -147,5 +147,10 @@ Failure modes and practical limitations:
 1. AIRG supports optional anonymous telemetry with one aggregate payload per UTC day when enabled.
 2. Setup/update flow prompts for telemetry opt-in with default Yes.
 3. You can change telemetry preference at any time in GUI: `Policy -> Advanced -> Anonymous telemetry` (`Enable/Disable` + `See Payload`).
-4. Endpoint configuration source of truth is policy (`telemetry.endpoint`), which can be set to a custom endpoint.
-5. Full schema and examples: [`docs/telemetry.md`](telemetry.md).
+4. Backend telemetry scheduler runs hourly and starts generator/uploader workers in parallel.
+5. Policy telemetry runtime fields:
+   - `telemetry.last_payload_generated_date`
+   - `telemetry.last_payload_uploaded_at`
+   - `telemetry.last_sent_date` (compatibility field, updates on upload success)
+6. Endpoint configuration source of truth is policy (`telemetry.endpoint`), which can be set to a custom endpoint.
+7. Full schema and examples: [`docs/telemetry.md`](telemetry.md).

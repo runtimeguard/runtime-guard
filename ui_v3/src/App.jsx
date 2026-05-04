@@ -605,6 +605,14 @@ export default function App() {
   const [agentConfigActionLoading, setAgentConfigActionLoading] = useState({})
   const [advancedBackupOpen, setAdvancedBackupOpen] = useState(false)
   const [advancedReportsOpen, setAdvancedReportsOpen] = useState(false)
+  const [telemetryServiceState, setTelemetryServiceState] = useState({
+    services: {
+      generator: { status: 'unknown', last_run: '' },
+      uploader: { status: 'unknown', last_run: '' },
+    },
+    warning: { active: false, generator_stale: false, uploader_failed: false },
+  })
+  const [telemetryServiceLoading, setTelemetryServiceLoading] = useState(false)
   const [reportsFilters, setReportsFilters] = useState({
     agent_id: '',
     agent_session_id: '',
@@ -892,6 +900,53 @@ export default function App() {
         title: 'Telemetry Payload',
         content: `Failed to load telemetry payload preview.\n\n${String(err.message || err)}`,
       })
+    }
+  }
+
+  async function fetchTelemetryServiceStatus() {
+    try {
+      const res = await fetch(`${API_BASE}/telemetry/service-status`)
+      const payload = await res.json()
+      if (!res.ok || !payload?.ok) return
+      setTelemetryServiceState({
+        services: payload.services || {
+          generator: { status: 'unknown', last_run: '' },
+          uploader: { status: 'unknown', last_run: '' },
+        },
+        warning: payload.warning || { active: false, generator_stale: false, uploader_failed: false },
+      })
+    } catch (_err) {
+      // Best-effort status panel.
+    }
+  }
+
+  function showTelemetryServicesModal() {
+    const generator = telemetryServiceState?.services?.generator || {}
+    const uploader = telemetryServiceState?.services?.uploader || {}
+    const format = (v) => (v ? String(v) : 'n/a')
+    setSettingsInfoModal({
+      open: true,
+      title: 'Telemetry Services',
+      content: `Generator status: ${format(generator.status)}\nGenerator last run: ${format(generator.last_run)}\n\nUploader status: ${format(uploader.status)}\nUploader last run: ${format(uploader.last_run)}`,
+    })
+  }
+
+  async function restartTelemetryServices() {
+    setTelemetryServiceLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/telemetry/service-restart`, { method: 'POST' })
+      const payload = await res.json()
+      if (!res.ok || !payload?.ok) throw new Error(payload?.error || `Restart failed (${res.status})`)
+      setTelemetryServiceState((prev) => ({
+        ...prev,
+        services: payload.services || prev.services,
+      }))
+      setMessage('Telemetry services restart/run-now completed.')
+      fetchTelemetryServiceStatus()
+    } catch (err) {
+      setMessage(String(err.message || err))
+    } finally {
+      setTelemetryServiceLoading(false)
     }
   }
 
@@ -1537,6 +1592,13 @@ export default function App() {
     if (activeRail !== 'settings') return
     fetchSettingsAgents()
   }, [activeRail])
+
+  useEffect(() => {
+    if (!(activeRail === 'policy' && activePolicyTab === 'advanced')) return
+    fetchTelemetryServiceStatus()
+    const id = setInterval(() => fetchTelemetryServiceStatus(), 60000)
+    return () => clearInterval(id)
+  }, [activeRail, activePolicyTab])
 
   useEffect(() => {
     if (activeRail !== 'settings' || activeSettingsTab !== 'agents') return
@@ -4715,6 +4777,36 @@ export default function App() {
               </button>
             </div>
           </div>
+
+          <div className={rowClass}>
+            <div>
+              <div className={titleClass}>Services status</div>
+              <div className={helpClass}>Show generator/uploader status and last run.</div>
+            </div>
+            <div style={{ justifySelf: 'end', display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-sm"
+                onClick={() => showTelemetryServicesModal()}
+              >
+                View Status
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-[10px] border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 text-sm"
+                onClick={() => restartTelemetryServices()}
+                disabled={telemetryServiceLoading}
+              >
+                {telemetryServiceLoading ? 'Running...' : 'Restart'}
+              </button>
+            </div>
+          </div>
+
+          {Boolean(telemetryServiceState?.warning?.active) && (
+            <div className="mx-4 mb-3 px-3 py-2 rounded-[8px] text-xs border border-amber-300 bg-amber-50 text-amber-800">
+              Telemetry warning: {telemetryServiceState?.warning?.generator_stale ? 'generator did not run for 1+ day. ' : ''}{telemetryServiceState?.warning?.uploader_failed ? 'uploader has failures.' : ''}
+            </div>
+          )}
 
           <div className="px-4 pb-4 text-xs text-slate-500">
             Telemetry preference is controlled by policy (`telemetry.enabled`) and can be changed here at any time.

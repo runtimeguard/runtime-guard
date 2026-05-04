@@ -2,6 +2,30 @@
 
 Note: older entries in this file are preserved as historical development records and may reference superseded setup flows or intermediate branch/release states.
 
+## 2026-04-28 (v2.3.1.dev telemetry scheduler rewrite)
+- Reworked telemetry runtime architecture in `src/telemetry.py`:
+  - split into generator and uploader workers
+  - generator writes outbox payloads to `<state_dir>/telemetry/telemetry-YYYY-MM-DD.json`
+  - uploader scans outbox and posts pending payloads.
+- Added telemetry policy runtime fields:
+  - `telemetry.last_payload_generated_date`
+  - `telemetry.last_payload_uploaded_at`
+  - retained `telemetry.last_sent_date` as compatibility state.
+- Replaced UTC day-rollover ticker in `src/ui/backend_flask.py` with hourly telemetry scheduler:
+  - runs generator and uploader in parallel each cycle
+  - keeps standalone scheduler separate from GUI ticker and reports reconcile loops.
+- Added telemetry backend endpoints:
+  - `GET /telemetry/service-status`
+  - `POST /telemetry/service-restart`.
+- Added telemetry Advanced Policy UI controls in `ui_v3/src/App.jsx`:
+  - status modal (generator/uploader `status` + `last run`)
+  - warning banner for stale generator or failed uploader
+  - restart button.
+- Added/updated tests:
+  - telemetry generator same-day stand-down
+  - telemetry uploader empty-outbox stand-down
+  - successful upload updates policy fields and clears queued payload.
+
 ## 2026-04-15 (v2.1.0 substitution policy hardening)
 - Hardened `execute_command` substitution handling in `src/policy_engine.py`:
   - recursive extraction for `$(...)`, backticks, and process substitution (`<(...)`, `>(...)`)
